@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VectorScope — Stereo Camera Homography Visualizer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: #1a1a2e; color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden; height: 100vh; user-select: none;
+}
+#app { display: flex; flex-direction: column; height: 100vh; }
+#controls-top {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 12px; background: #16213e;
+    border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap;
+}
+.cg { display: flex; align-items: center; gap: 5px; }
+label { font-size: 12px; color: #aaa; }
+button {
+    padding: 4px 12px; background: #0f3460; color: #e0e0e0;
+    border: 1px solid #533483; border-radius: 4px; cursor: pointer;
+    font-size: 12px; transition: background .15s;
+}
+button:hover { background: #533483; }
+button.active { background: #e94560; border-color: #e94560; }
+input[type="range"] { width: 120px; accent-color: #e94560; }
+input[type="file"] { display: none; }
+.val {
+    min-width: 44px; text-align: right; font-size: 12px;
+    color: #e94560; font-family: monospace;
+}
+.sep { width: 1px; height: 22px; background: #0f3460; }
+#viewport-container { flex: 1; position: relative; overflow: hidden; }
+#main-canvas { display: block; width: 100%; height: 100%; }
+.plbl {
+    position: absolute; top: 6px; padding: 3px 10px;
+    background: rgba(15,52,96,.85); border-radius: 3px;
+    font-size: 11px; pointer-events: none; z-index: 10; white-space: nowrap;
+}
+.panel-sep {
+    position: absolute; top: 0; width: 2px; height: 100%;
+    background: #e94560; pointer-events: none; z-index: 5; opacity: 0.7;
+}
+#controls-bottom {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 12px; background: #16213e;
+    border-top: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap;
+}
+#selinfo { font-size: 12px; color: #aaa; min-width: 160px; }
+#status {
+    position: fixed; bottom: 40px; right: 16px;
+    padding: 4px 10px; background: rgba(15,52,96,.9);
+    border-radius: 4px; font-size: 11px; color: #888;
+    pointer-events: none; z-index: 20;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="controls-top">
+    <button onclick="document.getElementById('fscene').click()">Load Scene</button>
+    <input type="file" id="fscene" accept=".glb,.gltf">
+    <button onclick="document.getElementById('fcam').click()">Load Cameras</button>
+    <input type="file" id="fcam" accept=".json">
+    <button id="btn-reset">Reset All</button>
+    <div class="sep"></div>
+    <div class="cg">
+      <label>Focus D:</label>
+      <input type="range" id="sld-d" min="0.1" max="20" step="0.05" value="3">
+      <span class="val" id="vd">3.0</span>
+    </div>
+    <div class="sep"></div>
+    <div class="cg">
+      <label>Zoom:</label>
+      <input type="range" id="sld-z" min="0.5" max="2.0" step="0.01" value="1.0">
+      <span class="val" id="vz">1.00x</span>
+    </div>
+    <button id="btn-warp">Warp</button>
+  </div>
+
+  <div id="viewport-container">
+    <canvas id="main-canvas"></canvas>
+    <div class="plbl" id="lbl-m" style="color:#4fc3f7">&#9678; Main Camera</div>
+    <div class="plbl" id="lbl-s" style="color:#81c784">&#9678; Secondary Camera</div>
+    <div class="plbl" id="lbl-c" style="color:#e94560">&#9678; Combined — 1.00x</div>
+    <div class="panel-sep" id="sep1"></div>
+    <div class="panel-sep" id="sep2"></div>
+  </div>
+
+  <div id="controls-bottom">
+    <span id="selinfo">Click object in Main panel</span>
+    <div class="sep"></div>
+    <div class="cg">
+      <label>Obj Depth:</label>
+      <input type="range" id="sld-od" min="-10" max="30" step="0.05" value="3" disabled>
+      <span class="val" id="vod">—</span>
+    </div>
+  </div>
+</div>
+<div id="status">Loading…</div>
+
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.js?v=13" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './lib/GLTFLoader.js?v=13';
+import { DRACOLoader } from './lib/DRACOLoader.js?v=13';
+
+/* ── helpers ── */
+const $ = id => document.getElementById(id);
+function log(msg) { $('status').textContent = msg; console.log('[VS]', msg); }
+log('Three.js loaded');
+
+/* ================================================================
+   STATE
+   ================================================================ */
+const S = {
+    warp: false, zoom: 1.0, depthD: 3.0,
+    sel: null, dragging: false,
+    dragPlane: new THREE.Plane(), dragOff: new THREE.Vector3(),
+    objs: [],               // selectable objects (flat array of Object3D)
+    origPos: new Map(),      // uuid → Vector3
+    camParams: null,
+};
+
+const DEF_CAM = {
+    main_camera: {
+        intrinsics: { fx: 500, fy: 500, cx: 320, cy: 240 },
+        extrinsics: { position: [1.7, 0.8, 4.5], rotation_euler_deg: [0, 0, 0] },
+        image_size: [640, 480],
+    },
+    secondary_camera: {
+        intrinsics: { fx: 500, fy: 500, cx: 320, cy: 240 },
+        extrinsics: { position: [2.2, 0.8, 4.5], rotation_euler_deg: [0, 5, 0] },
+        image_size: [640, 480],
+    },
+};
+
+/* ================================================================
+   3×3 MATRIX  (row-major [9])
+   ================================================================ */
+const M={
+    id:()=>[1,0,0,0,1,0,0,0,1],
+    mul:(A,B)=>{const C=[];for(let i=0;i<3;i++)for(let j=0;j<3;j++)C[i*3+j]=A[i*3]*B[j]+A[i*3+1]*B[3+j]+A[i*3+2]*B[6+j];return C;},
+    inv:m=>{const[a,b,c,d,e,f,g,h,i]=m;const D=a*(e*i-f*h)-b*(d*i-f*g)+c*(d*h-e*g);if(Math.abs(D)<1e-12)return null;const k=1/D;return[(e*i-f*h)*k,(c*h-b*i)*k,(b*f-c*e)*k,(f*g-d*i)*k,(a*i-c*g)*k,(c*d-a*f)*k,(d*h-e*g)*k,(b*g-a*h)*k,(a*e-b*d)*k];},
+    lerp:(A,B,t)=>A.map((a,i)=>a*(1-t)+B[i]*t),
+    T:m=>[m[0],m[3],m[6],m[1],m[4],m[7],m[2],m[5],m[8]],
+    v:(m,v)=>[m[0]*v[0]+m[1]*v[1]+m[2]*v[2],m[3]*v[0]+m[4]*v[1]+m[5]*v[2],m[6]*v[0]+m[7]*v[1]+m[8]*v[2]],
+    out:(a,b)=>[a[0]*b[0],a[0]*b[1],a[0]*b[2],a[1]*b[0],a[1]*b[1],a[1]*b[2],a[2]*b[0],a[2]*b[1],a[2]*b[2]],
+    add:(A,B)=>A.map((a,i)=>a+B[i]),
+    sc:(A,s)=>A.map(a=>a*s),
+    K:(fx,fy,cx,cy)=>[fx,0,cx,0,fy,cy,0,0,1],
+};
+
+function eulerR(deg){const[rx,ry,rz]=deg.map(d=>d*Math.PI/180);const cx=Math.cos(rx),sx=Math.sin(rx),cy=Math.cos(ry),sy=Math.sin(ry),cz=Math.cos(rz),sz=Math.sin(rz);return[cy*cz,cy*sz,-sy,sx*sy*cz-cx*sz,sx*sy*sz+cx*cz,sx*cy,cx*sy*cz+sx*sz,cx*sy*sz-sx*cz,cx*cy];}
+
+function computeH(p,D){
+    const mc=p.main_camera,sc=p.secondary_camera;
+    const K1=M.K(mc.intrinsics.fx,mc.intrinsics.fy,mc.intrinsics.cx,mc.intrinsics.cy);
+    const K2=M.K(sc.intrinsics.fx,sc.intrinsics.fy,sc.intrinsics.cx,sc.intrinsics.cy);
+    const K2i=M.inv(K2);
+    const R1=eulerR(mc.extrinsics.rotation_euler_deg),R2=eulerR(sc.extrinsics.rotation_euler_deg);
+    const p1=mc.extrinsics.position,p2=sc.extrinsics.position;
+    const t1=M.v(R1,p1.map(v=>-v)),t2=M.v(R2,p2.map(v=>-v));
+    const R12=M.mul(R1,M.T(R2)),Rt2=M.v(R12,t2);
+    const t12=[t1[0]-Rt2[0],t1[1]-Rt2[1],t1[2]-Rt2[2]];
+    const n1=[0,0,1],n2=M.v(M.T(R12),n1);
+    const d2=D-(n1[0]*t12[0]+n1[1]*t12[1]+n1[2]*t12[2]);
+    const tn=M.out(t12,n2),mid=M.add(R12,M.sc(tn,1/d2));
+    const H=M.mul(K1,M.mul(mid,K2i));
+    const s=H[8];if(Math.abs(s)>1e-10)for(let i=0;i<9;i++)H[i]/=s;
+    return H;
+}
+
+/* ================================================================
+   SHADER
+   ================================================================ */
+const VS=`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
+const FS=`
+uniform sampler2D tM,tS;
+uniform mat3 uHi;
+uniform float uZ;
+uniform float uCrop;
+uniform bool uW;
+uniform vec2 uR;
+varying vec2 vUv;
+void main(){
+    vec2 z=.5+(vUv-.5)/uCrop;
+    if(uZ<=1.){
+        if(uW){
+            vec2 px=vec2(z.x*uR.x,(1.-z.y)*uR.y);
+            vec3 sp=uHi*vec3(px,1.);
+            vec2 s=vec2(sp.x/sp.z/uR.x,1.-sp.y/sp.z/uR.y);
+            gl_FragColor=(s.x>=0.&&s.x<=1.&&s.y>=0.&&s.y<=1.)?texture2D(tS,s):vec4(.06,.06,.12,1.);
+        }else{
+            gl_FragColor=(z.x>=0.&&z.x<=1.&&z.y>=0.&&z.y<=1.)?texture2D(tS,z):vec4(.06,.06,.12,1.);
+        }
+    }else{
+        gl_FragColor=(z.x>=0.&&z.x<=1.&&z.y>=0.&&z.y<=1.)?texture2D(tM,z):vec4(.06,.06,.12,1.);
+    }
+}`;
+
+/* ================================================================
+   RENDERER
+   ================================================================ */
+const canvas = $('main-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x1a1a2e);
+renderer.autoClear = false;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2a3e);
+
+// Default lights
+const aLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(aLight);
+const dLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dLight.position.set(5, 8, 5);
+scene.add(dLight);
+
+/* ── Cameras — use STANDARD PerspectiveCamera so raycaster works ── */
+const RT_W = 640, RT_H = 480;
+let mainCam, secCam;
+
+function makeCam(p) {
+    const { fy } = p.intrinsics;
+    const [w, h] = p.image_size;
+    const fov = 2 * Math.atan(h / (2 * fy)) * 180 / Math.PI;
+    // Use standard PerspectiveCamera — aspect will be updated in resize
+    const cam = new THREE.PerspectiveCamera(fov, 4/3, 0.01, 500);
+    cam.position.set(...p.extrinsics.position);
+    const [rx, ry, rz] = p.extrinsics.rotation_euler_deg.map(d => d * Math.PI / 180);
+    cam.rotation.set(rx, ry, rz, 'ZYX');
+    return cam;
+}
+
+function initCams(p) {
+    if (mainCam) { scene.remove(mainCam); scene.remove(secCam); }
+    S.camParams = p;
+    mainCam = makeCam(p.main_camera);
+    secCam = makeCam(p.secondary_camera);
+    scene.add(mainCam);
+    scene.add(secCam);
+}
+initCams(DEF_CAM);
+
+/* ── Render targets (for combined panel only) ── */
+const rtM = new THREE.WebGLRenderTarget(RT_W, RT_H);
+const rtS = new THREE.WebGLRenderTarget(RT_W, RT_H);
+
+/* ── Display quad for combined panel ── */
+const dScene = new THREE.Scene();
+const dCam = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1);
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
+dScene.add(quad);
+
+const matWarp = new THREE.ShaderMaterial({
+    vertexShader: VS, fragmentShader: FS,
+    uniforms: {
+        tM: { value: rtM.texture },
+        tS: { value: rtS.texture },
+        uHi: { value: new THREE.Matrix3() },
+        uZ: { value: 1.0 },
+        uCrop: { value: 1.0 },
+        uW: { value: false },
+        uR: { value: new THREE.Vector2(RT_W, RT_H) },
+    },
+});
+
+/* ================================================================
+   EXCLUDE LIST — names of objects that block raycasting
+   ================================================================ */
+const EXCLUDE = new Set([
+    'walls', 'wall2', 'ceiling', 'mirror', 'paintings',
+    'window', 'curtains', 'carpet', 'pp1.fspy',
+]);
+
+/* ================================================================
+   SCENE LOADING
+   ================================================================ */
+const gltfLoader = new GLTFLoader();
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('./lib/draco/');
+gltfLoader.setDRACOLoader(dracoLoader);
+
+let loaded = false;
+
+function loadScene(url, isDefault = false) {
+    log('Loading scene…');
+    gltfLoader.load(url,
+        g => {
+            // Clear previous
+            S.objs = []; S.origPos.clear();
+            scene.children
+                .filter(c => c.userData._mdl)
+                .forEach(c => scene.remove(c));
+
+            const mdl = g.scene;
+            mdl.userData._mdl = true;
+            scene.add(mdl);
+
+            // FIX #1: Clamp GLTF light intensities
+            mdl.traverse(ch => {
+                if (ch.isLight) {
+                    console.log(`Light "${ch.name}": intensity ${ch.intensity} → clamped`);
+                    // GLTF Sun had intensity 6147 — way too bright
+                    if (ch.intensity > 10) ch.intensity = 3;
+                    // Turn off our default lights since scene has its own
+                    aLight.intensity = 0.1;
+                    dLight.intensity = 0;
+                }
+            });
+
+            // Categorize objects
+            mdl.traverse(ch => {
+                if (!ch.isMesh) return;
+                // Walk up to find the named parent
+                let named = ch;
+                while (named.parent && named.parent !== mdl && !named.name) {
+                    named = named.parent;
+                }
+                // If the object (or its named parent) is excluded, disable raycast
+                const nm = (named.name || ch.name || '').toLowerCase();
+                if (EXCLUDE.has(nm)) {
+                    ch.raycast = () => {}; // no-op
+                }
+            });
+
+            // Build selectable list from top-level children
+            for (const child of mdl.children) {
+                const nm = (child.name || '').toLowerCase();
+                if (EXCLUDE.has(nm)) continue;
+                if (child.type === 'Object3D' && !child.isMesh) continue; // skip camera node
+                S.objs.push(child);
+                S.origPos.set(child.uuid, child.position.clone());
+            }
+
+            log(`Loaded: ${S.objs.length} selectable objects (${S.objs.map(o=>o.name).join(', ')})`);
+            loaded = true;
+        },
+        p => { if (p.total) log(`Loading ${(p.loaded / p.total * 100) | 0}%…`); },
+        err => {
+            console.warn('glTF error:', err);
+            if (isDefault && !loaded) { addFallback(); log('Fallback scene'); }
+        },
+    );
+}
+
+/* ── Fallback ── */
+function addFallback() {
+    const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(12, 12),
+        new THREE.MeshStandardMaterial({ color: 0x3a3a5c })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
+
+    [[0xe94560, [-1.2,.4,2], 'Red Cube', new THREE.BoxGeometry(.8,.8,.8)],
+     [0x533483, [1,.5,3.5],  'Purple Sphere', new THREE.SphereGeometry(.5,32,32)],
+     [0x0f3460, [0,.55,1],   'Blue Torus', new THREE.TorusGeometry(.35,.12,16,48)],
+     [0x16c79a, [2,.5,4],    'Green Cone', new THREE.ConeGeometry(.35,1,32)],
+     [0xf5a623, [-2,.5,3.5], 'Orange Cyl', new THREE.CylinderGeometry(.25,.25,1,32)],
+    ].forEach(([c, p, n, g]) => {
+        const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: c, roughness: .3 }));
+        m.position.set(...p); m.name = n;
+        scene.add(m); S.objs.push(m);
+        S.origPos.set(m.uuid, m.position.clone());
+    });
+    loaded = true;
+}
+
+loadScene('assets/bedroom.glb', true);
+setTimeout(() => { if (!loaded) { addFallback(); log('Fallback scene'); } }, 5000);
+
+/* ================================================================
+   PANELS
+   ================================================================ */
+const GAP = 3;
+const P = { m: {}, s: {}, c: {} };
+
+function layoutPanels() {
+    const r = $('viewport-container').getBoundingClientRect();
+    const W = r.width, H = r.height, pw = Math.floor((W - GAP * 2) / 3);
+    P.m = { x: 0, w: pw, h: H };
+    P.s = { x: pw + GAP, w: pw, h: H };
+    P.c = { x: 2 * (pw + GAP), w: W - 2 * (pw + GAP), h: H };
+    $('lbl-m').style.left = P.m.x + 8 + 'px';
+    $('lbl-s').style.left = P.s.x + 8 + 'px';
+    $('lbl-c').style.left = P.c.x + 8 + 'px';
+
+    // Position red separator lines between panels
+    $('sep1').style.left = (pw) + 'px';
+    $('sep2').style.left = (pw + GAP + pw) + 'px';
+
+    // Update camera aspect to match panel — CRITICAL for raycaster
+    const aspect = pw / H;
+    if (mainCam) { mainCam.aspect = aspect; mainCam.updateProjectionMatrix(); }
+    if (secCam)  { secCam.aspect = aspect; secCam.updateProjectionMatrix(); }
+}
+
+/* ================================================================
+   INTERACTION
+   ================================================================ */
+const rc = new THREE.Raycaster();
+const hitPt = new THREE.Vector3();
+
+function getPanel(cx, cy) {
+    const r = canvas.getBoundingClientRect();
+    const x = cx - r.left;
+    if (x < P.m.w) return 'm';
+    if (x < P.s.x + P.s.w) return 's';
+    return 'c';
+}
+
+function toNDC(cx, cy, p) {
+    const r = canvas.getBoundingClientRect();
+    return new THREE.Vector2(
+        ((cx - r.left - p.x) / p.w) * 2 - 1,
+        -((cy - r.top) / p.h) * 2 + 1
+    );
+}
+
+function sel(obj) {
+    // Deselect old — restore emissive with null safety
+    if (S.sel) {
+        try {
+            S.sel.traverse(ch => {
+                if (ch.isMesh && ch.userData._oe !== undefined) {
+                    const mats = Array.isArray(ch.material) ? ch.material : [ch.material];
+                    mats.forEach(m => { if (m && m.emissive) m.emissive.setHex(ch.userData._oe); });
+                    delete ch.userData._oe;
+                }
+            });
+        } catch (e) { console.warn('deselect error:', e); }
+    }
+    S.sel = obj;
+    if (obj) {
+        try {
+            obj.traverse(ch => {
+                if (ch.isMesh) {
+                    const mats = Array.isArray(ch.material) ? ch.material : [ch.material];
+                    mats.forEach(m => {
+                        if (m && m.emissive) {
+                            ch.userData._oe = m.emissive.getHex();
+                            m.emissive.setHex(0x555555);
+                        }
+                    });
+                }
+            });
+        } catch (e) { console.warn('select error:', e); }
+        $('selinfo').textContent = `Selected: ${obj.name}`;
+        $('sld-od').disabled = false;
+        syncDepthSlider();
+    } else {
+        $('selinfo').textContent = 'Click object in Main panel';
+        $('sld-od').disabled = true;
+        $('vod').textContent = '—';
+    }
+}
+
+function syncDepthSlider() {
+    if (!S.sel) return;
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(mainCam.quaternion);
+    const c = new THREE.Vector3();
+    new THREE.Box3().setFromObject(S.sel).getCenter(c);
+    const d = c.sub(mainCam.position).dot(dir);
+    $('sld-od').value = d;
+    $('vod').textContent = d.toFixed(1);
+}
+
+canvas.addEventListener('pointerdown', e => {
+    if (getPanel(e.clientX, e.clientY) !== 'm') return;
+
+    const ndc = toNDC(e.clientX, e.clientY, P.m);
+    rc.setFromCamera(ndc, mainCam);
+
+    // Raycast only selectable objects
+    let best = null, bestD = Infinity;
+    for (const obj of S.objs) {
+        const hits = rc.intersectObject(obj, true);
+        if (hits.length && hits[0].distance < bestD) {
+            bestD = hits[0].distance;
+            best = obj;
+        }
+    }
+
+    if (best) {
+        sel(best);
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(mainCam.quaternion);
+        const c = new THREE.Vector3();
+        new THREE.Box3().setFromObject(best).getCenter(c);
+        S.dragPlane.setFromNormalAndCoplanarPoint(dir, c);
+        rc.ray.intersectPlane(S.dragPlane, hitPt);
+        S.dragOff.copy(best.position).sub(hitPt);
+        S.dragging = true;
+        canvas.style.cursor = 'grabbing';
+    } else {
+        sel(null);
+    }
+});
+
+canvas.addEventListener('pointermove', e => {
+    if (!S.dragging || !S.sel) return;
+    const ndc = toNDC(e.clientX, e.clientY, P.m);
+    rc.setFromCamera(ndc, mainCam);
+    if (rc.ray.intersectPlane(S.dragPlane, hitPt)) {
+        S.sel.position.x = hitPt.x + S.dragOff.x;
+        S.sel.position.y = hitPt.y + S.dragOff.y;
+    }
+});
+
+canvas.addEventListener('pointerup', () => { S.dragging = false; canvas.style.cursor = ''; });
+
+/* ================================================================
+   UI
+   ================================================================ */
+$('sld-d').oninput = function () {
+    S.depthD = +this.value;
+    $('vd').textContent = S.depthD.toFixed(1);
+    refreshH();
+};
+
+$('sld-z').oninput = function () {
+    S.zoom = +this.value;
+    $('vz').textContent = S.zoom.toFixed(2) + 'x';
+    const src = S.zoom <= 1 ? 'Sec' : 'Main';
+    $('lbl-c').textContent = `\u25CE Combined — ${src} @ ${S.zoom.toFixed(2)}x`;
+    refreshH();
+};
+
+$('btn-warp').onclick = () => {
+    S.warp = !S.warp;
+    $('btn-warp').classList.toggle('active', S.warp);
+    $('btn-warp').textContent = S.warp ? 'Warp ON' : 'Warp';
+    refreshH();
+};
+
+$('sld-od').oninput = function () {
+    if (!S.sel) return;
+    const target = +this.value;
+    $('vod').textContent = target.toFixed(1);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(mainCam.quaternion);
+    const c = new THREE.Vector3();
+    new THREE.Box3().setFromObject(S.sel).getCenter(c);
+    const cur = c.sub(mainCam.position).dot(dir);
+    S.sel.position.addScaledVector(dir, target - cur);
+};
+
+$('btn-reset').onclick = () => {
+    for (const obj of S.objs) {
+        const orig = S.origPos.get(obj.uuid);
+        if (orig) obj.position.copy(orig);
+    }
+    sel(null);
+    S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
+    S.zoom = 1; $('sld-z').value = 1; $('vz').textContent = '1.00x';
+    S.warp = false;
+    $('btn-warp').classList.remove('active');
+    $('btn-warp').textContent = 'Warp';
+    $('lbl-c').textContent = 'Combined — 1.00x';
+    refreshH();
+    log('Reset done');
+};
+
+$('fscene').onchange = function () { if (this.files[0]) loadScene(URL.createObjectURL(this.files[0])); };
+$('fcam').onchange = function () {
+    if (!this.files[0]) return;
+    const r = new FileReader();
+    r.onload = ev => {
+        try { initCams(JSON.parse(ev.target.result)); refreshH(); log('Cameras loaded'); }
+        catch (e) { log('Bad JSON'); }
+    };
+    r.readAsText(this.files[0]);
+};
+
+/* ================================================================
+   HOMOGRAPHY
+   ================================================================ */
+function refreshH() {
+    if (!S.camParams) return;
+    const H = computeH(S.camParams, S.depthD);
+    const t = S.warp ? Math.max(0, Math.min(1, (S.zoom - 0.5) / 0.5)) : 0;
+    const Hi = M.lerp(M.id(), H, t);
+    const Hinv = M.inv(Hi);
+    if (Hinv) {
+        // THREE.Matrix3.set() takes row-major: (n11,n12,n13, n21,n22,n23, n31,n32,n33)
+        // Hinv is row-major [9], so pass directly in order
+        matWarp.uniforms.uHi.value.set(
+            Hinv[0], Hinv[1], Hinv[2],
+            Hinv[3], Hinv[4], Hinv[5],
+            Hinv[6], Hinv[7], Hinv[8]);
+    }
+    matWarp.uniforms.uZ.value = S.zoom;
+    matWarp.uniforms.uW.value = S.warp;
+
+    // Crop = zoom value directly — continuous across the camera switch at 1.0x
+    // 0.5x = zoomed out (secondary), 1.0x = no crop (transition), 2.0x = zoomed in (main)
+    matWarp.uniforms.uCrop.value = S.zoom;
+}
+refreshH();
+
+/* ================================================================
+   RESIZE
+   ================================================================ */
+function onResize() {
+    const r = $('viewport-container').getBoundingClientRect();
+    renderer.setSize(r.width, r.height);
+    layoutPanels();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+/* ================================================================
+   RENDER LOOP
+   3 scene renders + 2 quad renders
+   Main panel = DIRECT scene render (pixel-perfect raycasting)
+   Secondary panel = quad from RT
+   Combined panel = warp shader from RTs
+   ================================================================ */
+const matSecQ  = new THREE.MeshBasicMaterial({ map: rtS.texture });
+
+function frame() {
+    requestAnimationFrame(frame);
+
+    mainCam.updateMatrixWorld(true);
+    secCam.updateMatrixWorld(true);
+
+    // NOTE: Three.js setViewport/setScissor take CSS pixel values.
+    // The renderer handles DPR scaling internally. Do NOT multiply by dpr.
+
+    // ── RT renders (linear space) for combined panel ──
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+
+    renderer.setRenderTarget(rtM);
+    renderer.clear();
+    renderer.render(scene, mainCam);
+
+    renderer.setRenderTarget(rtS);
+    renderer.clear();
+    renderer.render(scene, secCam);
+
+    // ── Screen output (sRGB) ──
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setRenderTarget(null);
+    renderer.clear();
+
+    // Panel 1: Main camera — DIRECT scene render for pixel-perfect raycasting
+    renderer.setViewport(P.m.x, 0, P.m.w, P.m.h);
+    renderer.setScissor(P.m.x, 0, P.m.w, P.m.h);
+    renderer.setScissorTest(true);
+    renderer.render(scene, mainCam);
+
+    // Panel 2: Secondary camera — quad with RT texture
+    renderer.setViewport(P.s.x, 0, P.s.w, P.s.h);
+    renderer.setScissor(P.s.x, 0, P.s.w, P.s.h);
+    quad.material = matSecQ;
+    renderer.render(dScene, dCam);
+
+    // Panel 3: Combined — warp shader with both RTs
+    renderer.setViewport(P.c.x, 0, P.c.w, P.c.h);
+    renderer.setScissor(P.c.x, 0, P.c.w, P.c.h);
+    quad.material = matWarp;
+    renderer.render(dScene, dCam);
+
+    renderer.setScissorTest(false);
+}
+frame();
+
+</script>
+</body>
+</html>
