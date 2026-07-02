@@ -119,6 +119,14 @@ input[type="file"] { display: none; }
     </div>
     <div class="sep"></div>
     <div class="cg">
+      <label>Prewarp:</label>
+      <button class="sld-btn" onclick="nudge('sld-pw',-1)">−</button>
+      <input type="range" id="sld-pw" min="0.25" max="4.0" step="0.01" value="1.0">
+      <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
+      <span class="val" id="vpw">1.00x</span>
+    </div>
+    <div class="sep"></div>
+    <div class="cg">
       <label>Zoom:</label>
       <button class="sld-btn" onclick="nudge('sld-z',-1)">−</button>
       <input type="range" id="sld-z" min="0.5" max="2.0" step="0.01" value="1.0">
@@ -194,7 +202,7 @@ window.nudge = function(id, dir) {
    STATE
    ================================================================ */
 const S = {
-    warp: false, zoom: 1.0, depthD: 3.0,
+    warp: false, zoom: 1.0, prewarpScale: 1.0, depthD: 3.0,
     sel: null, dragging: false,
     dragPlane: new THREE.Plane(), dragOff: new THREE.Vector3(),
     objs: [],
@@ -563,6 +571,12 @@ $('sld-d').oninput = function () {
     refreshH();
 };
 
+$('sld-pw').oninput = function () {
+    S.prewarpScale = +this.value;
+    $('vpw').textContent = S.prewarpScale.toFixed(2) + 'x';
+    refreshH();
+};
+
 $('sld-z').oninput = function () {
     S.zoom = +this.value;
     $('vz').textContent = S.zoom.toFixed(2) + 'x';
@@ -690,9 +704,15 @@ function refreshH() {
 
     const H = computeH(S.camParams, S.depthD);
 
-    // Apply to shader (unchanged: separate zoom + warp)
+    // Prewarp scale: S scales secondary image around center
+    // Pipeline: secondary_tex → S (prescale) → H·S⁻¹ (homography unwarps S) → Z (zoom)
+    // Shader inverse: source = S · H⁻¹ · zoom_crop(output_px)
+    //   because (H·S⁻¹)⁻¹ = S·H⁻¹
+    const Sp = zoomMatrix(S.prewarpScale, RT_W, RT_H);
+    const Hinv = M.inv(H);
+
     if (S.warp) {
-        const Hinv = M.inv(H);
+        // Warp ON: prewarp S is fully compensated by H, shader sees only H⁻¹
         if (Hinv) {
             matWarp.uniforms.uHi.value.set(
                 Hinv[0], Hinv[1], Hinv[2],
@@ -700,24 +720,29 @@ function refreshH() {
                 Hinv[6], Hinv[7], Hinv[8]);
         }
     } else {
-        matWarp.uniforms.uHi.value.identity();
+        // Warp OFF: show prewarp scale only (no homography)
+        matWarp.uniforms.uHi.value.set(
+            Sp[0], Sp[1], Sp[2],
+            Sp[3], Sp[4], Sp[5],
+            Sp[6], Sp[7], Sp[8]);
     }
     matWarp.uniforms.uZ.value = S.zoom;
-    matWarp.uniforms.uW.value = S.warp;
+    matWarp.uniforms.uW.value = S.warp || S.prewarpScale !== 1.0;
     matWarp.uniforms.uCrop.value = S.zoom;
 
-    // Compute effective H actually applied to combined image (zoom + warp combined)
-    // Shader pipeline: output_px → zoom(crop) → Hinv → source_px
-    // Effective inverse: Hinv_eff = (warp ? Hinv : I) * Z
-    // Effective forward: H_eff = Z^-1 * (warp ? H : I)
+    // Effective forward H applied to image:
+    // Warp ON:  H_eff = Z⁻¹ · H  (prewarp fully compensated)
+    // Warp OFF: H_eff = Z⁻¹ · S⁻¹ (just prescale + zoom)
     const Z = zoomMatrix(S.zoom, RT_W, RT_H);
     const Zi = M.inv(Z) || M.id();
-    const H_eff = S.warp ? M.mul(Zi, H) : Zi;
+    const Si = M.inv(Sp) || M.id();
+    const H_eff = S.warp ? M.mul(Zi, H) : M.mul(Zi, Si);
     const s = H_eff[8];
     if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_eff[i] /= s;
 
     const src = S.zoom <= 1 ? 'Sec' : 'Main';
-    displayH(H_eff, `H_applied (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${src})`);
+    const pw = S.prewarpScale !== 1.0 ? ` PW=${S.prewarpScale.toFixed(2)}` : '';
+    displayH(H_eff, `H_applied (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)}${pw} ${src})`);
 }
 refreshH();
 
