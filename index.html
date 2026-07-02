@@ -116,6 +116,7 @@ input[type="file"] { display: none; }
       <input type="range" id="sld-d" min="0.1" max="10" step="0.1" value="3">
       <button class="sld-btn" onclick="nudge('sld-d',1)">+</button>
       <span class="val" id="vd">3.0</span>
+      <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
     </div>
     <div class="sep"></div>
     <div class="cg">
@@ -307,6 +308,12 @@ const rtS = new THREE.WebGLRenderTarget(RT_W, RT_H);
 // Mark RT textures as linear so the sRGB output pass doesn't double-encode
 rtM.texture.colorSpace = THREE.LinearSRGBColorSpace;
 rtS.texture.colorSpace = THREE.LinearSRGBColorSpace;
+
+/* ── Depth render target for autofocus ── */
+const rtDepth = new THREE.WebGLRenderTarget(RT_W, RT_H);
+const depthMat = new THREE.MeshDepthMaterial({
+    depthPacking: THREE.RGBADepthPacking,
+});
 
 /* ── Display quad ── */
 const dScene = new THREE.Scene();
@@ -568,6 +575,65 @@ canvas.addEventListener('pointerup', () => { S.dragging = false; canvas.style.cu
 $('sld-d').oninput = function () {
     S.depthD = +this.value;
     $('vd').textContent = S.depthD.toFixed(1);
+    refreshH();
+};
+
+/* ── Autofocus: sample depth in center 100×100 region ── */
+$('btn-af').onclick = () => {
+    if (!mainCam) return;
+    const near = mainCam.near, far = mainCam.far;
+
+    // Render depth pass
+    const prevOverride = scene.overrideMaterial;
+    scene.overrideMaterial = depthMat;
+    mainCam.aspect = RT_W / RT_H;
+    mainCam.updateProjectionMatrix();
+    renderer.setRenderTarget(rtDepth);
+    renderer.clear();
+    renderer.render(scene, mainCam);
+    scene.overrideMaterial = prevOverride;
+    renderer.setRenderTarget(null);
+
+    // Read center 100×100 region
+    const sz = 20;
+    const x0 = Math.floor((RT_W - sz) / 2);
+    const y0 = Math.floor((RT_H - sz) / 2);
+    const buf = new Uint8Array(sz * sz * 4);
+    renderer.readRenderTargetPixels(rtDepth, x0, y0, sz, sz, buf);
+
+    // Unpack RGBA depth packing (uint8) → perspective NDC → linear distance
+    // Three.js packDepthToRGBA encodes gl_FragCoord.z into RGBA bytes
+    // Unpack matches Three.js unpackRGBAToDepth: dot(v/255, [256³,256²,256,1]/256⁴·255)
+    // Perspective → linear: viewZ = (near * far) / ((far - near) * ndc - far)
+    const depths = [];
+    for (let i = 0; i < sz * sz; i++) {
+        const r = buf[i * 4], g = buf[i * 4 + 1], b = buf[i * 4 + 2], a = buf[i * 4 + 3];
+        const ndc = (r / 256 + g / 65536 + b / 16777216 + a / 4294967296);
+        if (ndc >= 0.999) continue;  // skip background (at far plane)
+        const viewZ = (near * far) / ((far - near) * ndc - far);
+        const dist = -viewZ;
+        if (dist > near && dist < far * 0.95) depths.push(dist);
+    }
+
+    if (depths.length === 0) return;  // no objects in center
+
+    // Histogram: bin depths into 0.1m buckets, pick majority
+    const binSize = 0.1;
+    const bins = new Map();
+    for (const d of depths) {
+        const key = Math.round(d / binSize);
+        bins.set(key, (bins.get(key) || 0) + 1);
+    }
+    let bestKey = 0, bestCount = 0;
+    for (const [k, c] of bins) {
+        if (c > bestCount) { bestCount = c; bestKey = k; }
+    }
+    const focusD = Math.max(0.1, Math.min(10, bestKey * binSize));
+
+    // Apply to slider + state
+    S.depthD = focusD;
+    $('sld-d').value = focusD;
+    $('vd').textContent = focusD.toFixed(1);
     refreshH();
 };
 
