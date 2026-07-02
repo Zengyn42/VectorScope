@@ -164,12 +164,12 @@ input[type="file"] { display: none; }
 <div id="status">Loading…</div>
 
 <script type="importmap">
-{ "imports": { "three": "./lib/three.module.js?v=27" } }
+{ "imports": { "three": "./lib/three.module.js?v=29" } }
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { GLTFLoader } from './lib/GLTFLoader.js?v=27';
-import { DRACOLoader } from './lib/DRACOLoader.js?v=27';
+import { GLTFLoader } from './lib/GLTFLoader.js?v=29';
+import { DRACOLoader } from './lib/DRACOLoader.js?v=29';
 
 /* ── helpers ── */
 const $ = id => document.getElementById(id);
@@ -882,21 +882,30 @@ $('cam-dialog').addEventListener('input', e => {
 /* ================================================================
    HOMOGRAPHY
    ================================================================ */
-function displayH(H) {
+/* Display any 3×3 homography matrix on the overlay */
+function displayH(H, label) {
     const f = v => (v >= 0 ? ' ' : '') + v.toFixed(4);
     $('hmat').innerHTML =
-        `<span style="color:#e94560">H</span> (D=${S.depthD.toFixed(1)}) ${S.warp ? '<span style="color:#4fc3f7">ACTIVE</span>' : '<span style="color:#666">OFF</span>'}\n` +
+        `<span style="color:#e94560">${label || 'H'}</span>\n` +
         `┌ ${f(H[0])}  ${f(H[1])}  ${f(H[2])} ┐\n` +
         `│ ${f(H[3])}  ${f(H[4])}  ${f(H[5])} │\n` +
         `└ ${f(H[6])}  ${f(H[7])}  ${f(H[8])} ┘`;
+}
+
+/* Zoom matrix in pixel space: output pixel → zoomed pixel
+   px = center + (p - center) / zoom
+   Z = [[1/z, 0, cx*(1-1/z)], [0, 1/z, cy*(1-1/z)], [0, 0, 1]]  */
+function zoomMatrix(zoom, w, h) {
+    const iz = 1 / zoom, cx = w / 2, cy = h / 2;
+    return [iz, 0, cx * (1 - iz),  0, iz, cy * (1 - iz),  0, 0, 1];
 }
 
 function refreshH() {
     if (!S.camParams) return;
 
     const H = computeH(S.camParams, S.depthD);
-    displayH(H);
 
+    // Apply to shader (unchanged: separate zoom + warp)
     if (S.warp) {
         const Hinv = M.inv(H);
         if (Hinv) {
@@ -908,10 +917,22 @@ function refreshH() {
     } else {
         matWarp.uniforms.uHi.value.identity();
     }
-
     matWarp.uniforms.uZ.value = S.zoom;
     matWarp.uniforms.uW.value = S.warp;
     matWarp.uniforms.uCrop.value = S.zoom;
+
+    // Compute effective H actually applied to combined image (zoom + warp combined)
+    // Shader pipeline: output_px → zoom(crop) → Hinv → source_px
+    // Effective inverse: Hinv_eff = (warp ? Hinv : I) * Z
+    // Effective forward: H_eff = Z^-1 * (warp ? H : I)
+    const Z = zoomMatrix(S.zoom, RT_W, RT_H);
+    const Zi = M.inv(Z) || M.id();
+    const H_eff = S.warp ? M.mul(Zi, H) : Zi;
+    const s = H_eff[8];
+    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_eff[i] /= s;
+
+    const src = S.zoom <= 1 ? 'Sec' : 'Main';
+    displayH(H_eff, `H_applied (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${src})`);
 }
 refreshH();
 
