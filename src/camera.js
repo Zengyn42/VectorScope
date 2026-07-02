@@ -16,7 +16,7 @@ export const DEF_CAM = {
         image_size: [1920, 1080],
     },
     secondary_camera: {
-        intrinsics: { fx: 1500, fy: 1500, cx: 960, cy: 540 },
+        intrinsics: { fx: 750, fy: 750, cx: 960, cy: 540 },
         extrinsics: { position: [0.5, 0, 0], rotation_euler_deg: [0, 0, 0] },
         image_size: [1920, 1080],
     },
