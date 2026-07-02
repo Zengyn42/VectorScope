@@ -173,6 +173,8 @@ import { DRACOLoader } from './lib/DRACOLoader.js?v=29';
 import { M } from './src/math.js';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
 import { eulerR, computeH, zoomMatrix } from './src/homography.js';
+import { initLoader, loadScene, getLoaderState, resetPositions } from './src/loader.js';
+import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './src/camera-dialog.js';
 
 /* ── helpers ── */
 const $ = id => document.getElementById(id);
@@ -318,56 +320,31 @@ const matWarp = new THREE.ShaderMaterial({
 });
 
 /* ================================================================
-   EXCLUDE LIST
+   SCENE LOADING  (via src/loader.js)
    ================================================================ */
-// All objects selectable — no exclusions
-const EXCLUDE = new Set();
+initLoader({
+    scene,
+    GLTFLoader, DRACOLoader,
+    dracoPath: './lib/draco/',
+    ambientLight: aLight,
+    directionalLight: dLight,
+});
 
-/* ================================================================
-   SCENE LOADING
-   ================================================================ */
-const gltfLoader = new GLTFLoader();
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('./lib/draco/');
-gltfLoader.setDRACOLoader(dracoLoader);
-
-let loaded = false;
-
-function loadScene(url, isDefault = false) {
+function doLoadScene(url, isDefault = false) {
     log('Loading scene…');
-    gltfLoader.load(url,
-        g => {
-            S.objs = []; S.origPos.clear();
-            scene.children.filter(c => c.userData._mdl).forEach(c => scene.remove(c));
-
-            const mdl = g.scene;
-            mdl.userData._mdl = true;
-            scene.add(mdl);
-
-            mdl.traverse(ch => {
-                if (ch.isLight) {
-                    if (ch.intensity > 10) ch.intensity = 3;
-                    aLight.intensity = 0.1;
-                    dLight.intensity = 0;
-                }
-            });
-
-            // All objects are selectable
-            for (const child of mdl.children) {
-                if (child.type === 'Object3D' && !child.isMesh && child.children.length === 0) continue; // skip empty nodes
-                S.objs.push(child);
-                S.origPos.set(child.uuid, child.position.clone());
-            }
-
-            log(`Loaded: ${S.objs.length} objects`);
-            loaded = true;
+    loadScene(url, {
+        isDefault,
+        onProgress: (loaded, total) => log(`Loading ${(loaded / total * 100) | 0}%…`),
+        onComplete: (count) => {
+            const ls = getLoaderState();
+            S.objs = ls.objs;
+            S.origPos = ls.origPos;
+            log(`Loaded: ${count} objects`);
         },
-        p => { if (p.total) log(`Loading ${(p.loaded / p.total * 100) | 0}%…`); },
-        err => {
-            console.warn('glTF error:', err);
-            if (isDefault && !loaded) { addFallback(); log('Fallback scene'); }
+        onError: (err) => {
+            if (isDefault && !getLoaderState().loaded) { addFallback(); log('Fallback scene'); }
         },
-    );
+    });
 }
 
 function addFallback() {
@@ -377,6 +354,7 @@ function addFallback() {
     );
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
+    const ls = getLoaderState();
     [[0xe94560,[-1.2,.4,2],'Red Cube',new THREE.BoxGeometry(.8,.8,.8)],
      [0x533483,[1,.5,3.5],'Purple Sphere',new THREE.SphereGeometry(.5,32,32)],
      [0x0f3460,[0,.55,1],'Blue Torus',new THREE.TorusGeometry(.35,.12,16,48)],
@@ -384,14 +362,17 @@ function addFallback() {
      [0xf5a623,[-2,.5,3.5],'Orange Cyl',new THREE.CylinderGeometry(.25,.25,1,32)],
     ].forEach(([c,p,n,g])=>{
         const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:c,roughness:.3}));
-        m.position.set(...p);m.name=n;scene.add(m);S.objs.push(m);
-        S.origPos.set(m.uuid,m.position.clone());
+        m.position.set(...p);m.name=n;scene.add(m);
+        ls.objs.push(m);
+        ls.origPos.set(m.uuid,m.position.clone());
     });
-    loaded = true;
+    S.objs = ls.objs;
+    S.origPos = ls.origPos;
+    ls.loaded = true;
 }
 
-loadScene('assets/bedroom.glb', true);
-setTimeout(() => { if (!loaded) { addFallback(); log('Fallback scene'); } }, 5000);
+doLoadScene('assets/bedroom.glb', true);
+setTimeout(() => { if (!getLoaderState().loaded) { addFallback(); log('Fallback scene'); } }, 5000);
 
 /* ================================================================
    PANELS — New Layout:
@@ -637,10 +618,7 @@ $('sld-od').oninput = function () {
 };
 
 $('btn-reset').onclick = () => {
-    for (const obj of S.objs) {
-        const orig = S.origPos.get(obj.uuid);
-        if (orig) obj.position.copy(orig);
-    }
+    resetPositions();
     sel(null);
     S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
     S.zoom = 1; $('sld-z').value = 1; $('vz').textContent = '1.00x';
@@ -652,7 +630,7 @@ $('btn-reset').onclick = () => {
     log('Reset done');
 };
 
-$('fscene').onchange = function () { if (this.files[0]) loadScene(URL.createObjectURL(this.files[0])); };
+$('fscene').onchange = function () { if (this.files[0]) doLoadScene(URL.createObjectURL(this.files[0])); };
 $('fcam').onchange = function () {
     if (!this.files[0]) return;
     const r = new FileReader();
@@ -662,130 +640,35 @@ $('fcam').onchange = function () {
             refreshH();
             log('Cameras loaded');
             // Refresh dialog if open
-            if ($('cam-dialog').classList.contains('open')) renderCamParams();
+            if (camDialogEl.classList.contains('open'))
+                renderCamDialog($('cam-params-content'), { camParams: S.camParams, sceneCam: SCENE_CAM });
         }
         catch (e) { log('Bad JSON'); }
     };
     r.readAsText(this.files[0]);
 };
 
-/* ── Camera Settings Dialog ── */
-function numInput(val, step, onChange) {
-    const id = '_ci' + (numInput._cnt = (numInput._cnt||0) + 1);
-    setTimeout(() => {
-        const el = $(id);
-        if (el) el.addEventListener('change', () => onChange(parseFloat(el.value) || 0));
-    }, 0);
-    return `<input type="number" id="${id}" value="${val}" step="${step}">`;
-}
+/* ── Camera Settings Dialog (via src/camera-dialog.js) ── */
+const camDialogEl = $('cam-dialog');
 
-function renderCamParams() {
-    const p = S.camParams;
-    if (!p) { $('cam-params-content').innerHTML = '<p style="color:#888">No camera loaded</p>'; return; }
-
-    function camSection(key, label, note) {
-        const c = p[key];
-        const i = c.intrinsics, e = c.extrinsics, s = c.image_size;
-        const u = (field, idx, step) => numInput(
-            typeof idx === 'number' ? (Array.isArray(c[field]) ? c[field][idx] : 0) : c[field],
-            step || 0.1,
-            v => { /* handled via applyCamEdits */ }
-        );
-
-        // Build input fields with unique data attributes
-        const fxId = `cam-${key}-fx`, fyId = `cam-${key}-fy`;
-        const cxId = `cam-${key}-cx`, cyId = `cam-${key}-cy`;
-        const pxId = `cam-${key}-px`, pyId = `cam-${key}-py`, pzId = `cam-${key}-pz`;
-        const rxId = `cam-${key}-rx`, ryId = `cam-${key}-ry`, rzId = `cam-${key}-rz`;
-        const wxId = `cam-${key}-wx`, wyId = `cam-${key}-wy`;
-
-        return `<h3>${label} <span style="font-weight:normal;color:#888;font-size:11px">${note||''}</span></h3><table>
-<tr><td>Image Size</td><td>
-  <span class="cam-field"><label>w</label><input type="number" id="${wxId}" value="${s[0]}" step="1"></span>
-  <span class="cam-field"><label>h</label><input type="number" id="${wyId}" value="${s[1]}" step="1"></span>
-</td></tr>
-<tr><td>Intrinsics</td><td>
-  <span class="cam-field"><label>fx</label><input type="number" id="${fxId}" value="${i.fx}" step="1"></span>
-  <span class="cam-field"><label>fy</label><input type="number" id="${fyId}" value="${i.fy}" step="1"></span>
-  <span class="cam-field"><label>cx</label><input type="number" id="${cxId}" value="${i.cx}" step="1"></span>
-  <span class="cam-field"><label>cy</label><input type="number" id="${cyId}" value="${i.cy}" step="1"></span>
-</td></tr>
-<tr><td>Position</td><td>
-  <span class="cam-field"><label>x</label><input type="number" id="${pxId}" value="${e.position[0]}" step="0.1"></span>
-  <span class="cam-field"><label>y</label><input type="number" id="${pyId}" value="${e.position[1]}" step="0.1"></span>
-  <span class="cam-field"><label>z</label><input type="number" id="${pzId}" value="${e.position[2]}" step="0.1"></span>
-</td></tr>
-<tr><td>Rotation (deg)</td><td>
-  <span class="cam-field"><label>rx</label><input type="number" id="${rxId}" value="${e.rotation_euler_deg[0]}" step="0.5"></span>
-  <span class="cam-field"><label>ry</label><input type="number" id="${ryId}" value="${e.rotation_euler_deg[1]}" step="0.5"></span>
-  <span class="cam-field"><label>rz</label><input type="number" id="${rzId}" value="${e.rotation_euler_deg[2]}" step="0.5"></span>
-</td></tr>
-</table>`;
-    }
-
-    // Scene camera (also editable)
-    const sceneInfo = `<h3>Scene Camera <span style="font-weight:normal;color:#888;font-size:11px">world position</span></h3><table>
-<tr><td>Position</td><td>
-  <span class="cam-field"><label>x</label><input type="number" id="scene-px" value="${SCENE_CAM.position[0]}" step="0.1"></span>
-  <span class="cam-field"><label>y</label><input type="number" id="scene-py" value="${SCENE_CAM.position[1]}" step="0.1"></span>
-  <span class="cam-field"><label>z</label><input type="number" id="scene-pz" value="${SCENE_CAM.position[2]}" step="0.1"></span>
-</td></tr>
-<tr><td>Rotation (deg)</td><td>
-  <span class="cam-field"><label>rx</label><input type="number" id="scene-rx" value="${SCENE_CAM.rotation_euler_deg[0]}" step="0.5"></span>
-  <span class="cam-field"><label>ry</label><input type="number" id="scene-ry" value="${SCENE_CAM.rotation_euler_deg[1]}" step="0.5"></span>
-  <span class="cam-field"><label>rz</label><input type="number" id="scene-rz" value="${SCENE_CAM.rotation_euler_deg[2]}" step="0.5"></span>
-</td></tr>
-</table>`;
-
-    $('cam-params-content').innerHTML = sceneInfo +
-        camSection('main_camera', 'Main Camera', 'identity = coincides with scene camera') +
-        camSection('secondary_camera', 'Secondary Camera', 'relative to main');
-}
-
-function applyCamEdits() {
-    const v = id => parseFloat($(id)?.value) || 0;
-
-    // Scene camera
-    SCENE_CAM.position = [v('scene-px'), v('scene-py'), v('scene-pz')];
-    SCENE_CAM.rotation_euler_deg = [v('scene-rx'), v('scene-ry'), v('scene-rz')];
-
-    // Read both cameras from inputs
-    function readCam(key) {
-        return {
-            intrinsics: { fx: v(`cam-${key}-fx`), fy: v(`cam-${key}-fy`), cx: v(`cam-${key}-cx`), cy: v(`cam-${key}-cy`) },
-            extrinsics: {
-                position: [v(`cam-${key}-px`), v(`cam-${key}-py`), v(`cam-${key}-pz`)],
-                rotation_euler_deg: [v(`cam-${key}-rx`), v(`cam-${key}-ry`), v(`cam-${key}-rz`)],
-            },
-            image_size: [v(`cam-${key}-wx`) || 1920, v(`cam-${key}-wy`) || 1080],
-        };
-    }
-
-    const newParams = {
-        main_camera: readCam('main_camera'),
-        secondary_camera: readCam('secondary_camera'),
-    };
-    initCams(newParams);
-    layoutPanels();
-    refreshH();
-    log('Camera params updated');
-}
+bindDialog(camDialogEl, {
+    onApply: ({ camParams, sceneCam }) => {
+        SCENE_CAM.position = sceneCam.position;
+        SCENE_CAM.rotation_euler_deg = sceneCam.rotation_euler_deg;
+        initCams(camParams);
+        layoutPanels();
+        refreshH();
+        log('Camera params updated');
+    },
+});
 
 window.openCamDialog = function() {
-    renderCamParams();
-    $('cam-dialog').classList.add('open');
+    renderCamDialog($('cam-params-content'), { camParams: S.camParams, sceneCam: SCENE_CAM });
+    camDialogEl.classList.add('open');
 };
 window.closeCamDialog = function() {
-    $('cam-dialog').classList.remove('open');
+    camDialogEl.classList.remove('open');
 };
-// Close on overlay click
-$('cam-dialog').addEventListener('click', e => {
-    if (e.target === $('cam-dialog')) closeCamDialog();
-});
-// Listen for input changes inside the dialog
-$('cam-dialog').addEventListener('input', e => {
-    if (e.target.tagName === 'INPUT') applyCamEdits();
-});
 
 /* ================================================================
    HOMOGRAPHY
