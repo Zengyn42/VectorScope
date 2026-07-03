@@ -1,6 +1,37 @@
 /**
- * Homography computation.
- * Depends only on math.js (M object).
+ * @module homography
+ * @description
+ * Plane-induced homography computation for stereo camera systems.
+ *
+ * This module implements the core math behind VectorScope's stereo visualization:
+ * given two cameras and a fronto-parallel plane at depth D, it computes the 3×3
+ * homography matrix H that maps pixels from camera 2 to camera 1.
+ *
+ * **Key formula:**
+ * ```
+ * H = K1 · (R12 + t12 · n2ᵀ / d2) · K2⁻¹
+ * ```
+ * where:
+ * - `K1`, `K2` are camera intrinsic matrices
+ * - `R12`, `t12` are the relative rotation and translation (cam2 → cam1)
+ * - `n2` is the plane normal in cam2's frame
+ * - `d2` is the signed distance from cam2 to the plane
+ *
+ * **Coordinate convention:**
+ * Three.js uses Y-up, Z-toward-viewer. The homography formula uses the
+ * standard computer vision convention (Y-down, Z-forward). A flip matrix
+ * `diag(1, -1, -1)` converts between the two.
+ *
+ * Also provides a zoom matrix for pixel-space zoom/crop operations.
+ *
+ * @requires ./math.js
+ *
+ * @example
+ * import { computeH, zoomMatrix } from './homography.js';
+ * import { DEF_CAM } from './camera.js';
+ *
+ * const H = computeH(DEF_CAM, 3.0);  // homography at depth 3m
+ * const Z = zoomMatrix(1.5, 1920, 1080);  // 1.5x zoom
  */
 import { M } from './math.js';
 

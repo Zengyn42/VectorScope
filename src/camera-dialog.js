@@ -1,11 +1,39 @@
 /**
- * Camera settings dialog — renders editable camera parameter inputs.
- * Depends on DOM but not on THREE.js.
+ * @module camera-dialog
+ * @description
+ * Camera settings dialog UI for VectorScope.
  *
- * Usage:
- *   import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './camera-dialog.js';
- *   renderCamDialog(container, { camParams, sceneCam });
- *   bindDialog(overlayEl, { onApply: (params, sceneCam) => { ... } });
+ * Renders an interactive modal dialog where users can view and edit all
+ * camera parameters: intrinsics (fx, fy, cx, cy), extrinsics (position,
+ * rotation), and image size — for both main and secondary cameras, plus
+ * the scene camera world position.
+ *
+ * **Live editing:** Changes to any input field are applied immediately
+ * via the `onApply` callback (no "Save" button needed). The dialog also
+ * supports loading camera parameters from a JSON file.
+ *
+ * **Architecture:**
+ * - `renderCamDialog()` — generates HTML input fields from current camera params
+ * - `readCamInputs()` — reads values back from DOM inputs for a given camera key
+ * - `readSceneInputs()` — reads scene camera position/rotation from DOM inputs
+ * - `bindDialog()` — wires up close-on-overlay-click and live input change events
+ *
+ * Depends on DOM only — no THREE.js dependency.
+ *
+ * @example
+ * import { renderCamDialog, bindDialog } from './camera-dialog.js';
+ *
+ * const overlay = document.getElementById('cam-dialog');
+ * bindDialog(overlay, {
+ *     onApply: ({ camParams, sceneCam }) => {
+ *         initCams(camParams);
+ *         refreshHomography();
+ *     },
+ * });
+ *
+ * // Open the dialog
+ * renderCamDialog(container, { camParams: currentParams, sceneCam: SCENE_CAM });
+ * overlay.classList.add('open');
  */
 
 /**

@@ -1,9 +1,40 @@
 /**
- * Scene & object loader.
- * Manages loading GLB/glTF assets into a Three.js scene.
- * Maintains an object registry for selection/interaction.
+ * @module loader
+ * @description
+ * Scene and object loader for VectorScope.
  *
- * Depends on THREE (GLTFLoader, DRACOLoader) — passed in via init().
+ * Manages loading GLB/glTF 3D assets into the Three.js scene using the
+ * `GLTFLoader` with optional Draco mesh compression support.
+ *
+ * **Object registry:**
+ * Maintains a list of selectable objects (`objs`) and their original positions
+ * (`origPos`) for reset functionality. When a scene is loaded, top-level children
+ * of the glTF scene graph are registered as selectable objects.
+ *
+ * **Light handling:**
+ * If the loaded scene contains its own lights (e.g., baked into the glTF),
+ * the default ambient/directional lights are dimmed to avoid over-illumination.
+ * Lights with intensity > 10 (common in Blender exports) are clamped to 3.
+ *
+ * **API:**
+ * - `initLoader()` — one-time setup with Three.js dependencies
+ * - `loadScene()` — replace entire scene content with a new glTF
+ * - `loadObject()` — add a single object to the existing scene
+ * - `removeObject()` — remove an object by reference or UUID
+ * - `listObjects()` — enumerate loaded objects with positions
+ * - `resetPositions()` — restore all objects to their load-time positions
+ * - `getLoaderState()` — access the internal registry (for fallback scene setup)
+ *
+ * Dependencies: `GLTFLoader`, `DRACOLoader` (Three.js addons) — passed via `initLoader()`.
+ *
+ * @example
+ * import { initLoader, loadScene, getLoaderState } from './loader.js';
+ *
+ * initLoader({ scene, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/' });
+ * loadScene('assets/bedroom.glb', {
+ *     onComplete: (count) => console.log(`Loaded ${count} objects`),
+ *     onError: () => console.log('Load failed'),
+ * });
  */
 
 /**
