@@ -1,45 +1,21 @@
 /**
  * @module panels
  * @description
- * Panel layout manager for VectorScope's three-panel viewport.
+ * Panel layout manager for VectorScope's two-row viewport.
  *
- * VectorScope displays three panels in a split layout:
+ * Layout:
  * ```
- * ┌─────────────┬──────────────┐
- * │  Main (m)   │ Secondary (s)│   ← top 40% of viewport
- * ├─────────────┴──────────────┤
- * │       Combined (c)         │   ← bottom 60%, aspect-locked to RT
- * └────────────────────────────┘
+ * ┌──────────────┬──────────────┬──────────────┐
+ * │  Bird's Eye  │  Object Info │  Controls    │  ← top row ~35%
+ * │  (canvas)    │  (DOM)       │  (DOM)       │
+ * ├──────────┬───┴────┬─────────┼──────────────┤
+ * │  Main    │ Sec 1  │  Sec 2  │  Combined    │  ← bottom row ~65%
+ * │ (canvas) │(canvas)│ (canvas)│  (canvas)    │
+ * └──────────┴────────┴─────────┴──────────────┘
  * ```
  *
- * **Coordinate system:**
- * Panel rects use **GL coordinates** (origin at bottom-left, y-up) matching
- * WebGL's `setViewport(x, y, width, height)`. CSS coordinate conversion
- * (origin at top-left, y-down) is handled internally by `getPanel()` and `toNDC()`.
- *
- * The Combined panel is aspect-locked to the render target (16:9 by default),
- * with letterboxing if the available space has a different aspect ratio.
- *
- * **No THREE.js dependency** — this module only manipulates numbers and DOM
- * positioning for labels/separators.
- *
- * @example
- * import { createPanelManager } from './panels.js';
- *
- * const { P, layoutPanels, getPanel, toNDC } = createPanelManager({
- *     $: id => document.getElementById(id),
- *     RT_W: 1920, RT_H: 1080,
- *     onCameraAspect: (aspect) => { camera.aspect = aspect; },
- * });
- *
- * window.addEventListener('resize', layoutPanels);
- * layoutPanels();
- *
- * // Which panel did the user click?
- * canvas.addEventListener('click', (e) => {
- *     const panel = getPanel(e.clientX, e.clientY);  // 'm', 's', or 'c'
- *     const ndc = toNDC(e.clientX, e.clientY, P[panel]);  // { x, y } in [-1, 1]
- * });
+ * Canvas-rendered panels: bev, m, s1, s2, c (GL coordinates, y-up)
+ * DOM overlay panels: panel-info, panel-controls (CSS positioned by JS)
  *
  * @param {object} opts
  * @param {Function} opts.$ - `getElementById` shorthand
@@ -50,43 +26,71 @@
  */
 export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
     const GAP = 2;
-    const P = { m: {}, s: {}, c: {} };
+    const P = { bev: {}, m: {}, s1: {}, s2: {}, c: {} };
 
     function layoutPanels() {
         const r = $('viewport-container').getBoundingClientRect();
         const W = r.width, H = r.height;
-        const topH = Math.floor(H * 0.4);
+        const topH = Math.floor(H * 0.35);
         const botH = H - topH - GAP;
-        const halfW = Math.floor((W - GAP) / 2);
+        const topColW = Math.floor((W - 2 * GAP) / 3);
+        const botColW = Math.floor((W - 3 * GAP) / 4);
 
-        P.m = { x: 0, y: botH + GAP, w: halfW, h: topH };
-        P.s = { x: halfW + GAP, y: botH + GAP, w: W - halfW - GAP, h: topH };
+        /* Top row: only bird's eye is canvas-rendered (left 1/3) */
+        P.bev = { x: 0, y: botH + GAP, w: topColW, h: topH };
 
-        // Combined panel: aspect-locked to RT
-        const targetAspect = RT_W / RT_H;
-        let cw = W, ch = botH;
-        if (cw / ch > targetAspect) cw = Math.floor(ch * targetAspect);
-        else ch = Math.floor(cw / targetAspect);
-        const cx = Math.floor((W - cw) / 2);
-        const cy = Math.floor((botH - ch) / 2);
-        P.c = { x: cx, y: cy, w: cw, h: ch };
+        /* Bottom row: 4 equal camera panels */
+        P.m  = { x: 0,                   y: 0, w: botColW, h: botH };
+        P.s1 = { x: botColW + GAP,       y: 0, w: botColW, h: botH };
+        P.s2 = { x: 2 * (botColW + GAP), y: 0, w: botColW, h: botH };
+        P.c  = { x: 3 * (botColW + GAP), y: 0, w: W - 3 * (botColW + GAP), h: botH };
 
-        // Labels
-        $('lbl-m').style.left = (P.m.x + 8) + 'px';
-        $('lbl-m').style.top = (H - P.m.y - P.m.h + 6) + 'px';
-        $('lbl-s').style.left = (P.s.x + 8) + 'px';
-        $('lbl-s').style.top = (H - P.s.y - P.s.h + 6) + 'px';
-        $('lbl-c').style.left = (P.c.x + 8) + 'px';
-        $('lbl-c').style.top = (H - P.c.y - P.c.h + 6) + 'px';
+        /* Position DOM overlay panels (CSS coords, top-left origin) */
+        const infoEl = $('panel-info');
+        const ctrlEl = $('panel-controls');
+        if (infoEl) {
+            infoEl.style.left = (topColW + GAP) + 'px';
+            infoEl.style.top = '0px';
+            infoEl.style.width = topColW + 'px';
+            infoEl.style.height = topH + 'px';
+        }
+        if (ctrlEl) {
+            ctrlEl.style.left = (2 * (topColW + GAP)) + 'px';
+            ctrlEl.style.top = '0px';
+            ctrlEl.style.width = (W - 2 * (topColW + GAP)) + 'px';
+            ctrlEl.style.height = topH + 'px';
+        }
 
-        // Separators
-        $('sep-v').style.left = halfW + 'px';
-        $('sep-v').style.top = (H - P.m.y - P.m.h) + 'px';
-        $('sep-v').style.height = topH + 'px';
-        $('sep-h').style.top = (H - P.m.y - P.m.h - GAP) + 'px';
+        /* Panel labels (convert GL → CSS coords) */
+        const setLabel = (id, px) => {
+            const el = $(id);
+            if (!el) return;
+            el.style.left = (px.x + 8) + 'px';
+            el.style.top = (H - px.y - px.h + 6) + 'px';
+        };
+        setLabel('lbl-bev', P.bev);
+        setLabel('lbl-m', P.m);
+        setLabel('lbl-s1', P.s1);
+        setLabel('lbl-s2', P.s2);
+        setLabel('lbl-c', P.c);
 
-        // Sync camera aspect
-        if (onCameraAspect) onCameraAspect(P.m.w / P.m.h);
+        /* Horizontal separator between top and bottom rows */
+        const sepH = $('sep-h');
+        if (sepH) {
+            sepH.style.top = (H - botH - GAP) + 'px';
+        }
+
+        /* Vertical separators between bottom panels */
+        ['sep-v1', 'sep-v2', 'sep-v3'].forEach((id, i) => {
+            const el = $(id);
+            if (!el) return;
+            el.style.left = ((i + 1) * (botColW + GAP) - GAP) + 'px';
+            el.style.top = (H - botH) + 'px';
+            el.style.height = botH + 'px';
+        });
+
+        /* Sync camera aspect to bottom panel shape */
+        if (onCameraAspect) onCameraAspect(botColW / botH);
     }
 
     /** Determine which panel a CSS click lands on */
@@ -94,10 +98,14 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         const r = $('main-canvas').getBoundingClientRect();
         const x = cx - r.left, y = cy - r.top;
         const H = r.height;
-        const topRowCSSTop = H - P.m.y - P.m.h;
-        if (y < topRowCSSTop) return 'c';
-        if (x < P.m.w) return 'm';
-        return 's';
+        const glY = H - y;
+
+        for (const [key, p] of Object.entries(P)) {
+            if (x >= p.x && x < p.x + p.w && glY >= p.y && glY < p.y + p.h) {
+                return key;
+            }
+        }
+        return null;
     }
 
     /** Convert CSS client coords → NDC for a given panel rect */

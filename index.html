@@ -6,19 +6,9 @@
 <!--
   VectorScope — Stereo Camera Homography Visualizer
   ==================================================
-  Entry point and application shell. This file contains:
-    1. HTML structure — three-panel viewport, control bars, camera dialog
-    2. CSS styles — dark theme, panel layout, modal dialog, HUD overlays
-    3. WebGL pre-flight check — detects disabled WebGL before module loading
-    4. Application bootstrap — module imports, renderer/camera/RT init,
-       module wiring, UI event binding, homography computation, render loop
-
-  Architecture:
-    index.html acts as the "main function" that wires together 8 ES modules
-    from src/. It owns the shared mutable state (S), the Three.js renderer,
-    cameras, render targets, and the per-frame render loop. Each module is
-    initialized via dependency injection (no module imports THREE directly
-    except math/homography/camera which are pure).
+  Two-row layout:
+    Top row:    Bird's Eye (canvas) | Object Info (DOM) | Controls (DOM)
+    Bottom row: Main Camera | Secondary 1 | Secondary 2 | Combined (all canvas)
 
   See architecture.md for the full system design document.
 -->
@@ -30,15 +20,35 @@ body {
     font-family: 'Segoe UI', system-ui, sans-serif;
     overflow: hidden; height: 100vh; user-select: none;
 }
-/* ── App Layout: vertical flex (top bar → viewport → bottom bar) ── */
+
+/* ── App Layout: single viewport fills the entire window ── */
 #app { display: flex; flex-direction: column; height: 100vh; }
-/* ── Top Control Bar: scene/camera buttons, sliders, warp toggle ── */
-#controls-top {
-    display: flex; align-items: center; gap: 10px;
-    padding: 5px 12px; background: #16213e;
-    border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap;
+#viewport-container { flex: 1; position: relative; overflow: hidden; }
+#main-canvas { display: block; width: 100%; height: 100%; }
+
+/* ── DOM Overlay Panels (top row: info + controls) ── */
+#panel-info, #panel-controls {
+    position: absolute;
+    background: rgba(22, 33, 62, 0.92);
+    border-left: 1px solid #0f3460;
+    border-bottom: 1px solid #0f3460;
+    padding: 10px 12px;
+    overflow-y: auto;
+    z-index: 10;
+    /* JS sets left, top, width, height */
 }
-/* ── Control Group: inline flex container for label + slider + value ── */
+#panel-info .panel-title, #panel-controls .panel-title {
+    font-size: 11px; color: #888; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 8px;
+}
+
+/* ── Control rows inside the controls panel ── */
+.ctrl-row {
+    display: flex; align-items: center; gap: 4px;
+    margin-bottom: 6px; flex-wrap: wrap;
+}
+
+/* ── Shared UI elements ── */
 .cg { display: flex; align-items: center; gap: 3px; }
 label { font-size: 12px; color: #aaa; }
 button {
@@ -54,24 +64,31 @@ button.active { background: #e94560; border-color: #e94560; }
     color: #e0e0e0; cursor: pointer; font-weight: bold;
 }
 .sld-btn:hover { background: #533483; }
-input[type="range"] { width: 110px; accent-color: #e94560; }
+input[type="range"] { width: 100px; accent-color: #e94560; }
 input[type="file"] { display: none; }
 .val {
-    min-width: 44px; text-align: right; font-size: 12px;
+    min-width: 40px; text-align: right; font-size: 12px;
     color: #e94560; font-family: monospace;
 }
-/* ── Visual separator between control groups ── */
-.sep { width: 1px; height: 22px; background: #0f3460; }
-/* ── Viewport: fills remaining vertical space, hosts the WebGL canvas ── */
-#viewport-container { flex: 1; position: relative; overflow: hidden; }
-#main-canvas { display: block; width: 100%; height: 100%; }
-/* ── Panel labels: positioned absolutely over the canvas via JS ── */
+.sep { width: 1px; height: 18px; background: #0f3460; }
+#selinfo { font-size: 12px; color: #aaa; }
+/* Inline camera parameter inputs in info panel */
+.cam-inp {
+    width: 58px; padding: 1px 4px; margin: 0 2px;
+    background: #0a0f1e; color: #e0e0e0; border: 1px solid #533483;
+    border-radius: 3px; font-family: monospace; font-size: 11px; text-align: right;
+}
+.cam-inp:focus { outline: none; border-color: #e94560; }
+.cam-lbl { color: #888; font-size: 10px; margin-right: 1px; }
+
+/* ── Panel labels: positioned absolutely over the canvas ── */
 .plbl {
     position: absolute; padding: 3px 10px;
     background: rgba(15,52,96,.85); border-radius: 3px;
     font-size: 11px; pointer-events: none; z-index: 10; white-space: nowrap;
 }
-/* ── Panel separators: red lines between Main/Secondary and top/bottom rows ── */
+
+/* ── Panel separators ── */
 .panel-sep-v {
     position: absolute; top: 0; width: 2px;
     background: #e94560; pointer-events: none; z-index: 5; opacity: 0.7;
@@ -80,28 +97,23 @@ input[type="file"] { display: none; }
     position: absolute; left: 0; width: 100%; height: 2px;
     background: #e94560; pointer-events: none; z-index: 5; opacity: 0.7;
 }
-/* ── Bottom Control Bar: selected object info + depth slider ── */
-#controls-bottom {
-    display: flex; align-items: center; gap: 10px;
-    padding: 5px 12px; background: #16213e;
-    border-top: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap;
+
+/* ── Homography Matrix HUD (top-right of Combined panel) ── */
+#hmat {
+    position: fixed; bottom: 16px; right: 16px;
+    padding: 8px 12px; background: rgba(15,52,96,.92);
+    border: 1px solid #533483; border-radius: 6px;
+    font-family: monospace; font-size: 11px; color: #e0e0e0;
+    pointer-events: none; z-index: 20; white-space: pre; line-height: 1.5;
 }
-#selinfo { font-size: 12px; color: #aaa; min-width: 140px; }
-/* ── Status HUD: fixed bottom-right, shows load progress / errors ── */
+/* ── Status HUD ── */
 #status {
-    position: fixed; bottom: 40px; right: 16px;
+    position: fixed; bottom: 100px; right: 16px;
     padding: 4px 10px; background: rgba(15,52,96,.9);
     border-radius: 4px; font-size: 11px; color: #888;
     pointer-events: none; z-index: 20;
 }
-/* ── Homography Matrix HUD: fixed top-right, shows H_applied in matrix form ── */
-#hmat {
-    position: fixed; top: 50px; right: 16px;
-    padding: 8px 12px; background: rgba(15,52,96,.92);
-    border: 1px solid #533483; border-radius: 6px;
-    font-family: monospace; font-size: 12px; color: #e0e0e0;
-    pointer-events: none; z-index: 20; white-space: pre; line-height: 1.6;
-}
+
 /* ── Camera Settings Dialog ── */
 .modal-overlay {
     display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -133,63 +145,86 @@ input[type="file"] { display: none; }
 </head>
 <body>
 <div id="app">
-  <div id="controls-top">
-    <button onclick="document.getElementById('fscene').click()">Load Scene</button>
-    <input type="file" id="fscene" accept=".glb,.gltf">
-    <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
-    <input type="file" id="fcam" accept=".json" style="display:none">
-    <button id="btn-reset">Reset All</button>
-    <div class="sep"></div>
-    <div class="cg">
-      <label>Focus D:</label>
-      <button class="sld-btn" onclick="nudge('sld-d',-1)">−</button>
-      <input type="range" id="sld-d" min="0.1" max="10" step="0.1" value="3">
-      <button class="sld-btn" onclick="nudge('sld-d',1)">+</button>
-      <span class="val" id="vd">3.0</span>
-      <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
-    </div>
-    <div class="sep"></div>
-    <div class="cg">
-      <label>Prewarp:</label>
-      <button class="sld-btn" onclick="nudge('sld-pw',-1)">−</button>
-      <input type="range" id="sld-pw" min="0.25" max="4.0" step="0.01" value="1.0">
-      <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
-      <span class="val" id="vpw">1.00x</span>
-    </div>
-    <div class="sep"></div>
-    <div class="cg">
-      <label>Zoom:</label>
-      <button class="sld-btn" onclick="nudge('sld-z',-1)">−</button>
-      <input type="range" id="sld-z" min="0.5" max="2.0" step="0.01" value="1.0">
-      <button class="sld-btn" onclick="nudge('sld-z',1)">+</button>
-      <span class="val" id="vz">1.00x</span>
-    </div>
-    <button id="btn-warp">Warp</button>
-    <button id="btn-play">&#9654; Play</button>
-  </div>
-
   <div id="viewport-container">
     <canvas id="main-canvas"></canvas>
+
+    <!-- Top row: DOM overlay panels (info + controls) -->
+    <div id="panel-info">
+      <div class="panel-title">Selection</div>
+      <span id="selinfo">Click object or camera in any panel</span>
+      <div id="obj-depth-row" class="cg" style="margin-top:8px;display:none">
+        <label>Obj Depth:</label>
+        <button class="sld-btn" onclick="nudge('sld-od',-1)">&minus;</button>
+        <input type="range" id="sld-od" min="-10" max="30" step="0.1" value="3" disabled>
+        <button class="sld-btn" onclick="nudge('sld-od',1)">+</button>
+        <span class="val" id="vod">&mdash;</span>
+      </div>
+      <div id="cam-detail" style="display:none;margin-top:8px;font-family:monospace;font-size:11px;line-height:1.6;color:#ccc;"></div>
+    </div>
+
+    <div id="panel-controls">
+      <div class="panel-title">Controls</div>
+      <div class="ctrl-row">
+        <button onclick="document.getElementById('fscene').click()">Load Scene</button>
+        <input type="file" id="fscene" accept=".glb,.gltf">
+        <button onclick="openCamDialog()">Set Camera</button>
+        <input type="file" id="fcam" accept=".json" style="display:none">
+        <button id="btn-reset">Reset All</button>
+      </div>
+      <div class="ctrl-row">
+        <label>Focus D:</label>
+        <button class="sld-btn" onclick="nudge('sld-d',-1)">&minus;</button>
+        <input type="range" id="sld-d" min="0.1" max="10" step="0.1" value="3">
+        <button class="sld-btn" onclick="nudge('sld-d',1)">+</button>
+        <span class="val" id="vd">3.0</span>
+        <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
+      </div>
+      <div class="ctrl-row">
+        <label>Prewarp:</label>
+        <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
+        <input type="range" id="sld-pw" min="0.25" max="4.0" step="0.01" value="1.0">
+        <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
+        <span class="val" id="vpw">1.00x</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Zoom:</label>
+        <button class="sld-btn" onclick="nudge('sld-z',-1)">&minus;</button>
+        <input type="range" id="sld-z" min="0.5" max="2.0" step="0.01" value="1.0">
+        <button class="sld-btn" onclick="nudge('sld-z',1)">+</button>
+        <span class="val" id="vz">1.00x</span>
+      </div>
+      <div class="ctrl-row">
+        <label>BEV Clip:</label>
+        <button class="sld-btn" onclick="nudge('sld-clip',-1)">&minus;</button>
+        <input type="range" id="sld-clip" min="0.3" max="8.0" step="0.1" value="2.0">
+        <button class="sld-btn" onclick="nudge('sld-clip',1)">+</button>
+        <span class="val" id="vclip">2.0</span>
+      </div>
+      <div class="ctrl-row">
+        <button id="btn-warp">Warp</button>
+        <button id="btn-play">&#9654; Play</button>
+      </div>
+    </div>
+
+    <!-- Panel labels (positioned by panels.js) -->
+    <div class="plbl" id="lbl-bev" style="color:#ffb74d">&#9678; Bird's Eye</div>
     <div class="plbl" id="lbl-m" style="color:#4fc3f7">&#9678; Main Camera</div>
-    <div class="plbl" id="lbl-s" style="color:#81c784">&#9678; Secondary Camera</div>
-    <div class="plbl" id="lbl-c" style="color:#e94560">&#9678; Combined — 1.00x</div>
-    <div class="panel-sep-v" id="sep-v"></div>
+    <div class="plbl" id="lbl-s1" style="color:#81c784">&#9678; Secondary 1</div>
+    <div class="plbl" id="lbl-s2" style="color:#fff176">&#9678; Secondary 2</div>
+    <div class="plbl" id="lbl-c" style="color:#e94560">&#9678; Combined &mdash; 1.00x</div>
+
+    <!-- Separators -->
     <div class="panel-sep-h" id="sep-h"></div>
+    <div class="panel-sep-v" id="sep-v1"></div>
+    <div class="panel-sep-v" id="sep-v2"></div>
+    <div class="panel-sep-v" id="sep-v3"></div>
+
+    <!-- AF selection rectangle overlay -->
     <div id="af-rect" style="display:none;position:absolute;border:2px solid #e94560;background:rgba(233,69,96,.15);pointer-events:none;z-index:15;"></div>
   </div>
-
-  <div id="controls-bottom">
-    <span id="selinfo">Click object in Main panel</span>
-    <div class="sep"></div>
-    <div class="cg">
-      <label>Obj Depth:</label>
-      <button class="sld-btn" onclick="nudge('sld-od',-1)">−</button>
-      <input type="range" id="sld-od" min="-10" max="30" step="0.1" value="3" disabled>
-      <button class="sld-btn" onclick="nudge('sld-od',1)">+</button>
-      <span class="val" id="vod">—</span>
-    </div>
-  </div>
 </div>
+
+<!-- Camera Settings Dialog -->
 <div class="modal-overlay" id="cam-dialog">
   <div class="modal">
     <h2>Camera Parameters</h2>
@@ -201,23 +236,10 @@ input[type="file"] { display: none; }
   </div>
 </div>
 <div id="hmat"></div>
-<div id="status">Loading…</div>
+<div id="status">Loading&hellip;</div>
 
-<!--
-  WebGL Pre-flight Check
-  ======================
-  This plain (non-module) script runs BEFORE the importmap and ES module scripts.
-  It attempts to create a WebGL context on a throwaway canvas. If WebGL is
-  unavailable (common on macOS Chrome with GPU acceleration disabled), it shows
-  a full-screen error overlay with step-by-step fix instructions and throws
-  to prevent the module scripts from loading (which would fail with cryptic errors).
-
-  Why a separate <script> tag?
-  - ES module scripts are deferred by default; this must run synchronously first.
-  - If WebGL is missing, we want a clear error BEFORE Three.js tries to initialize.
--->
+<!-- WebGL Pre-flight Check (must run before module imports) -->
 <script>
-// Pre-flight WebGL check — must run before module imports
 (function() {
     var c = document.createElement('canvas');
     var gl = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl');
@@ -233,54 +255,24 @@ input[type="file"] { display: none; }
             '<ol style="line-height:2;margin:0 0 16px;padding-left:20px;">' +
             '<li>Go to <code style="background:#0a0f1e;padding:2px 6px;border-radius:3px;">chrome://settings</code> &rarr; <b>System</b></li>' +
             '<li>Enable <b>"Use graphics acceleration when available"</b></li>' +
-            '<li>Restart Chrome</li>' +
-            '</ol>' +
+            '<li>Restart Chrome</li></ol>' +
             '<h3 style="color:#4fc3f7;margin:0 0 8px;">Still not working?</h3>' +
             '<ol style="line-height:2;margin:0;padding-left:20px;">' +
             '<li>Go to <code style="background:#0a0f1e;padding:2px 6px;border-radius:3px;">chrome://flags/#use-angle</code> &rarr; set to <b>OpenGL</b></li>' +
             '<li>Go to <code style="background:#0a0f1e;padding:2px 6px;border-radius:3px;">chrome://flags/#enable-webgl</code> &rarr; set to <b>Enabled</b></li>' +
-            '<li>Restart Chrome</li>' +
-            '</ol>' +
-            '</div>';
+            '<li>Restart Chrome</li></ol></div>';
         document.body.appendChild(msg);
         throw new Error('WebGL not available');
     }
 })();
 </script>
+
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js?v=29" } }
 </script>
-<!--
-  Main Application Module
-  =======================
-  This is the application entry point. It:
-    1. Sets up global error handlers (surface errors in the status HUD)
-    2. Imports all dependencies (Three.js, addons, 8 src modules)
-    3. Initializes renderer, cameras, render targets, scene
-    4. Wires modules together via dependency injection
-    5. Binds UI controls to state
-    6. Runs the per-frame render loop
 
-  Module dependency graph:
-    math.js ← homography.js ← index.html (refreshH)
-    camera.js ← index.html (initCams, DEF_CAM)
-    shader.js ← index.html (matWarp creation)
-    panels.js ← index.html (layout) ← interaction.js, autofocus.js
-    loader.js ← index.html (scene loading)
-    camera-dialog.js ← index.html (dialog wiring)
-    interaction.js ← index.html (selection/drag)
-    autofocus.js ← index.html (AF system)
-
-  Shared state object S is the single source of truth for all mutable app state.
-  Modules receive S (or specific getters) via their init functions — they never
-  import it directly.
--->
 <script type="module">
-/*
- * Global error handlers — catch uncaught exceptions and unhandled promise
- * rejections, display them in the status HUD (bottom-right corner).
- * Critical for debugging on macOS/Safari where dev console may not be open.
- */
+/* ── Error Handlers ── */
 window.addEventListener('error', e => {
     const el = document.getElementById('status');
     if (el) el.textContent = `ERR: ${e.message} @ ${e.filename}:${e.lineno}`;
@@ -292,30 +284,24 @@ window.addEventListener('unhandledrejection', e => {
 
 /* ── Module Imports ── */
 import * as THREE from 'three';
-import { GLTFLoader } from './lib/GLTFLoader.js?v=30';   // glTF 2.0 loader
-import { DRACOLoader } from './lib/DRACOLoader.js?v=30';  // Draco mesh compression
-import { M } from './src/math.js';                        // 3x3 matrix operations
-import { SCENE_CAM, DEF_CAM } from './src/camera.js';     // Default camera parameters
-import { computeH, zoomMatrix } from './src/homography.js'; // Homography + zoom math
+import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
+import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
+import { M } from './src/math.js';
+import { SCENE_CAM, DEF_CAM } from './src/camera.js';
+import { computeH, zoomMatrix } from './src/homography.js';
 import { initLoader, loadScene, getLoaderState, resetPositions } from './src/loader.js';
 import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './src/camera-dialog.js';
-import { createWarpMaterial } from './src/shader.js';      // Warp shader material factory
-import { createPanelManager } from './src/panels.js';      // Panel layout manager
-import { initInteraction } from './src/interaction.js';    // Object selection + drag
-import { initAutofocus } from './src/autofocus.js';        // Autofocus rectangle + depth
+import { createWarpMaterial } from './src/shader.js';
+import { createPanelManager } from './src/panels.js';
+import { initInteraction } from './src/interaction.js';
+import { initAutofocus } from './src/autofocus.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
 function log(msg) { $('status').textContent = msg; console.log('[VS]', msg); }
 log('Three.js loaded');
 
-/**
- * Nudge a range slider by ±0.1, clamped to [min, max].
- * Exposed on window so inline onclick="nudge(...)" in HTML buttons can call it.
- * Dispatches 'input' event so the slider's oninput handler fires.
- * @param {string} id  - DOM id of the <input type="range">
- * @param {number} dir - Direction: +1 or -1
- */
+/** Nudge a slider by ±0.1, clamped to [min, max]. */
 window.nudge = function(id, dir) {
     const s = $(id);
     if (s.disabled) return;
@@ -325,44 +311,33 @@ window.nudge = function(id, dir) {
 };
 
 /* ================================================================
-   STATE — Single source of truth for all mutable application state.
-   Passed to modules via dependency injection.
+   STATE
    ================================================================ */
 const S = {
-    warp: false,           // Whether homography warp is active in Combined panel
-    zoom: 1.0,             // Current zoom level (0.5 = zoom out, 2.0 = zoom in)
-    prewarpScale: 1.0,     // Pre-warp scale applied to secondary camera before homography
-    depthD: 3.0,           // Focus depth D for the homography plane (meters)
-    sel: null,             // Currently selected Three.js object (or null)
-    dragging: false,       // Whether user is currently dragging an object
-    dragPlane: new THREE.Plane(),   // Plane constraint for object dragging
-    dragOff: new THREE.Vector3(),   // Offset from drag hit point to object origin
-    objs: [],              // Array of selectable scene objects (synced from loader)
-    origPos: new Map(),    // Map<uuid, Vector3> — original positions for reset
-    camParams: null,       // Current camera parameters (set by initCams)
+    warp: false, zoom: 1.0, prewarpScale: 1.0, depthD: 3.0,
+    clipY: 2.0,            // BEV clipping plane height
+    sel: null, selCam: null, // selected object / selected camera name
+    dragging: false,
+    dragPlane: new THREE.Plane(), dragOff: new THREE.Vector3(),
+    objs: [], origPos: new Map(), camParams: null,
 };
 
 /* ================================================================
-   RENDERER SETUP
-   - powerPreference: 'default' (not 'high-performance') for macOS compat
-   - failIfMajorPerformanceCaveat: false — allow software fallback
-   - pixelRatio capped at 2 to limit GPU load on HiDPI displays
-   - autoClear: false — we clear manually per-panel with scissor test
-   - outputColorSpace: sRGB — must NOT be switched mid-frame (breaks macOS Metal)
-   - WebGL context loss handler prevents blank screen on GPU timeout
+   RENDERER
    ================================================================ */
 const canvas = $('main-canvas');
 let renderer;
 try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'default', failIfMajorPerformanceCaveat: false });
 } catch (e) {
-    log(`WebGL failed: ${e.message}. Try chrome://flags → #use-angle → OpenGL`);
+    log(`WebGL failed: ${e.message}`);
     throw e;
 }
-canvas.addEventListener('webglcontextlost', (e) => { log('WebGL context lost — GPU may be overloaded'); e.preventDefault(); });
+canvas.addEventListener('webglcontextlost', (e) => { log('WebGL context lost'); e.preventDefault(); });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setClearColor(0x1a1a2e);
 renderer.autoClear = false;
+renderer.localClippingEnabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
@@ -374,22 +349,21 @@ const dLight = new THREE.DirectionalLight(0xffffff, 0.8);
 dLight.position.set(5, 8, 5);
 scene.add(dLight);
 
-/* ── Camera Construction ──
- * RT_W × RT_H defines the render target resolution (16:9).
- * Both cameras use PerspectiveCamera with FOV derived from intrinsics:
- *   fov = 2 * atan(imageHeight / (2 * fy))
- * This ensures the Three.js projection matches the camera intrinsic matrix K.
- */
+/* ================================================================
+   CAMERAS
+   - mainCam, secCam, sec2Cam: PerspectiveCamera (from intrinsics)
+   - bevCam: OrthographicCamera looking straight down for Bird's Eye
+   - Camera markers: colored indicators on layer 1 (BEV-only)
+   ================================================================ */
 const RT_W = 1920, RT_H = 1080;
-let mainCam, secCam;
+const BEV_SIZE = 6;
+let mainCam, secCam, sec2Cam;
+let bevCam;
+let camMarkers = [];              // Group objects for BEV camera indicators
+const camMarkerMap = new Map();   // Map<Group, camName> for BEV click detection
+const bevClipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), S.clipY); // clip above Y
 
-/**
- * Create a PerspectiveCamera whose vertical FOV matches the given intrinsics.
- * The FOV is derived from fy (vertical focal length in pixels) and image height.
- * @param {{ fx: number, fy: number, cx: number, cy: number }} intrinsics
- * @param {number[]} imageSize - [width, height] in pixels
- * @returns {THREE.PerspectiveCamera}
- */
+/** Create a PerspectiveCamera from intrinsic parameters. */
 function makeCamFromIntrinsics(intrinsics, imageSize) {
     const { fy } = intrinsics;
     const [, h] = imageSize;
@@ -397,55 +371,159 @@ function makeCamFromIntrinsics(intrinsics, imageSize) {
     return new THREE.PerspectiveCamera(fov, 4/3, 0.01, 500);
 }
 
+/** Create a colored camera marker (sphere + direction line + FOV wedge) for BEV.
+ *  @param {number} color - hex color
+ *  @param {string} label - camera name
+ *  @param {number} hfovRad - horizontal FOV in radians (for accurate wedge)
+ */
+function createCamMarker(color, label, hfovRad) {
+    const group = new THREE.Group();
+    group.userData.camLabel = label;
+    // Clickable sphere — large radius, layer 0+1 so raycaster can hit it
+    const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 16, 16),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false })
+    );
+    group.add(sphere);
+    // Direction line
+    const lineLen = 3.0;
+    const pts = [new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-lineLen)];
+    group.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color })
+    ));
+    // FOV wedge — computed from actual horizontal FOV
+    const halfW = lineLen * Math.tan((hfovRad || 0.6) / 2);
+    const wedge = [
+        new THREE.Vector3(-halfW, 0, -lineLen),
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(halfW, 0, -lineLen),
+    ];
+    group.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(wedge),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 })
+    ));
+    // Set all children to layer 1 for BEV-only visibility
+    group.traverse(c => c.layers.set(1));
+    return group;
+}
+
+/** Compute horizontal FOV in radians from intrinsics. */
+function hfovFromIntrinsics(intrinsics, imageSize) {
+    return 2 * Math.atan(imageSize[0] / (2 * intrinsics.fx));
+}
+
 /**
- * Initialize (or re-initialize) both cameras from camera parameters.
- *
- * Main camera is placed at SCENE_CAM world position/rotation.
- * Secondary camera is placed relative to main camera using its extrinsics:
- *   worldPos = mainCam.quaternion * relativePosition + mainCam.position
- *   worldRot = mainCam.quaternion * relativeQuaternion
- *
- * @param {object} p - Camera params { main_camera, secondary_camera }
+ * Initialize all cameras from camera parameters.
+ * Also (re)creates BEV camera and camera markers.
  */
 function initCams(p) {
     if (mainCam) { scene.remove(mainCam); scene.remove(secCam); }
+    if (sec2Cam) scene.remove(sec2Cam);
+    camMarkers.forEach(m => scene.remove(m));
+    camMarkers = [];
     S.camParams = p;
-    mainCam = makeCamFromIntrinsics(p.main_camera.intrinsics, p.main_camera.image_size);
-    mainCam.position.set(...SCENE_CAM.position);
-    const [rx, ry, rz] = SCENE_CAM.rotation_euler_deg.map(d => d * Math.PI / 180);
-    mainCam.rotation.set(rx, ry, rz, 'ZYX');
 
+    // Main camera: SCENE_CAM provides base position/rotation,
+    // main_camera.extrinsics adds offset (usually identity, but editable)
+    mainCam = makeCamFromIntrinsics(p.main_camera.intrinsics, p.main_camera.image_size);
+    const basePos = new THREE.Vector3(...SCENE_CAM.position);
+    const [rx, ry, rz] = SCENE_CAM.rotation_euler_deg.map(d => d * Math.PI / 180);
+    const baseQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'ZYX'));
+    // Apply main camera extrinsics offset (relative to scene camera)
+    const mainOff = new THREE.Vector3(...(p.main_camera.extrinsics?.position || [0,0,0]));
+    mainCam.position.copy(mainOff.applyQuaternion(baseQuat).add(basePos));
+    const mainRotDeg = p.main_camera.extrinsics?.rotation_euler_deg || [0,0,0];
+    const mainRotRad = mainRotDeg.map(d => d * Math.PI / 180);
+    const mainRelQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(mainRotRad[0], mainRotRad[1], mainRotRad[2], 'ZYX'));
+    mainCam.quaternion.copy(baseQuat).multiply(mainRelQuat);
+    scene.add(mainCam);
+
+    // Secondary camera 1 (relative to main camera)
     secCam = makeCamFromIntrinsics(p.secondary_camera.intrinsics, p.secondary_camera.image_size);
     const relPos = new THREE.Vector3(...p.secondary_camera.extrinsics.position);
-    const worldPos = relPos.applyQuaternion(mainCam.quaternion).add(mainCam.position);
-    secCam.position.copy(worldPos);
+    secCam.position.copy(relPos.clone().applyQuaternion(mainCam.quaternion).add(mainCam.position));
     const relRot = p.secondary_camera.extrinsics.rotation_euler_deg.map(d => d * Math.PI / 180);
     const relQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(relRot[0], relRot[1], relRot[2], 'ZYX'));
     secCam.quaternion.copy(mainCam.quaternion).multiply(relQuat);
-
-    scene.add(mainCam);
     scene.add(secCam);
+
+    // Secondary camera 2 (relative to main camera)
+    if (p.secondary_camera_2) {
+        sec2Cam = makeCamFromIntrinsics(p.secondary_camera_2.intrinsics, p.secondary_camera_2.image_size);
+        const relPos2 = new THREE.Vector3(...p.secondary_camera_2.extrinsics.position);
+        sec2Cam.position.copy(relPos2.clone().applyQuaternion(mainCam.quaternion).add(mainCam.position));
+        const relRot2 = p.secondary_camera_2.extrinsics.rotation_euler_deg.map(d => d * Math.PI / 180);
+        const relQuat2 = new THREE.Quaternion().setFromEuler(new THREE.Euler(relRot2[0], relRot2[1], relRot2[2], 'ZYX'));
+        sec2Cam.quaternion.copy(mainCam.quaternion).multiply(relQuat2);
+        scene.add(sec2Cam);
+    }
+
+    // Bird's Eye camera (orthographic, looking straight down)
+    if (!bevCam) {
+        bevCam = new THREE.OrthographicCamera(-BEV_SIZE, BEV_SIZE, BEV_SIZE, -BEV_SIZE, 0.1, 100);
+        bevCam.layers.enable(1);  // see camera markers on layer 1
+    }
+    bevCam.position.set(mainCam.position.x, 20, mainCam.position.z);
+    bevCam.lookAt(mainCam.position.x, 0, mainCam.position.z);
+
+    // Camera markers (visible only in BEV via layer 1) — FOV wedge matches actual HFOV
+    camMarkerMap.clear();
+
+    const hfov1 = hfovFromIntrinsics(p.main_camera.intrinsics, p.main_camera.image_size);
+    const mk1 = createCamMarker(0x4fc3f7, 'Main Camera', hfov1);
+    scene.add(mk1);
+    camMarkers.push(mk1);
+    camMarkerMap.set(mk1, 'Main Camera');
+
+    const hfov2 = hfovFromIntrinsics(p.secondary_camera.intrinsics, p.secondary_camera.image_size);
+    const mk2 = createCamMarker(0x81c784, 'Secondary 1', hfov2);
+    scene.add(mk2);
+    camMarkers.push(mk2);
+    camMarkerMap.set(mk2, 'Secondary 1');
+
+    if (sec2Cam) {
+        const hfov3 = hfovFromIntrinsics(p.secondary_camera_2.intrinsics, p.secondary_camera_2.image_size);
+        const mk3 = createCamMarker(0xfff176, 'Secondary 2', hfov3);
+        scene.add(mk3);
+        camMarkers.push(mk3);
+        camMarkerMap.set(mk3, 'Secondary 2');
+    }
 }
 initCams(DEF_CAM);
 
-/* ── Render Targets ──
- * rtM / rtS: Main and Secondary camera renders at full RT resolution (1920x1080).
- *            Used as texture inputs to the Combined panel's warp shader.
- * rtDepth:   Depth pass output for Autofocus. Uses default UnsignedByteType
- *            (not FloatType) for cross-platform GPU compatibility.
- * depthMat:  MeshDepthMaterial with RGBADepthPacking — encodes depth as RGBA
- *            bytes for reliable readback via readRenderTargetPixels().
- */
+/** Update BEV camera aspect to match its panel shape. */
+function updateBevAspect() {
+    if (!bevCam || !P.bev.w) return;
+    const aspect = P.bev.w / P.bev.h;
+    bevCam.left = -BEV_SIZE * aspect;
+    bevCam.right = BEV_SIZE * aspect;
+    bevCam.updateProjectionMatrix();
+}
+
+/** Sync camera marker positions/rotations to their cameras each frame. */
+function syncCamMarkers() {
+    if (camMarkers[0] && mainCam) {
+        camMarkers[0].position.copy(mainCam.position);
+        camMarkers[0].quaternion.copy(mainCam.quaternion);
+    }
+    if (camMarkers[1] && secCam) {
+        camMarkers[1].position.copy(secCam.position);
+        camMarkers[1].quaternion.copy(secCam.quaternion);
+    }
+    if (camMarkers[2] && sec2Cam) {
+        camMarkers[2].position.copy(sec2Cam.position);
+        camMarkers[2].quaternion.copy(sec2Cam.quaternion);
+    }
+}
+
+/* ── Render Targets ── */
 const rtM = new THREE.WebGLRenderTarget(RT_W, RT_H);
 const rtS = new THREE.WebGLRenderTarget(RT_W, RT_H);
 const rtDepth = new THREE.WebGLRenderTarget(RT_W, RT_H);
 const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 
-/* ── Display Quad + Warp Material ──
- * A fullscreen quad rendered with an OrthographicCamera in a separate scene (dScene).
- * The warp ShaderMaterial (matWarp) samples rtM/rtS textures and applies the
- * inverse homography transform in pixel space. See src/shader.js for details.
- */
+/* ── Display Quad + Warp Material ── */
 const dScene = new THREE.Scene();
 const dCam = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1);
 const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
@@ -454,10 +532,6 @@ const matWarp = createWarpMaterial(THREE, rtM.texture, rtS.texture, RT_W, RT_H);
 
 /* ================================================================
    SCENE LOADING
-   Initializes the glTF loader (with Draco support for compressed meshes)
-   and attempts to load the default bedroom scene. Falls back to a
-   procedurally generated scene (5 colored primitives + floor) if the
-   asset fails to load or takes longer than 5 seconds.
    ================================================================ */
 initLoader({ scene, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/', ambientLight: aLight, directionalLight: dLight });
 
@@ -493,36 +567,146 @@ doLoadScene('assets/bedroom.glb', true);
 setTimeout(() => { if (!getLoaderState().loaded) { addFallback(); log('Fallback scene'); } }, 5000);
 
 /* ================================================================
-   PANELS — Three-panel layout manager.
-   Returns GL-coordinate rects (P.m, P.s, P.c) for Main, Secondary,
-   and Combined panels. The onCameraAspect callback syncs both cameras'
-   aspect ratios to match the panel dimensions on each layout change.
+   PANELS
    ================================================================ */
 const { P, layoutPanels, getPanel, toNDC } = createPanelManager({
     $, RT_W, RT_H,
     onCameraAspect: (aspect) => {
         if (mainCam) { mainCam.aspect = aspect; mainCam.updateProjectionMatrix(); }
         if (secCam)  { secCam.aspect = aspect; secCam.updateProjectionMatrix(); }
+        if (sec2Cam) { sec2Cam.aspect = aspect; sec2Cam.updateProjectionMatrix(); }
     },
 });
 
 /* ================================================================
-   INTERACTION — Object selection and depth-plane drag.
-   Injects getMainCam/getSecCam as closures so the interaction module
-   always uses the current camera (which may be re-created by initCams).
-   Returns sel() for programmatic selection and syncDepthSlider() for
-   updating the Obj Depth slider after external position changes.
+   INTERACTION
    ================================================================ */
+
+/** Compute depth of a 3D point along main camera's look-at direction. */
+function depthToMainCam(worldPos) {
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(mainCam.quaternion);
+    return new THREE.Vector3().copy(worldPos).sub(mainCam.position).dot(dir);
+}
+
+/** Generate an inline editable number input. */
+function camInp(id, val, step) {
+    return `<input type="number" class="cam-inp" id="${id}" value="${val}" step="${step || 0.1}">`;
+}
+
+/** Apply camera parameter edits from the info panel inputs. */
+function applyCamEdit() {
+    const v = id => { const el = $(id); return el ? parseFloat(el.value) || 0 : 0; };
+    const selName = S.selCam;
+    if (!selName || !S.camParams) return;
+
+    if (selName === 'Main Camera') {
+        // Main camera: absolute pose → update SCENE_CAM
+        SCENE_CAM.position = [v('ci-px'), v('ci-py'), v('ci-pz')];
+        SCENE_CAM.rotation_euler_deg = [v('ci-rx'), v('ci-ry'), v('ci-rz')];
+    } else {
+        // Secondary cameras: relative pose → update extrinsics
+        const key = selName === 'Secondary 1' ? 'secondary_camera' : 'secondary_camera_2';
+        const ext = S.camParams[key]?.extrinsics;
+        if (ext) {
+            ext.position = [v('ci-px'), v('ci-py'), v('ci-pz')];
+            ext.rotation_euler_deg = [v('ci-rx'), v('ci-ry'), v('ci-rz')];
+        }
+    }
+    initCams(S.camParams);
+    layoutPanels();
+    updateBevAspect();
+    refreshH();
+}
+
+/** Called when selection changes — updates info panel for objects or cameras. */
+function onSelChange(type, name) {
+    const depthRow = $('obj-depth-row');
+    const camDetail = $('cam-detail');
+    if (type === 'object') {
+        depthRow.style.display = 'flex';
+        camDetail.style.display = 'block';
+        const obj = S.sel;
+        if (obj) {
+            const c = new THREE.Vector3();
+            new THREE.Box3().setFromObject(obj).getCenter(c);
+            const depth = depthToMainCam(c);
+            const p = obj.position;
+            $('selinfo').textContent = `Object: ${name}`;
+            camDetail.innerHTML =
+                `<span style="color:#e94560">Position</span>: (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})<br>` +
+                `<span style="color:#e94560">Depth</span> to Main Cam: <b>${depth.toFixed(2)}</b>`;
+        }
+    } else if (type === 'camera') {
+        depthRow.style.display = 'none';
+        camDetail.style.display = 'block';
+
+        let cam, posLabel, pos, rot;
+        const isMain = (name === 'Main Camera');
+
+        if (isMain) {
+            cam = mainCam;
+            posLabel = 'Absolute Pose';
+            // Main camera: show absolute world position and orientation
+            pos = SCENE_CAM.position;
+            rot = SCENE_CAM.rotation_euler_deg;
+        } else {
+            const key = (name === 'Secondary 1') ? 'secondary_camera' : 'secondary_camera_2';
+            cam = (name === 'Secondary 1') ? secCam : sec2Cam;
+            posLabel = 'Relative Pose (to Main)';
+            const ext = S.camParams?.[key]?.extrinsics;
+            pos = ext?.position || [0,0,0];
+            rot = ext?.rotation_euler_deg || [0,0,0];
+        }
+
+        $('selinfo').innerHTML = `Camera: <b style="color:#4fc3f7">${name}</b>`;
+
+        let html = `<div style="color:#4fc3f7;font-size:10px;text-transform:uppercase;margin-bottom:4px">${posLabel}</div>`;
+        // Position row
+        html += `<div style="margin-bottom:3px">`;
+        html += `<span class="cam-lbl">x</span>${camInp('ci-px', pos[0].toFixed(2))} `;
+        html += `<span class="cam-lbl">y</span>${camInp('ci-py', pos[1].toFixed(2))} `;
+        html += `<span class="cam-lbl">z</span>${camInp('ci-pz', pos[2].toFixed(2))}`;
+        html += `</div>`;
+        // Orientation row
+        html += `<div style="margin-bottom:5px">`;
+        html += `<span class="cam-lbl">rx</span>${camInp('ci-rx', rot[0].toFixed(1), 0.5)} `;
+        html += `<span class="cam-lbl">ry</span>${camInp('ci-ry', rot[1].toFixed(1), 0.5)} `;
+        html += `<span class="cam-lbl">rz</span>${camInp('ci-rz', rot[2].toFixed(1), 0.5)}`;
+        html += `</div>`;
+        // Info line
+        if (cam) {
+            const i = isMain ? S.camParams?.main_camera?.intrinsics : (name === 'Secondary 1' ? S.camParams?.secondary_camera?.intrinsics : S.camParams?.secondary_camera_2?.intrinsics);
+            html += `<span style="color:#888;font-size:10px">FOV ${cam.fov.toFixed(1)}°`;
+            if (i) html += ` · fx=${i.fx} fy=${i.fy}`;
+            if (!isMain) html += ` · dist=${cam.position.distanceTo(mainCam.position).toFixed(3)}`;
+            html += `</span>`;
+        }
+
+        camDetail.innerHTML = html;
+
+        // Bind input change handlers
+        ['ci-px','ci-py','ci-pz','ci-rx','ci-ry','ci-rz'].forEach(id => {
+            const el = $(id);
+            if (el) el.addEventListener('input', applyCamEdit);
+        });
+    } else {
+        $('selinfo').textContent = 'Click object or camera in any panel';
+        depthRow.style.display = 'none';
+        camDetail.style.display = 'none';
+    }
+}
+
 const { sel, syncDepthSlider } = initInteraction({
     THREE, canvas, scene, S, P,
-    getMainCam: () => mainCam, getSecCam: () => secCam,
+    getMainCam: () => mainCam, getSecCam: () => secCam, getSecCam2: () => sec2Cam,
+    getBevCam: () => bevCam,
+    getCamMarkers: () => camMarkerMap,
+    onSelChange,
     getPanel, toNDC, $,
 });
 
 /* ================================================================
-   AUTOFOCUS — Interactive rectangle selection + depth sampling.
-   When AF completes, the onFocus callback updates the Focus D state,
-   slider, display value, and recomputes the homography.
+   AUTOFOCUS
    ================================================================ */
 initAutofocus({
     $, canvas, renderer, scene, depthMat, rtDepth, P, RT_W, RT_H,
@@ -537,31 +721,23 @@ initAutofocus({
 
 /* ================================================================
    UI CONTROLS
-   Each slider/button updates the corresponding field in state S,
-   updates the display value, and calls refreshH() to recompute
-   the homography and update shader uniforms.
    ================================================================ */
-
-/* Focus D slider: controls the depth of the homography focal plane */
 $('sld-d').oninput = function () { S.depthD = +this.value; $('vd').textContent = S.depthD.toFixed(1); refreshH(); };
-
-/* Prewarp scale slider: applies a pre-scale to secondary camera */
 $('sld-pw').oninput = function () { S.prewarpScale = +this.value; $('vpw').textContent = S.prewarpScale.toFixed(2) + 'x'; refreshH(); };
-
-/* Zoom slider: controls zoom level in Combined panel.
- * Zoom ≤ 1 shows the secondary (wider FOV) camera.
- * Zoom > 1 shows the main (narrower FOV) camera. */
 $('sld-z').oninput = function () {
     S.zoom = +this.value;
     $('vz').textContent = S.zoom.toFixed(2) + 'x';
     const src = S.zoom <= 1 ? 'Sec' : 'Main';
-    $('lbl-c').textContent = `\u25CE Combined — ${src} @ ${S.zoom.toFixed(2)}x`;
+    $('lbl-c').textContent = `\u25CE Combined \u2014 ${src} @ ${S.zoom.toFixed(2)}x`;
     refreshH();
 };
 
-/* Warp toggle: when ON, the Combined panel applies the inverse homography H⁻¹
- * to align the secondary camera image with the main camera's perspective.
- * When OFF, only the prewarp scale S is applied (identity if prewarp = 1.0). */
+$('sld-clip').oninput = function () {
+    S.clipY = +this.value;
+    $('vclip').textContent = S.clipY.toFixed(1);
+    bevClipPlane.constant = S.clipY;
+};
+
 $('btn-warp').onclick = () => {
     S.warp = !S.warp;
     $('btn-warp').classList.toggle('active', S.warp);
@@ -569,9 +745,6 @@ $('btn-warp').onclick = () => {
     refreshH();
 };
 
-/* Play button: animates zoom 0.5 → 2.0 → 0.5 continuously using
- * requestAnimationFrame. Useful for visualizing how the homography
- * warp transitions between the two camera feeds across zoom levels. */
 let playAnim = null;
 $('btn-play').onclick = () => {
     if (playAnim) { cancelAnimationFrame(playAnim); playAnim = null; $('btn-play').classList.remove('active'); $('btn-play').textContent = '\u25B6 Play'; return; }
@@ -582,17 +755,13 @@ $('btn-play').onclick = () => {
         if (S.zoom >= 2.0) { S.zoom = 2.0; dir = -1; }
         if (S.zoom <= 0.5) { S.zoom = 0.5; dir = 1; }
         $('sld-z').value = S.zoom; $('vz').textContent = S.zoom.toFixed(2) + 'x';
-        $('lbl-c').textContent = `\u25CE Combined — ${S.zoom <= 1 ? 'Sec' : 'Main'} @ ${S.zoom.toFixed(2)}x`;
+        $('lbl-c').textContent = `\u25CE Combined \u2014 ${S.zoom <= 1 ? 'Sec' : 'Main'} @ ${S.zoom.toFixed(2)}x`;
         refreshH();
         playAnim = requestAnimationFrame(tick);
     }
     playAnim = requestAnimationFrame(tick);
 };
 
-/* Object depth slider: moves the selected object along the main camera's
- * view direction (Z-axis in camera space). Computes the current depth as
- * the dot product of (objectCenter - camPosition) with the view direction,
- * then translates by the delta to reach the target depth. */
 $('sld-od').oninput = function () {
     if (!S.sel) return;
     const target = +this.value; $('vod').textContent = target.toFixed(1);
@@ -601,18 +770,15 @@ $('sld-od').oninput = function () {
     S.sel.position.addScaledVector(dir, target - c.sub(mainCam.position).dot(dir));
 };
 
-/* Reset all: restore objects to original positions, deselect, reset all
- * sliders/state to defaults, recompute homography. */
 $('btn-reset').onclick = () => {
     resetPositions(); sel(null);
     S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
     S.zoom = 1; $('sld-z').value = 1; $('vz').textContent = '1.00x';
     S.warp = false; $('btn-warp').classList.remove('active'); $('btn-warp').textContent = 'Warp';
-    $('lbl-c').textContent = '\u25CE Combined — 1.00x';
+    $('lbl-c').textContent = '\u25CE Combined \u2014 1.00x';
     refreshH(); log('Reset done');
 };
 
-/* File inputs: Load Scene reads a .glb/.gltf file, Load Camera reads a .json file */
 $('fscene').onchange = function () { if (this.files[0]) doLoadScene(URL.createObjectURL(this.files[0])); };
 $('fcam').onchange = function () {
     if (!this.files[0]) return;
@@ -625,48 +791,27 @@ $('fcam').onchange = function () {
     r.readAsText(this.files[0]);
 };
 
-/* ── Camera Settings Dialog ──
- * Live-editing: any input change immediately re-initializes cameras
- * and recomputes homography via the onApply callback. */
+/* ── Camera Settings Dialog ── */
 const camDialogEl = $('cam-dialog');
 bindDialog(camDialogEl, {
     onApply: ({ camParams, sceneCam }) => {
         SCENE_CAM.position = sceneCam.position;
         SCENE_CAM.rotation_euler_deg = sceneCam.rotation_euler_deg;
-        initCams(camParams); layoutPanels(); refreshH(); log('Camera params updated');
+        initCams(camParams); layoutPanels(); updateBevAspect(); refreshH(); log('Camera params updated');
     },
 });
 window.openCamDialog = function() { renderCamDialog($('cam-params-content'), { camParams: S.camParams, sceneCam: SCENE_CAM }); camDialogEl.classList.add('open'); };
 window.closeCamDialog = function() { camDialogEl.classList.remove('open'); };
 
 /* ================================================================
-   HOMOGRAPHY COMPUTATION & DISPLAY
-   refreshH() is the central update function called whenever any
-   parameter changes (depth, zoom, prewarp, warp toggle, cameras).
-
-   Pipeline:
-     1. Compute raw homography H at current depth D
-     2. Compute prewarp scale matrix S
-     3. Update shader uniforms:
-        - Warp ON:  uHi = H⁻¹  (S is fully compensated in the math)
-        - Warp OFF: uHi = S     (just apply prewarp scale visually)
-     4. Compute H_effective for the HUD display:
-        - Warp ON:  H_eff = Z⁻¹ · H  (zoom inverse × homography)
-        - Warp OFF: H_eff = Z⁻¹ · S⁻¹ (zoom inverse × prewarp inverse)
-     5. Display H_eff as a formatted 3×3 matrix in the top-right HUD
+   HOMOGRAPHY
    ================================================================ */
-
-/**
- * Render a 3×3 matrix as a formatted string in the HUD overlay.
- * @param {number[]} H - 9-element row-major matrix
- * @param {string} [label] - Display label above the matrix
- */
 function displayH(H, label) {
     const f = v => (v >= 0 ? ' ' : '') + v.toFixed(4);
     $('hmat').innerHTML = `<span style="color:#e94560">${label || 'H'}</span>\n` +
-        `┌ ${f(H[0])}  ${f(H[1])}  ${f(H[2])} ┐\n` +
-        `│ ${f(H[3])}  ${f(H[4])}  ${f(H[5])} │\n` +
-        `└ ${f(H[6])}  ${f(H[7])}  ${f(H[8])} ┘`;
+        `\u250C ${f(H[0])}  ${f(H[1])}  ${f(H[2])} \u2510\n` +
+        `\u2502 ${f(H[3])}  ${f(H[4])}  ${f(H[5])} \u2502\n` +
+        `\u2514 ${f(H[6])}  ${f(H[7])}  ${f(H[8])} \u2518`;
 }
 
 function refreshH() {
@@ -700,30 +845,21 @@ refreshH();
 /* ================================================================
    RESIZE + RENDER LOOP
 
-   Resize handler: updates renderer size and recalculates panel layout.
-
-   Render loop: 5 render passes per frame.
-   ┌──────────────────────────────────────────────────────────────┐
-   │ Pass 1: Render scene → rtM  (main cam, 1920×1080 RT)       │
-   │ Pass 2: Render scene → rtS  (sec cam, 1920×1080 RT)        │
-   │ Pass 3: Render scene → Main panel (direct, panel aspect)    │
-   │ Pass 4: Render scene → Secondary panel (direct, panel asp)  │
-   │ Pass 5: Render warp quad → Combined panel (shader reads     │
-   │         rtM/rtS textures, applies homography warp)          │
-   └──────────────────────────────────────────────────────────────┘
-
-   Why 5 passes instead of 3?
-   - Passes 1-2 render at fixed 16:9 RT resolution for the warp shader
-     (which needs random-access pixel sampling via homography matrix).
-   - Passes 3-4 render directly to screen at panel aspect ratio.
-     We cannot reuse the RT textures for Main/Secondary because:
-     (a) Switching outputColorSpace mid-frame breaks macOS Metal backend
-     (b) RT aspect (16:9) may differ from panel aspect → distortion
-
-   Camera aspect is set to rtAspect for RT passes, then panelAspect
-   for direct passes. updateProjectionMatrix() is called after each change.
+   Render passes per frame:
+     1. scene → rtM   (main cam @ RT res, for Combined warp shader)
+     2. scene → rtS   (sec1 cam @ RT res, for Combined warp shader)
+     3. scene → BEV panel     (bevCam, orthographic top-down)
+     4. scene → Main panel    (mainCam, direct)
+     5. scene → Sec1 panel    (secCam, direct)
+     6. scene → Sec2 panel    (sec2Cam, direct)
+     7. quad  → Combined panel (warp shader)
    ================================================================ */
-function onResize() { const r = $('viewport-container').getBoundingClientRect(); renderer.setSize(r.width, r.height); layoutPanels(); }
+function onResize() {
+    const r = $('viewport-container').getBoundingClientRect();
+    renderer.setSize(r.width, r.height);
+    layoutPanels();
+    updateBevAspect();
+}
 window.addEventListener('resize', onResize);
 onResize();
 
@@ -731,30 +867,51 @@ function frame() {
     requestAnimationFrame(frame);
     mainCam.updateMatrixWorld(true);
     secCam.updateMatrixWorld(true);
+    if (sec2Cam) sec2Cam.updateMatrixWorld(true);
+    syncCamMarkers();
+
     const rtAspect = RT_W / RT_H;
 
-    /* Pass 1-2: Off-screen RT renders for the Combined warp shader */
+    /* Pass 1-2: Off-screen RT renders for Combined warp shader */
     mainCam.aspect = rtAspect; mainCam.updateProjectionMatrix();
     renderer.setRenderTarget(rtM); renderer.clear(); renderer.render(scene, mainCam);
     secCam.aspect = rtAspect; secCam.updateProjectionMatrix();
     renderer.setRenderTarget(rtS); renderer.clear(); renderer.render(scene, secCam);
 
-    /* Pass 3-5: On-screen panel renders with scissor test */
+    /* Pass 3-7: On-screen panel renders */
     renderer.setRenderTarget(null); renderer.clear(); renderer.setScissorTest(true);
 
-    /* Pass 3: Main panel — direct scene render */
+    /* Pass 3: Bird's Eye — orthographic top-down view (with clipping plane) */
+    renderer.clippingPlanes = [bevClipPlane];
+    renderer.setViewport(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
+    renderer.setScissor(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
+    renderer.render(scene, bevCam);
+    renderer.clippingPlanes = [];
+
+    /* Pass 4: Main Camera panel */
     const panelAspect = P.m.w / P.m.h;
     mainCam.aspect = panelAspect; mainCam.updateProjectionMatrix();
-    renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h); renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
+    renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h);
+    renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
     renderer.render(scene, mainCam);
 
-    /* Pass 4: Secondary panel — direct scene render */
+    /* Pass 5: Secondary 1 panel */
     secCam.aspect = panelAspect; secCam.updateProjectionMatrix();
-    renderer.setViewport(P.s.x, P.s.y, P.s.w, P.s.h); renderer.setScissor(P.s.x, P.s.y, P.s.w, P.s.h);
+    renderer.setViewport(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
+    renderer.setScissor(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
     renderer.render(scene, secCam);
 
-    /* Pass 5: Combined panel — warp shader on fullscreen quad */
-    renderer.setViewport(P.c.x, P.c.y, P.c.w, P.c.h); renderer.setScissor(P.c.x, P.c.y, P.c.w, P.c.h);
+    /* Pass 6: Secondary 2 panel */
+    if (sec2Cam) {
+        sec2Cam.aspect = panelAspect; sec2Cam.updateProjectionMatrix();
+        renderer.setViewport(P.s2.x, P.s2.y, P.s2.w, P.s2.h);
+        renderer.setScissor(P.s2.x, P.s2.y, P.s2.w, P.s2.h);
+        renderer.render(scene, sec2Cam);
+    }
+
+    /* Pass 7: Combined panel — warp shader on fullscreen quad */
+    renderer.setViewport(P.c.x, P.c.y, P.c.w, P.c.h);
+    renderer.setScissor(P.c.x, P.c.y, P.c.w, P.c.h);
     quad.material = matWarp; renderer.render(dScene, dCam);
 
     renderer.setScissorTest(false);

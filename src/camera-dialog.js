@@ -111,7 +111,10 @@ export function renderCamDialog(container, { camParams, sceneCam }) {
     container.innerHTML =
         sceneSectionHTML(sceneCam) +
         camSectionHTML('main_camera', 'Main Camera', camParams.main_camera, 'identity = coincides with scene camera') +
-        camSectionHTML('secondary_camera', 'Secondary Camera', camParams.secondary_camera, 'relative to main');
+        camSectionHTML('secondary_camera', 'Secondary Camera 1', camParams.secondary_camera, 'relative to main') +
+        (camParams.secondary_camera_2
+            ? camSectionHTML('secondary_camera_2', 'Secondary Camera 2', camParams.secondary_camera_2, 'relative to main')
+            : '');
 }
 
 /**
@@ -164,6 +167,7 @@ export function bindDialog(overlayEl, { onApply }) {
             const camParams = {
                 main_camera: readCamInputs('main_camera'),
                 secondary_camera: readCamInputs('secondary_camera'),
+                secondary_camera_2: readCamInputs('secondary_camera_2'),
             };
             const sceneCam = readSceneInputs();
             onApply({ camParams, sceneCam });

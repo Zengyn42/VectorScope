@@ -1,64 +1,36 @@
 /**
  * @module interaction
  * @description
- * Object selection and drag interaction system for VectorScope.
+ * Object and camera selection + drag interaction system for VectorScope.
  *
- * Provides click-to-select and drag-to-move functionality within the Main
- * and Secondary camera panels. The Combined panel does not support interaction
- * (it's a shader-warped composite view).
- *
- * **Selection mechanics:**
- * - Pointer down on Main/Secondary panel → raycast against all loaded objects
- * - Closest hit object is selected and highlighted (emissive color boost)
- * - Previously selected object is de-highlighted
- * - Bottom bar shows selected object name and depth slider becomes active
- *
- * **Drag mechanics:**
- * - After selection, continued pointer movement drags the object
- * - Drag is constrained to a plane perpendicular to the camera's view direction,
- *   passing through the object's center (depth-plane drag)
- * - Only X/Y movement is applied; depth remains constant during drag
- * - The drag uses the camera that was active during selection (Main or Secondary)
- *
- * **Highlight system:**
- * - Uses `material.emissive` (MeshStandardMaterial) for highlight
- * - Original emissive values are saved in `userData._oe` and restored on deselect
- * - Traverses all child meshes for multi-mesh objects (e.g., glTF models)
- *
- * @requires three
- * @requires ./panels.js (for panel rects and coordinate conversion)
- *
- * @example
- * import { initInteraction } from './interaction.js';
- *
- * const { sel, syncDepthSlider } = initInteraction({
- *     THREE, canvas, scene, S, P,
- *     getMainCam: () => mainCam,
- *     getSecCam: () => secCam,
- *     getPanel, toNDC, $,
- * });
- *
- * // Programmatically deselect
- * sel(null);
+ * Supports interaction in all camera panels (Main, Sec1, Sec2) AND the
+ * Bird's Eye view. In BEV, camera markers can be selected in addition
+ * to scene objects. Dragging in BEV moves objects on the XZ plane
+ * (natural top-down control).
  *
  * @param {object} opts
- * @param {object}   opts.THREE      - Three.js namespace (for Raycaster, Vector2, etc.)
- * @param {Element}  opts.canvas     - The WebGL canvas element
- * @param {object}   opts.scene      - Three.js Scene containing selectable objects
- * @param {object}   opts.S          - Shared app state: `{ sel, dragging, objs, dragPlane, dragOff }`
- * @param {object}   opts.P          - Panel rects from `createPanelManager`: `{ m, s, c }`
- * @param {Function} opts.getMainCam - Returns the current main PerspectiveCamera
- * @param {Function} opts.getSecCam  - Returns the current secondary PerspectiveCamera
- * @param {Function} opts.getPanel   - `(clientX, clientY) => 'm'|'s'|'c'`
- * @param {Function} opts.toNDC      - `(clientX, clientY, panelRect) => { x, y }` in NDC [-1,1]
- * @param {Function} opts.$          - `getElementById` shorthand
+ * @param {object}   opts.THREE         - Three.js namespace
+ * @param {Element}  opts.canvas        - The WebGL canvas element
+ * @param {object}   opts.scene         - Three.js Scene
+ * @param {object}   opts.S             - Shared app state
+ * @param {object}   opts.P             - Panel rects: { bev, m, s1, s2, c }
+ * @param {Function} opts.getMainCam    - () => main PerspectiveCamera
+ * @param {Function} opts.getSecCam     - () => secondary 1 PerspectiveCamera
+ * @param {Function} opts.getSecCam2    - () => secondary 2 PerspectiveCamera
+ * @param {Function} opts.getBevCam     - () => bird's eye OrthographicCamera
+ * @param {Function} opts.getCamMarkers - () => Map<Object3D, string> (marker → cam name)
+ * @param {Function} opts.onSelChange   - (type, name) => void; type='object'|'camera'|null
+ * @param {Function} opts.getPanel      - (cx, cy) => panel key or null
+ * @param {Function} opts.toNDC         - (cx, cy, panelRect) => { x, y }
+ * @param {Function} opts.$             - getElementById shorthand
  * @returns {{ sel: Function, syncDepthSlider: Function }}
  */
-export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getPanel, toNDC, $ }) {
+export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $ }) {
     const rc = new THREE.Raycaster();
     const hitPt = new THREE.Vector3();
 
     function sel(obj) {
+        // De-highlight previous selection
         if (S.sel) {
             try {
                 S.sel.traverse(ch => {
@@ -72,6 +44,7 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         }
         S.sel = obj;
         if (obj) {
+            // Highlight new selection
             try {
                 obj.traverse(ch => {
                     if (ch.isMesh) {
@@ -85,13 +58,14 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
                     }
                 });
             } catch (e) { console.warn('select error:', e); }
-            $('selinfo').textContent = `Selected: ${obj.name}`;
+            S.selCam = null;
             $('sld-od').disabled = false;
             syncDepthSlider();
+            if (onSelChange) onSelChange('object', obj.name || '(unnamed)');
         } else {
-            $('selinfo').textContent = 'Click object in Main panel';
             $('sld-od').disabled = true;
-            $('vod').textContent = '—';
+            $('vod').textContent = '\u2014';
+            if (!S.selCam && onSelChange) onSelChange(null, null);
         }
     }
 
@@ -109,13 +83,43 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
     canvas.addEventListener('pointerdown', e => {
         const panel = getPanel(e.clientX, e.clientY);
         let cam, panelRect;
-        if (panel === 'm') { cam = getMainCam(); panelRect = P.m; }
-        else if (panel === 's') { cam = getSecCam(); panelRect = P.s; }
+        if (panel === 'm')       { cam = getMainCam();  panelRect = P.m; }
+        else if (panel === 's1') { cam = getSecCam();   panelRect = P.s1; }
+        else if (panel === 's2') { cam = getSecCam2();  panelRect = P.s2; }
+        else if (panel === 'bev'){ cam = getBevCam();   panelRect = P.bev; }
         else return;
 
         const ndc = toNDC(e.clientX, e.clientY, panelRect);
         rc.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
 
+        /* In BEV: check camera markers first via screen-space distance.
+           Raycasting on layer-1 objects is unreliable, so we project each
+           marker's world position to NDC and compare to click NDC. */
+        if (panel === 'bev' && getCamMarkers) {
+            const markers = getCamMarkers();
+            let bestCamName = null, bestDist = Infinity;
+            const clickNDC = new THREE.Vector2(ndc.x, ndc.y);
+            const projected = new THREE.Vector3();
+            for (const [marker, camName] of markers.entries()) {
+                projected.copy(marker.position).project(cam);
+                const dx = projected.x - clickNDC.x;
+                const dy = projected.y - clickNDC.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestCamName = camName;
+                }
+            }
+            /* Accept if within ~5% of NDC space (generous click target) */
+            if (bestCamName && bestDist < 0.1) {
+                sel(null);
+                S.selCam = bestCamName;
+                if (onSelChange) onSelChange('camera', bestCamName);
+                return;
+            }
+        }
+
+        /* Check scene objects */
         let best = null, bestD = Infinity;
         for (const obj of S.objs) {
             const hits = rc.intersectObject(obj, true);
@@ -129,10 +133,20 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
             sel(best);
             S._selCam = cam;
             S._selPanel = panelRect;
-            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-            const c = new THREE.Vector3();
-            new THREE.Box3().setFromObject(best).getCenter(c);
-            S.dragPlane.setFromNormalAndCoplanarPoint(dir, c);
+            S._selIsBev = (panel === 'bev');
+
+            if (panel === 'bev') {
+                /* BEV drag: XZ plane at the object's Y height */
+                const c = new THREE.Vector3();
+                new THREE.Box3().setFromObject(best).getCenter(c);
+                S.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), c);
+            } else {
+                /* Perspective panel drag: plane perpendicular to camera look-at */
+                const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+                const c = new THREE.Vector3();
+                new THREE.Box3().setFromObject(best).getCenter(c);
+                S.dragPlane.setFromNormalAndCoplanarPoint(dir, c);
+            }
             rc.ray.intersectPlane(S.dragPlane, hitPt);
             S.dragOff.copy(best.position).sub(hitPt);
             S.dragging = true;
@@ -149,8 +163,16 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         const ndc = toNDC(e.clientX, e.clientY, panel);
         rc.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
         if (rc.ray.intersectPlane(S.dragPlane, hitPt)) {
-            S.sel.position.x = hitPt.x + S.dragOff.x;
-            S.sel.position.y = hitPt.y + S.dragOff.y;
+            if (S._selIsBev) {
+                /* BEV: move on XZ plane, keep Y unchanged */
+                S.sel.position.x = hitPt.x + S.dragOff.x;
+                S.sel.position.z = hitPt.z + S.dragOff.z;
+            } else {
+                /* Perspective panel: move on camera-facing plane */
+                S.sel.position.copy(hitPt).add(S.dragOff);
+            }
+            syncDepthSlider();
+            if (onSelChange) onSelChange('object', S.sel.name || '(unnamed)');
         }
     });
 
