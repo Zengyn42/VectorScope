@@ -436,11 +436,7 @@ function layoutPanels() {
 
     $('sep-h').style.top = (H - P.m.y - P.m.h - GAP) + 'px';
 
-    // Camera aspect = panel aspect
-    const mAspect = P.m.w / P.m.h;
-    const cAspect = P.c.w / P.c.h;
-    if (mainCam) { mainCam.aspect = mAspect; mainCam.updateProjectionMatrix(); }
-    if (secCam)  { secCam.aspect = mAspect; secCam.updateProjectionMatrix(); }
+    // Camera aspect is always rtAspect (set in frame loop), no panel-sync needed
 }
 
 /* ================================================================
@@ -464,11 +460,12 @@ function getPanel(cx, cy) {
 function toNDC(cx, cy, p) {
     const r = canvas.getBoundingClientRect();
     const H = r.height;
-    // Convert panel's WebGL coords to CSS coords for NDC calculation
-    const panelCSSTop = H - p.y - p.h;
+    // Use fitted rect (RT aspect preserved) for accurate NDC mapping
+    const fm = (p === P.m) ? (P._fm || p) : p;
+    const panelCSSTop = H - fm.y - fm.h;
     return new THREE.Vector2(
-        ((cx - r.left - p.x) / p.w) * 2 - 1,
-        -((cy - r.top - panelCSSTop) / p.h) * 2 + 1
+        ((cx - r.left - fm.x) / fm.w) * 2 - 1,
+        -((cy - r.top - panelCSSTop) / fm.h) * 2 + 1
     );
 }
 
@@ -589,31 +586,24 @@ function runAF(screenRect) {
     const near = mainCam.near, far = mainCam.far;
 
     // Map screen rect → RT pixel coords
-    // Panel uses panelAspect, RT uses rtAspect (16:9). Vertical FOV matches,
-    // horizontal coverage differs. Must correct horizontal mapping.
+    // Panel displays RT texture fitted (letterboxed) inside panel rect.
+    // Use the fitted rect (P._fm) for accurate mapping.
     const cont = $('viewport-container').getBoundingClientRect();
-    const cssTop = cont.height - P.m.y - P.m.h;
-    const panelAspect = P.m.w / P.m.h;
-    const rtAspect = RT_W / RT_H;
+    const fm = P._fm || P.m;
+    const fmCSSTop = cont.height - fm.y - fm.h;
 
-    // Normalize rect within main panel [0,1]
-    const nx0 = (screenRect.x - P.m.x) / P.m.w;
-    const ny0 = (screenRect.y - cssTop) / P.m.h;
-    const nx1 = nx0 + screenRect.w / P.m.w;
-    const ny1 = ny0 + screenRect.h / P.m.h;
+    // Normalize rect within fitted display area [0,1]
+    const nx0 = (screenRect.x - fm.x) / fm.w;
+    const ny0 = (screenRect.y - fmCSSTop) / fm.h;
+    const nx1 = nx0 + screenRect.w / fm.w;
+    const ny1 = ny0 + screenRect.h / fm.h;
 
-    // Convert panel-normalized x → RT-normalized x (correct for aspect diff)
-    // Panel NDC_x = (nx * 2 - 1), maps to RT NDC_x via: ndc_rt = ndc_panel * panelAspect / rtAspect
-    // Then RT normalized = (ndc_rt + 1) / 2
-    const toRTx = (nx) => ((nx * 2 - 1) * panelAspect / rtAspect + 1) / 2;
-    // Vertical maps directly (same vFOV)
-    const toRTy = (ny) => ny;
-
-    const rx0 = Math.max(0, Math.floor(toRTx(nx0) * RT_W));
-    const rx1 = Math.min(RT_W, Math.ceil(toRTx(nx1) * RT_W));
+    // Direct proportional mapping to RT pixels
+    const rx0 = Math.max(0, Math.floor(nx0 * RT_W));
+    const rx1 = Math.min(RT_W, Math.ceil(nx1 * RT_W));
     // Y-flip: CSS top=0 → RT y=RT_H (GL origin at bottom)
-    const ry0 = Math.max(0, Math.floor((1 - toRTy(ny1)) * RT_H));
-    const ry1 = Math.min(RT_H, Math.ceil((1 - toRTy(ny0)) * RT_H));
+    const ry0 = Math.max(0, Math.floor((1 - ny1) * RT_H));
+    const ry1 = Math.min(RT_H, Math.ceil((1 - ny0) * RT_H));
     const rtX = rx0, rtY = ry0;
     const rtW = rx1 - rx0, rtH = ry1 - ry0;
     if (rtW < 1 || rtH < 1) return;
@@ -646,18 +636,9 @@ function runAF(screenRect) {
     }
     if (depths.length === 0) return;
 
-    // Histogram: 0.1m bins, pick majority
-    const binSize = 0.1;
-    const bins = new Map();
-    for (const d of depths) {
-        const key = Math.round(d / binSize);
-        bins.set(key, (bins.get(key) || 0) + 1);
-    }
-    let bestKey = 0, bestCount = 0;
-    for (const [k, c] of bins) {
-        if (c > bestCount) { bestCount = c; bestKey = k; }
-    }
-    const focusD = Math.max(0.1, Math.min(10, bestKey * binSize));
+    // Median depth
+    depths.sort((a, b) => a - b);
+    const focusD = Math.max(0.1, Math.min(10, depths[Math.floor(depths.length / 2)]));
 
     S.depthD = focusD;
     $('sld-d').value = focusD;
@@ -723,12 +704,10 @@ canvas.addEventListener('pointerup', (e) => {
     // Run AF on the selected rectangle
     runAF({ x, y, w, h });
 
-    // Exit AF mode
+    // Exit AF mode — keep rect visible until next AF activation
     afState.active = false;
     $('btn-af').classList.remove('active');
     canvas.style.cursor = '';
-    // Keep rect visible briefly then hide
-    setTimeout(() => { afRect.style.display = 'none'; }, 500);
 
     e.preventDefault();
     e.stopPropagation();
@@ -926,6 +905,7 @@ onResize();
    Main panel rendered directly for pixel-perfect raycasting.
    Secondary + Combined rendered via RT quads.
    ================================================================ */
+const matMainQ = new THREE.MeshBasicMaterial({ map: rtM.texture });
 const matSecQ = new THREE.MeshBasicMaterial({ map: rtS.texture });
 
 function frame() {
@@ -936,7 +916,7 @@ function frame() {
 
     const rtAspect = RT_W / RT_H;  // 16:9 — must match K matrix in computeH
 
-    // ── RT renders (linear space) — camera aspect must match RT for correct homography ──
+    // ── RT renders (linear space) — scene rendered only TWICE total ──
     renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
     mainCam.aspect = rtAspect;
@@ -951,27 +931,36 @@ function frame() {
     renderer.clear();
     renderer.render(scene, secCam);
 
-    // ── Screen output (sRGB) — switch camera aspect to match panel for direct renders ──
+    // ── Screen output (sRGB) — all panels use RT textures, no re-render ──
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setRenderTarget(null);
     renderer.clear();
-
-    const panelAspect = P.m.w / P.m.h;
-    mainCam.aspect = panelAspect;
-    mainCam.updateProjectionMatrix();
-    secCam.aspect = panelAspect;
-    secCam.updateProjectionMatrix();
-
-    // Panel: Main camera — DIRECT render (top-left)
-    renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h);
-    renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
     renderer.setScissorTest(true);
-    renderer.render(scene, mainCam);
 
-    // Panel: Secondary camera — DIRECT render (top-right)
-    renderer.setViewport(P.s.x, P.s.y, P.s.w, P.s.h);
-    renderer.setScissor(P.s.x, P.s.y, P.s.w, P.s.h);
-    renderer.render(scene, secCam);
+    // Fit RT aspect into panel rect (letterbox/pillarbox)
+    function fitRT(p) {
+        let w = p.w, h = p.h;
+        if (w / h > rtAspect) { w = Math.floor(h * rtAspect); }
+        else { h = Math.floor(w / rtAspect); }
+        const x = p.x + Math.floor((p.w - w) / 2);
+        const y = p.y + Math.floor((p.h - h) / 2);
+        return { x, y, w, h };
+    }
+
+    // Panel: Main camera — RT texture quad (top-left)
+    P._fm = fitRT(P.m);  // store for AF coordinate mapping
+    const fm = P._fm;
+    renderer.setViewport(fm.x, fm.y, fm.w, fm.h);
+    renderer.setScissor(fm.x, fm.y, fm.w, fm.h);
+    quad.material = matMainQ;
+    renderer.render(dScene, dCam);
+
+    // Panel: Secondary camera — RT texture quad (top-right)
+    const fs = fitRT(P.s);
+    renderer.setViewport(fs.x, fs.y, fs.w, fs.h);
+    renderer.setScissor(fs.x, fs.y, fs.w, fs.h);
+    quad.material = matSecQ;
+    renderer.render(dScene, dCam);
 
     // Panel: Combined — warp shader (bottom, full width)
     renderer.setViewport(P.c.x, P.c.y, P.c.w, P.c.h);
