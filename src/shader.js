@@ -72,6 +72,10 @@ void main(){
             ? texture2D(tM, z) : vec4(.06, .06, .12, 1.);
     }
     gl_FragColor = col;
+    // RT textures hold linear values; direct-rendered panels get the
+    // renderer's linear->sRGB output transform. Apply the same transform
+    // here so the Combined panel matches their brightness.
+    #include <colorspace_fragment>
 }`;
 
 /**
