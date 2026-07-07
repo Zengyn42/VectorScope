@@ -33,13 +33,14 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         const W = r.width, H = r.height;
         const topH = Math.floor(H * 0.35);
         const botH = H - topH - GAP;
-        const topColW = Math.floor((W - 2 * GAP) / 3);
-
-        /* Top row: bird's eye keeps a fixed 4:3 aspect (w:h), anchored
-           top-left inside the left 1/3 cell */
-        let bevW = Math.min(topColW, Math.floor(topH * 4 / 3));
-        let bevH = Math.floor(bevW * 3 / 4);
-        if (bevH > topH) { bevH = topH; bevW = Math.floor(bevH * 4 / 3); }
+        /* Top row: bird's eye fills the full row height at fixed 16:9,
+           the info/controls panels butt up against its right edge */
+        let bevH = topH;
+        let bevW = Math.floor(bevH * 16 / 9);
+        if (bevW > Math.floor(W * 0.5)) {   // don't let BEV eat more than half the width
+            bevW = Math.floor(W * 0.5);
+            bevH = Math.floor(bevW * 9 / 16);
+        }
         P.bev = { x: 0, y: H - bevH, w: bevW, h: bevH };
 
         /* Bottom row: 4 camera panels, each fixed 9:16 (portrait),
@@ -56,16 +57,19 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         /* Position DOM overlay panels (CSS coords, top-left origin) */
         const infoEl = $('panel-info');
         const ctrlEl = $('panel-controls');
+        /* Info + controls split the width remaining right of the BEV */
+        const restW = W - bevW - GAP;
+        const infoW = Math.floor((restW - GAP) / 2);
         if (infoEl) {
-            infoEl.style.left = (topColW + GAP) + 'px';
+            infoEl.style.left = (bevW + GAP) + 'px';
             infoEl.style.top = '0px';
-            infoEl.style.width = topColW + 'px';
+            infoEl.style.width = infoW + 'px';
             infoEl.style.height = topH + 'px';
         }
         if (ctrlEl) {
-            ctrlEl.style.left = (2 * (topColW + GAP)) + 'px';
+            ctrlEl.style.left = (bevW + GAP + infoW + GAP) + 'px';
             ctrlEl.style.top = '0px';
-            ctrlEl.style.width = (W - 2 * (topColW + GAP)) + 'px';
+            ctrlEl.style.width = (W - bevW - infoW - 2 * GAP) + 'px';
             ctrlEl.style.height = topH + 'px';
         }
 
