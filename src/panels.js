@@ -34,16 +34,24 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         const topH = Math.floor(H * 0.35);
         const botH = H - topH - GAP;
         const topColW = Math.floor((W - 2 * GAP) / 3);
-        const botColW = Math.floor((W - 3 * GAP) / 4);
 
-        /* Top row: only bird's eye is canvas-rendered (left 1/3) */
-        P.bev = { x: 0, y: botH + GAP, w: topColW, h: topH };
+        /* Top row: bird's eye keeps a fixed 4:3 aspect (w:h), anchored
+           top-left inside the left 1/3 cell */
+        let bevW = Math.min(topColW, Math.floor(topH * 4 / 3));
+        let bevH = Math.floor(bevW * 3 / 4);
+        if (bevH > topH) { bevH = topH; bevW = Math.floor(bevH * 4 / 3); }
+        P.bev = { x: 0, y: H - bevH, w: bevW, h: bevH };
 
-        /* Bottom row: 4 equal camera panels */
-        P.m  = { x: 0,                   y: 0, w: botColW, h: botH };
-        P.s1 = { x: botColW + GAP,       y: 0, w: botColW, h: botH };
-        P.s2 = { x: 2 * (botColW + GAP), y: 0, w: botColW, h: botH };
-        P.c  = { x: 3 * (botColW + GAP), y: 0, w: W - 3 * (botColW + GAP), h: botH };
+        /* Bottom row: 4 camera panels, each fixed 9:16 (portrait),
+           block centered horizontally, anchored to the bottom edge */
+        let pw = Math.min(Math.floor((W - 3 * GAP) / 4), Math.floor(botH * 9 / 16));
+        let ph = Math.floor(pw * 16 / 9);
+        if (ph > botH) { ph = botH; pw = Math.floor(ph * 9 / 16); }
+        const x0 = Math.floor((W - (4 * pw + 3 * GAP)) / 2);
+        P.m  = { x: x0,                 y: 0, w: pw, h: ph };
+        P.s1 = { x: x0 + (pw + GAP),     y: 0, w: pw, h: ph };
+        P.s2 = { x: x0 + 2 * (pw + GAP), y: 0, w: pw, h: ph };
+        P.c  = { x: x0 + 3 * (pw + GAP), y: 0, w: pw, h: ph };
 
         /* Position DOM overlay panels (CSS coords, top-left origin) */
         const infoEl = $('panel-info');
@@ -84,13 +92,13 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         ['sep-v1', 'sep-v2', 'sep-v3'].forEach((id, i) => {
             const el = $(id);
             if (!el) return;
-            el.style.left = ((i + 1) * (botColW + GAP) - GAP) + 'px';
-            el.style.top = (H - botH) + 'px';
-            el.style.height = botH + 'px';
+            el.style.left = (x0 + (i + 1) * (pw + GAP) - GAP) + 'px';
+            el.style.top = (H - ph) + 'px';
+            el.style.height = ph + 'px';
         });
 
-        /* Sync camera aspect to bottom panel shape */
-        if (onCameraAspect) onCameraAspect(botColW / botH);
+        /* Sync camera aspect to bottom panel shape (9:16) */
+        if (onCameraAspect) onCameraAspect(pw / ph);
     }
 
     /** Determine which panel a CSS click lands on */

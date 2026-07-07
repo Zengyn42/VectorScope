@@ -194,7 +194,7 @@ input[type="file"] { display: none; }
         <span class="val" id="vz">1.00x</span>
       </div>
       <div class="ctrl-row">
-        <label>BEV Clip:</label>
+        <label>Ghost Y:</label>
         <button class="sld-btn" onclick="nudge('sld-clip',-1)">&minus;</button>
         <input type="range" id="sld-clip" min="0.3" max="8.0" step="0.1" value="2.0">
         <button class="sld-btn" onclick="nudge('sld-clip',1)">+</button>
@@ -294,6 +294,7 @@ import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './s
 import { createWarpMaterial } from './src/shader.js';
 import { createPanelManager } from './src/panels.js';
 import { initInteraction } from './src/interaction.js';
+import { initSelectionPanel } from './src/selection-panel.js';
 import { initAutofocus } from './src/autofocus.js';
 
 /* ── Helpers ── */
@@ -337,7 +338,6 @@ canvas.addEventListener('webglcontextlost', (e) => { log('WebGL context lost'); 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setClearColor(0x1a1a2e);
 renderer.autoClear = false;
-renderer.localClippingEnabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
@@ -355,13 +355,44 @@ scene.add(dLight);
    - bevCam: OrthographicCamera looking straight down for Bird's Eye
    - Camera markers: colored indicators on layer 1 (BEV-only)
    ================================================================ */
-const RT_W = 1920, RT_H = 1080;
+const RT_W = 1080, RT_H = 1920;   // portrait 9:16, matches camera windows
 const BEV_SIZE = 6;
 let mainCam, secCam, sec2Cam;
 let bevCam;
 let camMarkers = [];              // Group objects for BEV camera indicators
 const camMarkerMap = new Map();   // Map<Group, camName> for BEV click detection
-const bevClipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), S.clipY); // clip above Y
+
+/* ── BEV Ghost Mode ──
+   Objects entirely above S.clipY are rendered semi-transparent in the
+   BEV pass (instead of hard-clipped), so ceilings/roofs don't block the
+   top-down view but remain visible as translucent outlines. */
+const _ghostBox = new THREE.Box3();
+const _ghosted = [];
+
+/** Swap meshes above the ghost height to translucent clone materials. */
+function applyBevGhost() {
+    scene.traverse(o => {
+        if (!o.isMesh || o.layers.mask !== 1) return;  // layer-0 scene meshes only
+        const g = o.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        _ghostBox.copy(g.boundingBox).applyMatrix4(o.matrixWorld);
+        if (_ghostBox.min.y > S.clipY) {
+            if (!o.userData._ghostMat) {
+                const mk = m => { const c = m.clone(); c.transparent = true; c.opacity = 0.15; c.depthWrite = false; return c; };
+                o.userData._ghostMat = Array.isArray(o.material) ? o.material.map(mk) : mk(o.material);
+            }
+            o.userData._realMat = o.material;
+            o.material = o.userData._ghostMat;
+            _ghosted.push(o);
+        }
+    });
+}
+
+/** Restore original materials after the BEV pass. */
+function restoreBevGhost() {
+    for (const o of _ghosted) o.material = o.userData._realMat;
+    _ghosted.length = 0;
+}
 
 /** Create a PerspectiveCamera from intrinsic parameters. */
 function makeCamFromIntrinsics(intrinsics, imageSize) {
@@ -464,8 +495,17 @@ function initCams(p) {
         bevCam = new THREE.OrthographicCamera(-BEV_SIZE, BEV_SIZE, BEV_SIZE, -BEV_SIZE, 0.1, 100);
         bevCam.layers.enable(1);  // see camera markers on layer 1
     }
-    bevCam.position.set(mainCam.position.x, 20, mainCam.position.z);
-    bevCam.lookAt(mainCam.position.x, 0, mainCam.position.z);
+    // Center BEV slightly ahead of the main camera (along its forward
+    // direction on XZ), so the camera rig sits in the lower part of the
+    // window and the scene fills the middle/upper area.
+    const bevFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(mainCam.quaternion);
+    bevFwd.y = 0;
+    if (bevFwd.lengthSq() < 1e-6) bevFwd.set(0, 0, -1);
+    bevFwd.normalize();
+    const bevCx = mainCam.position.x + bevFwd.x * BEV_SIZE * 0.4;
+    const bevCz = mainCam.position.z + bevFwd.z * BEV_SIZE * 0.4;
+    bevCam.position.set(bevCx, 20, bevCz);
+    bevCam.lookAt(bevCx, 0, bevCz);
 
     // Camera markers (visible only in BEV via layer 1) — FOV wedge matches actual HFOV
     camMarkerMap.clear();
@@ -582,119 +622,12 @@ const { P, layoutPanels, getPanel, toNDC } = createPanelManager({
    INTERACTION
    ================================================================ */
 
-/** Compute depth of a 3D point along main camera's look-at direction. */
-function depthToMainCam(worldPos) {
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(mainCam.quaternion);
-    return new THREE.Vector3().copy(worldPos).sub(mainCam.position).dot(dir);
-}
-
-/** Generate an inline editable number input. */
-function camInp(id, val, step) {
-    return `<input type="number" class="cam-inp" id="${id}" value="${val}" step="${step || 0.1}">`;
-}
-
-/** Apply camera parameter edits from the info panel inputs. */
-function applyCamEdit() {
-    const v = id => { const el = $(id); return el ? parseFloat(el.value) || 0 : 0; };
-    const selName = S.selCam;
-    if (!selName || !S.camParams) return;
-
-    if (selName === 'Main Camera') {
-        // Main camera: absolute pose → update SCENE_CAM
-        SCENE_CAM.position = [v('ci-px'), v('ci-py'), v('ci-pz')];
-        SCENE_CAM.rotation_euler_deg = [v('ci-rx'), v('ci-ry'), v('ci-rz')];
-    } else {
-        // Secondary cameras: relative pose → update extrinsics
-        const key = selName === 'Secondary 1' ? 'secondary_camera' : 'secondary_camera_2';
-        const ext = S.camParams[key]?.extrinsics;
-        if (ext) {
-            ext.position = [v('ci-px'), v('ci-py'), v('ci-pz')];
-            ext.rotation_euler_deg = [v('ci-rx'), v('ci-ry'), v('ci-rz')];
-        }
-    }
-    initCams(S.camParams);
-    layoutPanels();
-    updateBevAspect();
-    refreshH();
-}
-
-/** Called when selection changes — updates info panel for objects or cameras. */
-function onSelChange(type, name) {
-    const depthRow = $('obj-depth-row');
-    const camDetail = $('cam-detail');
-    if (type === 'object') {
-        depthRow.style.display = 'flex';
-        camDetail.style.display = 'block';
-        const obj = S.sel;
-        if (obj) {
-            const c = new THREE.Vector3();
-            new THREE.Box3().setFromObject(obj).getCenter(c);
-            const depth = depthToMainCam(c);
-            const p = obj.position;
-            $('selinfo').textContent = `Object: ${name}`;
-            camDetail.innerHTML =
-                `<span style="color:#e94560">Position</span>: (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})<br>` +
-                `<span style="color:#e94560">Depth</span> to Main Cam: <b>${depth.toFixed(2)}</b>`;
-        }
-    } else if (type === 'camera') {
-        depthRow.style.display = 'none';
-        camDetail.style.display = 'block';
-
-        let cam, posLabel, pos, rot;
-        const isMain = (name === 'Main Camera');
-
-        if (isMain) {
-            cam = mainCam;
-            posLabel = 'Absolute Pose';
-            // Main camera: show absolute world position and orientation
-            pos = SCENE_CAM.position;
-            rot = SCENE_CAM.rotation_euler_deg;
-        } else {
-            const key = (name === 'Secondary 1') ? 'secondary_camera' : 'secondary_camera_2';
-            cam = (name === 'Secondary 1') ? secCam : sec2Cam;
-            posLabel = 'Relative Pose (to Main)';
-            const ext = S.camParams?.[key]?.extrinsics;
-            pos = ext?.position || [0,0,0];
-            rot = ext?.rotation_euler_deg || [0,0,0];
-        }
-
-        $('selinfo').innerHTML = `Camera: <b style="color:#4fc3f7">${name}</b>`;
-
-        let html = `<div style="color:#4fc3f7;font-size:10px;text-transform:uppercase;margin-bottom:4px">${posLabel}</div>`;
-        // Position row
-        html += `<div style="margin-bottom:3px">`;
-        html += `<span class="cam-lbl">x</span>${camInp('ci-px', pos[0].toFixed(2))} `;
-        html += `<span class="cam-lbl">y</span>${camInp('ci-py', pos[1].toFixed(2))} `;
-        html += `<span class="cam-lbl">z</span>${camInp('ci-pz', pos[2].toFixed(2))}`;
-        html += `</div>`;
-        // Orientation row
-        html += `<div style="margin-bottom:5px">`;
-        html += `<span class="cam-lbl">rx</span>${camInp('ci-rx', rot[0].toFixed(1), 0.5)} `;
-        html += `<span class="cam-lbl">ry</span>${camInp('ci-ry', rot[1].toFixed(1), 0.5)} `;
-        html += `<span class="cam-lbl">rz</span>${camInp('ci-rz', rot[2].toFixed(1), 0.5)}`;
-        html += `</div>`;
-        // Info line
-        if (cam) {
-            const i = isMain ? S.camParams?.main_camera?.intrinsics : (name === 'Secondary 1' ? S.camParams?.secondary_camera?.intrinsics : S.camParams?.secondary_camera_2?.intrinsics);
-            html += `<span style="color:#888;font-size:10px">FOV ${cam.fov.toFixed(1)}°`;
-            if (i) html += ` · fx=${i.fx} fy=${i.fy}`;
-            if (!isMain) html += ` · dist=${cam.position.distanceTo(mainCam.position).toFixed(3)}`;
-            html += `</span>`;
-        }
-
-        camDetail.innerHTML = html;
-
-        // Bind input change handlers
-        ['ci-px','ci-py','ci-pz','ci-rx','ci-ry','ci-rz'].forEach(id => {
-            const el = $(id);
-            if (el) el.addEventListener('input', applyCamEdit);
-        });
-    } else {
-        $('selinfo').textContent = 'Click object or camera in any panel';
-        depthRow.style.display = 'none';
-        camDetail.style.display = 'none';
-    }
-}
+const { onSelChange } = initSelectionPanel({
+    THREE, S, SCENE_CAM,
+    getMainCam: () => mainCam, getSecCam: () => secCam, getSecCam2: () => sec2Cam,
+    onCamEdit: () => { initCams(S.camParams); layoutPanels(); updateBevAspect(); refreshH(); },
+    $,
+});
 
 const { sel, syncDepthSlider } = initInteraction({
     THREE, canvas, scene, S, P,
@@ -735,7 +668,6 @@ $('sld-z').oninput = function () {
 $('sld-clip').oninput = function () {
     S.clipY = +this.value;
     $('vclip').textContent = S.clipY.toFixed(1);
-    bevClipPlane.constant = S.clipY;
 };
 
 $('btn-warp').onclick = () => {
@@ -881,12 +813,12 @@ function frame() {
     /* Pass 3-7: On-screen panel renders */
     renderer.setRenderTarget(null); renderer.clear(); renderer.setScissorTest(true);
 
-    /* Pass 3: Bird's Eye — orthographic top-down view (with clipping plane) */
-    renderer.clippingPlanes = [bevClipPlane];
+    /* Pass 3: Bird's Eye — top-down view; objects above ghost height are translucent */
+    applyBevGhost();
     renderer.setViewport(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
     renderer.setScissor(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
     renderer.render(scene, bevCam);
-    renderer.clippingPlanes = [];
+    restoreBevGhost();
 
     /* Pass 4: Main Camera panel */
     const panelAspect = P.m.w / P.m.h;
@@ -909,9 +841,14 @@ function frame() {
         renderer.render(scene, sec2Cam);
     }
 
-    /* Pass 7: Combined panel — warp shader on fullscreen quad */
-    renderer.setViewport(P.c.x, P.c.y, P.c.w, P.c.h);
-    renderer.setScissor(P.c.x, P.c.y, P.c.w, P.c.h);
+    /* Pass 7: Combined panel — warp shader on fullscreen quad.
+       The quad shows a 16:9 RT texture; letterbox inside the panel so the
+       image keeps the RT aspect instead of stretching to the panel shape. */
+    let cx = P.c.x, cy = P.c.y, cw = P.c.w, ch = P.c.h;
+    if (cw / ch > rtAspect) { const nw = ch * rtAspect; cx += (cw - nw) / 2; cw = nw; }
+    else                    { const nh = cw / rtAspect; cy += (ch - nh) / 2; ch = nh; }
+    renderer.setScissor(P.c.x, P.c.y, P.c.w, P.c.h);  // clear full panel (black bars)
+    renderer.setViewport(cx, cy, cw, ch);
     quad.material = matWarp; renderer.render(dScene, dCam);
 
     renderer.setScissorTest(false);

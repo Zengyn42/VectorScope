@@ -133,7 +133,7 @@ export function readCamInputs(key) {
             position: [v(`cam-${key}-px`), v(`cam-${key}-py`), v(`cam-${key}-pz`)],
             rotation_euler_deg: [v(`cam-${key}-rx`), v(`cam-${key}-ry`), v(`cam-${key}-rz`)],
         },
-        image_size: [v(`cam-${key}-wx`) || 1920, v(`cam-${key}-wy`) || 1080],
+        image_size: [v(`cam-${key}-wx`) || 1080, v(`cam-${key}-wy`) || 1920],
     };
 }
 

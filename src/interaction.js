@@ -28,6 +28,7 @@
 export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $ }) {
     const rc = new THREE.Raycaster();
     const hitPt = new THREE.Vector3();
+    const selBox = new THREE.Box3();
 
     function sel(obj) {
         // De-highlight previous selection
@@ -110,7 +111,8 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
                     bestCamName = camName;
                 }
             }
-            /* Accept if within ~5% of NDC space (generous click target) */
+            /* Accept if within ~5% of NDC space (generous click target).
+               Cameras are selectable but NOT movable. */
             if (bestCamName && bestDist < 0.1) {
                 sel(null);
                 S.selCam = bestCamName;
@@ -119,9 +121,15 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
             }
         }
 
-        /* Check scene objects */
+        /* Check scene objects.
+           In BEV, ghosted objects (entirely above S.clipY) are not selectable —
+           they're rendered semi-transparent and act as pass-through. */
         let best = null, bestD = Infinity;
         for (const obj of S.objs) {
+            if (panel === 'bev') {
+                selBox.setFromObject(obj);
+                if (selBox.min.y > S.clipY) continue;  // ghosted → skip
+            }
             const hits = rc.intersectObject(obj, true);
             if (hits.length && hits[0].distance < bestD) {
                 bestD = hits[0].distance;
