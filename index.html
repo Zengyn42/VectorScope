@@ -329,34 +329,27 @@ import * as THREE from 'three';
 import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
 import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
-import { SRC, computeSampleMatrix, computeFollowerMatrix, zoomSource, followerSource, segName } from './src/zoom-pipeline.js';
+import { SRC } from './src/zoom-pipeline.js';
 import { createBlendController } from './src/blend.js';
 import { createSceneAnimator } from './src/scene-anim.js';
-import { createZoomAnimator } from './src/zoom-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
 import { createBevGhost } from './src/bev-ghost.js';
 import { createFallbackScene } from './src/fallback-scene.js';
 import { initLoader, loadScene, getLoaderState, resetPositions } from './src/loader.js';
-import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './src/camera-dialog.js';
-import { createWarpMaterial } from './src/shader.js';
 import { createPanelManager } from './src/panels.js';
 import { initInteraction } from './src/interaction.js';
 import { initSelectionPanel } from './src/selection-panel.js';
 import { initAutofocus } from './src/autofocus.js';
+import { createGlContext } from './src/gl-bootstrap.js';
+import { createRenderLoop } from './src/render-loop.js';
+import { createSamplingRefresh } from './src/sampling-hud.js';
+import { initUiControls } from './src/ui-controls.js';
+import { createSceneManager } from './src/scene-manager.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
 function log(msg) { $('status').textContent = msg; console.log('[VS]', msg); }
 log('Three.js loaded');
-
-/** Nudge a slider by ±0.1, clamped to [min, max]. */
-window.nudge = function(id, dir) {
-    const s = $(id);
-    if (s.disabled) return;
-    const v = Math.min(parseFloat(s.max), Math.max(parseFloat(s.min), parseFloat(s.value) + dir * 0.1));
-    s.value = v;
-    s.dispatchEvent(new Event('input'));
-};
 
 /* ================================================================
    STATE
@@ -375,30 +368,12 @@ const S = {
 };
 
 /* ================================================================
-   RENDERER
+   RENDERER + GL CONTEXT (src/gl-bootstrap.js)
    ================================================================ */
+const RT_W = 1080, RT_H = 1920;   // portrait 9:16, matches camera windows
 const canvas = $('main-canvas');
-let renderer;
-try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'default', failIfMajorPerformanceCaveat: false });
-} catch (e) {
-    log(`WebGL failed: ${e.message}`);
-    throw e;
-}
-canvas.addEventListener('webglcontextlost', (e) => { log('WebGL context lost'); e.preventDefault(); });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setClearColor(0x1a1a2e);
-renderer.autoClear = false;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2a2a3e);
-
-const aLight = new THREE.AmbientLight(0xffffff, 0.5);
-scene.add(aLight);
-const dLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dLight.position.set(5, 8, 5);
-scene.add(dLight);
+const gl = createGlContext({ THREE, canvas, rtW: RT_W, rtH: RT_H, log });
+const { renderer, scene, aLight, dLight, rtDepth, depthMat, matWarp } = gl;
 
 /* ================================================================
    CAMERAS
@@ -406,7 +381,6 @@ scene.add(dLight);
    - R.bev: OrthographicCamera looking straight down for Bird's Eye
    - Camera markers: colored indicators on layer 1 (BEV-only)
    ================================================================ */
-const RT_W = 1080, RT_H = 1920;   // portrait 9:16, matches camera windows
 
 /* BEV Ghost Mode (src/bev-ghost.js): objects above S.clipY render
    semi-transparent in the BEV pass instead of blocking the view. */
@@ -426,61 +400,33 @@ const sceneAnim = createSceneAnimator({});
 function initCams(p) { camRig.init(p); S.camParams = p; }
 initCams(DEF_CAM);
 
-/* ── Render Targets ── */
-const rtM = new THREE.WebGLRenderTarget(RT_W, RT_H);
-const rtS = new THREE.WebGLRenderTarget(RT_W, RT_H);
-const rtS2 = new THREE.WebGLRenderTarget(RT_W, RT_H);
-const rtDepth = new THREE.WebGLRenderTarget(RT_W, RT_H);
-const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-
-/* ── Display Quad + Warp Material ── */
-const dScene = new THREE.Scene();
-const dCam = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1);
-const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
-dScene.add(quad);
-const matWarp = createWarpMaterial(THREE, rtS.texture, rtM.texture, rtS2.texture, RT_W, RT_H);
-
 /* Camera-transition blending (src/blend.js): after a source switch the
    Combined view cross-fades from the outgoing camera's frozen last frame
    to the live incoming camera over S.blendX frames. The outgoing RT is
    not re-rendered during the blend, so it holds its last frame for free. */
 const blendCtl = createBlendController({ getX: () => S.blendX });
 
+/* Sampling refresh (src/sampling-hud.js): pushes the zoom pipeline's pure
+   math into shader uniforms, blend inputs, follower state and the HUD. */
+const refreshH = createSamplingRefresh({
+    S, R, matWarp, rtW: RT_W, rtH: RT_H,
+    onHud: (html) => { $('hmat').innerHTML = html; },
+});
+
 /* ================================================================
-   SCENE LOADING
+   SCENE LOADING (src/scene-manager.js + src/fallback-scene.js)
    ================================================================ */
 initLoader({ scene, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/', ambientLight: aLight, directionalLight: dLight });
 
-function doLoadScene(url, isDefault = false) {
-    log('Loading scene…');
-    sceneAnim.clearAll();          // objects are about to be replaced
-    loadScene(url, {
-        isDefault,
-        onProgress: (loaded, total) => log(`Loading ${(loaded / total * 100) | 0}%…`),
-        onComplete: (count) => { removeFallback(); const ls = getLoaderState(); S.objs = ls.objs; S.origPos = ls.origPos; log(`Loaded: ${count} objects`); },
-        onError: () => { if (isDefault && !getLoaderState().loaded) { addFallback(); log('Fallback scene'); } },
-    });
-}
-
-/* ── Fallback placeholder scene (src/fallback-scene.js) ──
-   Shown if the glb hasn't loaded within 5s (slow network). Fully removed
-   once the real scene arrives — otherwise both scenes coexist (fallback
-   race bug). Wrappers sync S.objs/S.origPos with the loader registry. */
 const fallback = createFallbackScene({
     THREE, scene, getLoaderState,
     onRemove: (o) => { sceneAnim.clear(o); if (S.sel === o) sel(null); },
 });
-function addFallback() {
-    fallback.add();
-    const ls = getLoaderState(); S.objs = ls.objs; S.origPos = ls.origPos;
-}
-function removeFallback() {
-    fallback.remove();
-    const ls = getLoaderState(); S.objs = ls.objs; S.origPos = ls.origPos;
-}
-
+const { doLoadScene, armFallbackTimer } = createSceneManager({
+    S, sceneAnim, loadScene, getLoaderState, fallback, log,
+});
 doLoadScene('assets/bedroom.glb', true);
-setTimeout(() => { if (!getLoaderState().loaded) { addFallback(); log('Fallback scene'); } }, 5000);
+armFallbackTimer(5000);
 
 /* ================================================================
    PANELS
@@ -534,164 +480,20 @@ initAutofocus({
 });
 
 /* ================================================================
-   UI CONTROLS
+   UI CONTROLS (src/ui-controls.js)
    ================================================================ */
-$('sld-d').oninput = function () { S.depthD = +this.value; $('vd').textContent = S.depthD.toFixed(1); refreshH(); };
-$('sld-pw').oninput = function () { S.prewarpScale = +this.value; $('vpw').textContent = S.prewarpScale.toFixed(2) + 'x'; refreshH(); };
-$('sld-pw2').oninput = function () { S.prewarpScale2 = +this.value; $('vpw2').textContent = S.prewarpScale2.toFixed(2) + 'x'; refreshH(); };
-
-function updateZoomUI() {
-    $('vz').textContent = S.zoom.toFixed(2) + 'x';
-    $('lbl-c').textContent = `\u25CE Combined \u2014 ${segName(S.zoom)} @ ${S.zoom.toFixed(2)}x`;
-}
-$('sld-z').oninput = function () {
-    animator.stopPreset();        // manual drag overrides an in-flight preset animation
-    S.zoom = 10 ** +this.value;   // slider is log10 scale
-    updateZoomUI();
-    refreshH();
-};
-
-$('sld-clip').oninput = function () {
-    S.clipY = +this.value;
-    $('vclip').textContent = S.clipY.toFixed(1);
-};
-
-$('sld-blend').oninput = function () {
-    S.blendX = Math.round(+this.value);
-    $('vblend').textContent = S.blendX + 'f';
-};
-
-/* Blend mode toggle — Single: frozen outgoing frame; Dual: live follower
-   camera rendered + warped with H(follower←leading, D) each blend frame. */
-$('btn-bmode').onclick = () => {
-    S.blendMode = S.blendMode === 'single' ? 'dual' : 'single';
-    $('btn-bmode').textContent = S.blendMode === 'single' ? 'Single' : 'Dual';
-    $('btn-bmode').classList.toggle('active', S.blendMode === 'dual');
-};
-
-$('btn-warp').onclick = () => {
-    S.warp = !S.warp;
-    $('btn-warp').classList.toggle('active', S.warp);
-    $('btn-warp').textContent = S.warp ? 'Warp ON' : 'Warp';
-    refreshH();
-};
-
-/* ── Zoom animation (src/zoom-anim.js): preset-button eased transitions
-   + Play bounce loop, both in log-zoom space so perceived zoom speed is
-   uniform across segments. */
-const animator = createZoomAnimator({
-    getZoom: () => S.zoom,
-    setLogZoom: (lv) => {
-        S.zoom = 10 ** lv;
-        $('sld-z').value = lv;
-        updateZoomUI();
-        refreshH();
-    },
-    onPlayState: (playing) => {
-        $('btn-play').classList.toggle('active', playing);
-        $('btn-play').textContent = playing ? '\u25A0 Stop' : '\u25B6 Play';
-    },
+const ui = initUiControls({
+    $, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
+    resetPositions, sel, doLoadScene, initCams, layoutPanels,
+    camRig, P, SCENE_CAM,
 });
-document.querySelectorAll('.zp-btn').forEach(b => {
-    b.onclick = () => animator.animateTo(parseFloat(b.dataset.z));
-});
-$('btn-play').onclick = () => animator.togglePlay();
-
-$('sld-od').oninput = function () {
-    if (!S.sel) return;
-    const target = +this.value; $('vod').textContent = target.toFixed(1);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
-    const c = new THREE.Vector3(); new THREE.Box3().setFromObject(S.sel).getCenter(c);
-    S.sel.position.addScaledVector(dir, target - c.sub(R.main.position).dot(dir));
-};
-
-$('btn-reset').onclick = () => {
-    animator.stopAll();
-    blendCtl.reset(); matWarp.uniforms.uBlend.value = 1;
-    S.blendMode = 'single'; $('btn-bmode').textContent = 'Single'; $('btn-bmode').classList.remove('active');
-    sceneAnim.clearAll();
-    resetPositions(); sel(null);
-    S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
-    S.zoom = 1; $('sld-z').value = 0; $('vz').textContent = '1.00x';
-    S.prewarpScale = 1; $('sld-pw').value = 1; $('vpw').textContent = '1.00x';
-    S.prewarpScale2 = 1; $('sld-pw2').value = 1; $('vpw2').textContent = '1.00x';
-    S.warp = false; $('btn-warp').classList.remove('active'); $('btn-warp').textContent = 'Warp';
-    $('lbl-c').textContent = '\u25CE Combined \u2014 M @ 1.00x';
-    refreshH(); log('Reset done');
-};
-
-$('fscene').onchange = function () { if (this.files[0]) doLoadScene(URL.createObjectURL(this.files[0])); };
-$('fcam').onchange = function () {
-    if (!this.files[0]) return;
-    const r = new FileReader();
-    r.onload = ev => {
-        try { initCams(JSON.parse(ev.target.result)); refreshH(); log('Cameras loaded');
-            if (camDialogEl.classList.contains('open')) renderCamDialog($('cam-params-content'), { camParams: S.camParams, sceneCam: SCENE_CAM });
-        } catch (e) { log('Bad JSON'); }
-    };
-    r.readAsText(this.files[0]);
-};
-
-/* ── Camera Settings Dialog ── */
-const camDialogEl = $('cam-dialog');
-bindDialog(camDialogEl, {
-    onApply: ({ camParams, sceneCam }) => {
-        SCENE_CAM.position = sceneCam.position;
-        SCENE_CAM.rotation_euler_deg = sceneCam.rotation_euler_deg;
-        initCams(camParams); layoutPanels(); camRig.updateBevAspect(P.bev); refreshH(); log('Camera params updated');
-    },
-});
-window.openCamDialog = function() { renderCamDialog($('cam-params-content'), { camParams: S.camParams, sceneCam: SCENE_CAM }); camDialogEl.classList.add('open'); };
-window.closeCamDialog = function() { camDialogEl.classList.remove('open'); };
+window.nudge = ui.nudge;
+window.openCamDialog = ui.openCamDialog;
+window.closeCamDialog = ui.closeCamDialog;
 
 /* ================================================================
-   HOMOGRAPHY
+   HOMOGRAPHY HUD + DEBUG HOOKS
    ================================================================ */
-function displayH(H, label) {
-    const f = v => (v >= 0 ? ' ' : '') + v.toFixed(4);
-    $('hmat').innerHTML = `<span style="color:#e94560">${label || 'H'}</span>\n` +
-        `\u250C ${f(H[0])}  ${f(H[1])}  ${f(H[2])} \u2510\n` +
-        `\u2502 ${f(H[3])}  ${f(H[4])}  ${f(H[5])} \u2502\n` +
-        `\u2514 ${f(H[6])}  ${f(H[7])}  ${f(H[8])} \u2518`;
-}
-
-/* Sampling matrix + source selection live in src/zoom-pipeline.js (pure,
-   unit-tested). This function pushes the result into shader uniforms and
-   the H-matrix HUD. */
-function refreshH() {
-    if (!S.camParams) return;
-    // If sec2 isn't materialized as a Three.js camera, hide it from the
-    // pipeline so segments C/D fall back to a plain main-camera crop.
-    const params = R.sec2 ? S.camParams : { ...S.camParams, secondary_camera_2: undefined };
-    const { src, m: Msamp } = computeSampleMatrix({
-        z: S.zoom, warp: S.warp, D: S.depthD, params,
-        prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-        w: RT_W, h: RT_H,
-    });
-
-    matWarp.uniforms.uSrc.value = src;
-    matWarp.uniforms.uHi.value.set(
-        Msamp[0], Msamp[1], Msamp[2],
-        Msamp[3], Msamp[4], Msamp[5],
-        Msamp[6], Msamp[7], Msamp[8]);
-    // Stash the sampling state for the per-frame blend controller
-    S.sampleSrc = src;
-    S.sampleM = Msamp;
-    // Live follower state for dual-mode blends (recomputed on every zoom /
-    // camera-param change so the previous layer tracks the leading view).
-    const fol = computeFollowerMatrix({
-        z: S.zoom, warp: S.warp, D: S.depthD, params,
-        prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-        w: RT_W, h: RT_H,
-    });
-    S.followerSrc = fol.src;
-    S.followerM = fol.m;
-
-    const H_disp = Msamp.slice();
-    const s = H_disp[8];
-    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
-    displayH(H_disp, `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${segName(S.zoom)}${S.warp ? '' : ' raw'})`);
-}
 window.refreshH = refreshH;
 refreshH();
 
@@ -699,16 +501,7 @@ refreshH();
 window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S };
 
 /* ================================================================
-   RESIZE + RENDER LOOP
-
-   Render passes per frame:
-     1. scene → leading source RT (rtS/rtM/rtS2, for Combined warp shader;
-        dual-mode blends also render the live follower RT)
-     3. scene → BEV panel     (R.bev, orthographic top-down)
-     4. scene → Main panel    (R.main, direct)
-     5. scene → UW panel      (R.sec1, direct)
-     6. scene → Tele panel    (R.sec2, direct)
-     7. quad  → Combined panel (warp shader)
+   RESIZE + RENDER LOOP (src/render-loop.js)
    ================================================================ */
 function onResize() {
     const r = $('viewport-container').getBoundingClientRect();
@@ -719,98 +512,10 @@ function onResize() {
 window.addEventListener('resize', onResize);
 onResize();
 
-function frame() {
-    requestAnimationFrame(frame);
-    // Scene animation — skip the object being dragged (its base follows
-    // the drag so motion resumes smoothly from the drop point).
-    sceneAnim.update((o) => S.dragging && S.sel === o);
-    R.main.updateMatrixWorld(true);
-    R.sec1.updateMatrixWorld(true);
-    if (R.sec2) R.sec2.updateMatrixWorld(true);
-    camRig.syncMarkers();
-
-    const rtAspect = RT_W / RT_H;
-
-    /* Pass 1: Off-screen RT render for the Combined warp shader.
-       Single mode: only the leading source RT is rendered (the outgoing RT
-       freezes for free during a blend). Dual mode: while a blend is active
-       the live follower RT is rendered too. */
-    const renderSrcRT = (s) => {
-        const cam = s === SRC.SEC1 ? R.sec1 : s === SRC.SEC2 ? R.sec2 : R.main;
-        const rt  = s === SRC.SEC1 ? rtS   : s === SRC.SEC2 ? rtS2   : rtM;
-        cam.aspect = rtAspect; cam.updateProjectionMatrix();
-        renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, cam);
-    };
-    const zsrc = zoomSource(S.zoom, !!R.sec2);
-    renderSrcRT(zsrc);
-    const dual = S.blendMode === 'dual';
-    if (dual && blendCtl.isBlending() && S.followerSrc !== null && S.followerSrc !== zsrc
-        && (S.followerSrc !== SRC.SEC2 || R.sec2)) {
-        renderSrcRT(S.followerSrc);
-    }
-
-    /* Pass 2: camera-transition blend — advance the cross-fade and feed
-       the previous-layer sampling state into the warp shader.
-       Single: frozen outgoing-camera state from the controller.
-       Dual:   live follower state (S.followerSrc/M, kept fresh by refreshH). */
-    if (S.sampleM) {
-        const { t: blendT, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
-        matWarp.uniforms.uBlend.value = blendT;
-        if (prevSrc !== null) {
-            const pSrc = dual ? S.followerSrc : prevSrc;
-            const pM   = dual ? S.followerM   : prevM;
-            matWarp.uniforms.uPrevSrc.value = pSrc;
-            matWarp.uniforms.uPrevHi.value.set(
-                pM[0], pM[1], pM[2],
-                pM[3], pM[4], pM[5],
-                pM[6], pM[7], pM[8]);
-        }
-    }
-
-    /* Pass 3-7: On-screen panel renders */
-    renderer.setRenderTarget(null); renderer.clear(); renderer.setScissorTest(true);
-
-    /* Pass 3: Bird's Eye — top-down view; objects above ghost height are translucent */
-    bevGhost.apply();
-    renderer.setViewport(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
-    renderer.setScissor(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
-    renderer.render(scene, R.bev);
-    bevGhost.restore();
-
-    /* Pass 4: Main Camera panel */
-    const panelAspect = P.m.w / P.m.h;
-    R.main.aspect = panelAspect; R.main.updateProjectionMatrix();
-    renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h);
-    renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
-    renderer.render(scene, R.main);
-
-    /* Pass 5: UW Camera panel */
-    R.sec1.aspect = panelAspect; R.sec1.updateProjectionMatrix();
-    renderer.setViewport(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
-    renderer.setScissor(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
-    renderer.render(scene, R.sec1);
-
-    /* Pass 6: Tele Camera panel */
-    if (R.sec2) {
-        R.sec2.aspect = panelAspect; R.sec2.updateProjectionMatrix();
-        renderer.setViewport(P.s2.x, P.s2.y, P.s2.w, P.s2.h);
-        renderer.setScissor(P.s2.x, P.s2.y, P.s2.w, P.s2.h);
-        renderer.render(scene, R.sec2);
-    }
-
-    /* Pass 7: Combined panel — warp shader on fullscreen quad.
-       The quad shows a 16:9 RT texture; letterbox inside the panel so the
-       image keeps the RT aspect instead of stretching to the panel shape. */
-    let cx = P.c.x, cy = P.c.y, cw = P.c.w, ch = P.c.h;
-    if (cw / ch > rtAspect) { const nw = ch * rtAspect; cx += (cw - nw) / 2; cw = nw; }
-    else                    { const nh = cw / rtAspect; cy += (ch - nh) / 2; ch = nh; }
-    renderer.setScissor(P.c.x, P.c.y, P.c.w, P.c.h);  // clear full panel (black bars)
-    renderer.setViewport(cx, cy, cw, ch);
-    quad.material = matWarp; renderer.render(dScene, dCam);
-
-    renderer.setScissorTest(false);
-}
-frame();
+createRenderLoop({
+    renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
+    rtW: RT_W, rtH: RT_H,
+}).start();
 
 </script>
 </body>
