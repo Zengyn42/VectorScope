@@ -42,6 +42,13 @@
  * });
  * // Pass onSelChange to initInteraction()
  */
+
+/** Animation speed presets (multiplier of the mode's base rate). */
+export const ANIM_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+
+/** Compact speed label: 0.25 → '0.25x', 1 → '1x', 8 → '8x'. */
+export const fmtSpeed = (s) => `${s >= 1 ? s : s.toFixed(2).replace(/0+$/, '')}x`;
+
 export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam, getSecCam2, onCamEdit, getAnim, onAnimSet, $ }) {
 
     /** Compute depth of a 3D point along the main camera's look-at direction. */
@@ -144,10 +151,11 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
             html += `<div>` + MODES.map(([m, label]) =>
                 `<button class="zp-btn anim-btn${cur.mode === m ? ' active' : ''}" data-amode="${m}">${label}</button>`
             ).join(' ') + `</div>`;
-            html += `<div style="margin-top:4px">` +
-                `<span class="cam-lbl">speed</span>` +
-                `<input type="range" id="oi-aspd" min="0.2" max="3" step="0.1" value="${cur.speed}" style="width:110px;vertical-align:middle"> ` +
-                `<span class="cam-lbl" id="oi-aspd-v">${(+cur.speed).toFixed(1)}</span></div>`;
+            // Speed presets (multiplier of the mode's base rate)
+            html += `<div style="margin-top:4px"><span class="cam-lbl">speed</span> ` +
+                ANIM_SPEEDS.map(s =>
+                    `<button class="zp-btn aspd-btn${+cur.speed === s ? ' active' : ''}" data-aspd="${s}">${fmtSpeed(s)}</button>`
+                ).join(' ') + `</div>`;
         }
         $('cam-detail').innerHTML = html;
 
@@ -158,17 +166,20 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
 
         if (getAnim && onAnimSet) {
             const btns = $('cam-detail').querySelectorAll('.anim-btn');
+            const spdBtns = $('cam-detail').querySelectorAll('.aspd-btn');
             const activeMode = () =>
                 [...btns].find(b => b.classList.contains('active'))?.dataset.amode || 'none';
+            const activeSpeed = () =>
+                parseFloat([...spdBtns].find(b => b.classList.contains('active'))?.dataset.aspd || '1');
             btns.forEach(b => b.addEventListener('click', () => {
-                onAnimSet(obj, b.dataset.amode, parseFloat($('oi-aspd').value));
+                onAnimSet(obj, b.dataset.amode, activeSpeed());
                 btns.forEach(x => x.classList.toggle('active', x === b));
             }));
-            $('oi-aspd').addEventListener('input', function () {
-                $('oi-aspd-v').textContent = (+this.value).toFixed(1);
+            spdBtns.forEach(b => b.addEventListener('click', () => {
+                spdBtns.forEach(x => x.classList.toggle('active', x === b));
                 const m = activeMode();
-                if (m !== 'none') onAnimSet(obj, m, +this.value);  // re-assign with new speed
-            });
+                if (m !== 'none') onAnimSet(obj, m, parseFloat(b.dataset.aspd));  // re-assign with new speed
+            }));
         }
     }
 
