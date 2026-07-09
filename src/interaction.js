@@ -144,6 +144,7 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
            they're rendered semi-transparent and act as pass-through. */
         let best = null, bestD = Infinity;
         for (const obj of S.objs) {
+            if (obj.userData._hidden) continue;       // deleted (hidden) → skip
             if (panel === 'bev') {
                 selBox.setFromObject(obj);
                 if (selBox.min.y > S.clipY) continue;  // ghosted → skip

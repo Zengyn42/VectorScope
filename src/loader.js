@@ -101,35 +101,12 @@ export function loadScene(url, opts = {}) {
         return;
     }
 
-    // Remove previous models
-    state.objs = [];
-    state.origPos.clear();
-    scene.children.filter(c => c.userData._mdl).forEach(c => scene.remove(c));
+    clearModels();
 
     gltfLoader.load(
         url,
         (gltf) => {
-            const mdl = gltf.scene;
-            mdl.userData._mdl = true;
-            scene.add(mdl);
-
-            // Handle scene lights: dim defaults if scene has its own
-            mdl.traverse(ch => {
-                if (ch.isLight) {
-                    if (ch.intensity > 10) ch.intensity = 3;
-                    if (lights.ambient) lights.ambient.intensity = 0.1;
-                    if (lights.directional) lights.directional.intensity = 0;
-                }
-            });
-
-            // Register selectable objects
-            for (const child of mdl.children) {
-                if (child.type === 'Object3D' && !child.isMesh && child.children.length === 0) continue;
-                state.objs.push(child);
-                state.origPos.set(child.uuid, child.position.clone());
-            }
-
-            state.loaded = true;
+            registerModel(gltf.scene, { children: true });
             if (onComplete) onComplete(state.objs.length);
         },
         (progress) => {
@@ -142,6 +119,59 @@ export function loadScene(url, opts = {}) {
             if (onError) onError(err);
         },
     );
+}
+
+/**
+ * Remove all loaded models from the scene and reset the object registry.
+ * Used before a full scene replacement (loadScene / saved-scene load).
+ */
+export function clearModels() {
+    state.objs = [];
+    state.origPos.clear();
+    scene.children.filter(c => c.userData._mdl).forEach(c => scene.remove(c));
+}
+
+/**
+ * Add an already-parsed model root to the scene and register its objects.
+ * Shared by URL loading (loadScene), the Add-object flow, and saved-scene
+ * restore, so registration/light handling stays consistent everywhere.
+ *
+ * @param {THREE.Object3D} root - parsed model root (e.g. gltf.scene)
+ * @param {object} [opts]
+ * @param {boolean} [opts.children=true] - register root's children as
+ *        individual selectable objects (scene semantics); false registers
+ *        the root itself as one object (added-object semantics)
+ * @returns {THREE.Object3D[]} the newly registered objects
+ */
+export function registerModel(root, { children = true } = {}) {
+    root.userData._mdl = true;
+    scene.add(root);
+
+    // Handle scene lights: dim defaults if the model has its own
+    root.traverse(ch => {
+        if (ch.isLight) {
+            if (ch.intensity > 10) ch.intensity = 3;
+            if (lights.ambient) lights.ambient.intensity = 0.1;
+            if (lights.directional) lights.directional.intensity = 0;
+        }
+    });
+
+    const added = [];
+    if (children) {
+        for (const child of root.children) {
+            if (child.type === 'Object3D' && !child.isMesh && child.children.length === 0) continue;
+            added.push(child);
+        }
+    } else {
+        added.push(root);
+    }
+    for (const o of added) {
+        state.objs.push(o);
+        state.origPos.set(o.uuid, o.position.clone());
+    }
+
+    state.loaded = true;
+    return added;
 }
 
 /**

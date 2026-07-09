@@ -123,6 +123,20 @@ export function createSceneAnimator({ now = () => performance.now() } = {}) {
     }
 
     /**
+     * Full serializable animation state for scene save (null if not animated).
+     * Includes the *base* pose — the animation oscillates around it, so save
+     * files must persist the base rather than the instantaneous pose.
+     * @returns {{mode: string, speed: number, dir: number[],
+     *            base: number[], baseRotY: number}|null}
+     */
+    function getState(obj) {
+        const e = anims.get(obj);
+        return e
+            ? { mode: e.mode, speed: e.speed, dir: e.dir.slice(), base: e.base.slice(), baseRotY: e.baseRotY }
+            : null;
+    }
+
+    /**
      * Advance all animations. Call once per frame.
      * @param {(obj) => boolean} [skip] - objects for which the pose must
      *        NOT be applied this frame (e.g. being dragged). Their base is
@@ -153,5 +167,5 @@ export function createSceneAnimator({ now = () => performance.now() } = {}) {
         for (const obj of [...anims.keys()]) clear(obj);
     }
 
-    return { setAnim, get, update, clear, clearAll, count: () => anims.size };
+    return { setAnim, get, getState, update, clear, clearAll, count: () => anims.size };
 }

@@ -188,11 +188,19 @@ input[type="file"] { display: none; }
     <div id="panel-controls">
       <div class="panel-title">Controls</div>
       <div class="ctrl-row">
-        <button onclick="document.getElementById('fscene').click()">Load Scene</button>
+        <button onclick="document.getElementById('fscene').click()">Load Model</button>
         <input type="file" id="fscene" accept=".glb,.gltf">
         <button onclick="openCamDialog()">Set Camera</button>
         <input type="file" id="fcam" accept=".json" style="display:none">
         <button id="btn-reset">Reset All</button>
+      </div>
+      <div class="ctrl-row">
+        <button onclick="document.getElementById('fadd').click()">Add</button>
+        <input type="file" id="fadd" multiple style="display:none"
+               accept=".glb,.gltf,.obj,.mtl,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tga">
+        <button id="btn-del">Delete</button>
+        <button id="btn-save-scene">Save Scene</button>
+        <button id="btn-load-scene">Load Scene</button>
       </div>
       <div class="ctrl-row">
         <label>Focus D:</label>
@@ -342,7 +350,13 @@ import { createSceneAnimator } from './src/scene-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
 import { createBevGhost } from './src/bev-ghost.js';
 import { createFallbackScene } from './src/fallback-scene.js';
-import { initLoader, loadScene, getLoaderState, resetPositions } from './src/loader.js';
+import { initLoader, loadScene, getLoaderState, resetPositions, clearModels, registerModel } from './src/loader.js';
+import { OBJLoader } from './lib/OBJLoader.js?v=30';
+import { MTLLoader } from './lib/MTLLoader.js?v=30';
+import { createAssetRegistry } from './src/asset-registry.js';
+import { createObjectOps } from './src/object-ops.js';
+import { createAssetParser } from './src/asset-parse.js';
+import { createSceneIO } from './src/scene-io.js';
 import { createPanelManager } from './src/panels.js';
 import { initInteraction } from './src/interaction.js';
 import { initSelectionPanel } from './src/selection-panel.js';
@@ -352,6 +366,7 @@ import { createRenderLoop } from './src/render-loop.js';
 import { createSamplingRefresh } from './src/sampling-hud.js';
 import { initUiControls } from './src/ui-controls.js';
 import { createSceneManager } from './src/scene-manager.js';
+import { createConfigStore } from './src/config-store.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -360,7 +375,13 @@ log('Three.js loaded');
 
 /* ================================================================
    STATE
+   - `store` (src/config-store.js) is the single source of truth for all
+     persistable state; sections: 'controls' (ui-controls.js), 'cameras'
+     (registered below, after panels exist).
+   - `S` holds runtime/transient state; its persistable fields are written
+     ONLY by store apply hooks (unidirectional data flow).
    ================================================================ */
+const store = createConfigStore();
 const S = {
     warp: false, zoom: 1.0, prewarpScale: 1.0, prewarpScale2: 1.0, depthD: 3.0,
     clipY: 2.0,            // BEV clipping plane height
@@ -429,11 +450,17 @@ const fallback = createFallbackScene({
     THREE, scene, getLoaderState,
     onRemove: (o) => { sceneAnim.clear(o); if (S.sel === o) sel(null); },
 });
-const { doLoadScene, armFallbackTimer } = createSceneManager({
+const { doLoadScene, armFallbackTimer, syncObjs } = createSceneManager({
     S, sceneAnim, loadScene, getLoaderState, fallback, log,
 });
 doLoadScene('assets/bedroom.glb', true);
 armFallbackTimer(5000);
+
+/* Asset registry (src/asset-registry.js): raw asset sources for scene save.
+   The default scene is url-sourced — its bytes are fetched at save time, so
+   a save directory is always self-contained. */
+const assetRegistry = createAssetRegistry();
+assetRegistry.setSceneAsset({ name: 'bedroom.glb', format: 'glb', url: 'assets/bedroom.glb' });
 
 /* ================================================================
    PANELS
@@ -448,13 +475,34 @@ const { P, layoutPanels, getPanel, toNDC } = createPanelManager({
 });
 
 /* ================================================================
+   CAMERAS CONFIG SECTION
+   Registered here (not in ui-controls) because the apply hook needs
+   camRig/layoutPanels/P. All camera edits — dialog Apply, inline panel
+   edits, camera JSON file — route through store.set('cameras', …).
+   ================================================================ */
+store.register('cameras', {
+    defaults: {
+        camParams: DEF_CAM,
+        sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+    },
+    apply: (v) => {
+        SCENE_CAM.position = v.sceneCam.position;
+        SCENE_CAM.rotation_euler_deg = v.sceneCam.rotation_euler_deg;
+        initCams(v.camParams);
+        layoutPanels();
+        camRig.updateBevAspect(P.bev);
+        refreshH();
+    },
+});
+
+/* ================================================================
    INTERACTION
    ================================================================ */
 
 const { onSelChange } = initSelectionPanel({
     THREE, S, SCENE_CAM,
     getMainCam: () => R.main, getSecCam: () => R.sec1, getSecCam2: () => R.sec2,
-    onCamEdit: () => { initCams(S.camParams); layoutPanels(); camRig.updateBevAspect(P.bev); refreshH(); },
+    onCamEdit: () => { store.set('cameras', { camParams: S.camParams }); },
     getAnim: (o) => sceneAnim.get(o),
     onAnimSet: (o, mode, speed) => {
         const d = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
@@ -473,26 +521,81 @@ const { sel, syncDepthSlider } = initInteraction({
 });
 
 /* ================================================================
+   OBJECT OPS + SCENE SAVE/LOAD
+   (src/object-ops.js + src/asset-parse.js + src/scene-io.js)
+   ================================================================ */
+const objectOps = createObjectOps({
+    THREE, S, getLoaderState,
+    getMainCam: () => R.main, getFocusD: () => S.depthD,
+    sceneAnim, sel, log,
+});
+const assetParser = createAssetParser({
+    THREE, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/', OBJLoader, MTLLoader,
+});
+const sceneIO = createSceneIO({
+    store, assetRegistry, objectOps, assetParser,
+    loader: { clearModels, registerModel }, scene,
+    onBeforeReplace: () => { sceneAnim.clearAll(); sel(null); },
+    onAfterLoad: () => { syncObjs(); },
+    log,
+});
+
+/* Add: parse picked files (.glb | .obj+.mtl+textures) entirely in memory,
+   register as one selectable object, place at Focus D in front of R.main. */
+$('fadd').onchange = async function () {
+    if (!this.files.length) return;
+    const picked = [...this.files];
+    this.value = '';
+    try {
+        const files = [];
+        for (const f of picked) files.push({ name: f.name, data: await f.arrayBuffer() });
+        const { root, format, mainName } = await assetParser.parseFiles(files);
+        const assetId = assetRegistry.add({ name: mainName, format, files });
+        const objs = registerModel(root, { children: false });
+        objectOps.adoptObjects(objs, { assetId, place: true });
+        syncObjs();
+        log(`Added: ${mainName}`);
+    } catch (e) { log(`Add failed: ${e.message}`); console.error(e); }
+};
+$('btn-del').onclick = () => {
+    if (!objectOps.deleteSelected()) log('Delete: no object selected');
+};
+$('btn-save-scene').onclick = () =>
+    sceneIO.saveScene().catch(e => { log(`Save failed: ${e.message}`); console.error(e); });
+$('btn-load-scene').onclick = () =>
+    sceneIO.loadScene().catch(e => { log(`Load failed: ${e.message}`); console.error(e); });
+if (!sceneIO.isSupported()) {
+    $('btn-save-scene').disabled = $('btn-load-scene').disabled = true;
+    $('btn-save-scene').title = $('btn-load-scene').title =
+        'Requires the File System Access API (Chrome/Edge)';
+}
+
+/* Load Model (fscene): replace the base scene AND its registered asset so a
+   later Save writes the new model's bytes instead of the default url. */
+async function onModelFile(file) {
+    const buf = await file.arrayBuffer();
+    assetRegistry.clear();
+    assetRegistry.setSceneAsset({ name: file.name, format: 'glb', files: [{ name: file.name, data: buf }] });
+    doLoadScene(URL.createObjectURL(new Blob([buf])));
+}
+
+/* ================================================================
    AUTOFOCUS
    ================================================================ */
 initAutofocus({
     $, canvas, renderer, scene, depthMat, rtDepth, P, RT_W, RT_H,
     getMainCam: () => R.main,
-    onFocus: (focusD) => {
-        S.depthD = focusD;
-        $('sld-d').value = focusD;
-        $('vd').textContent = focusD.toFixed(1);
-        refreshH();
-    },
+    onFocus: (focusD) => { store.set('controls', { depthD: focusD }); },
 });
 
 /* ================================================================
-   UI CONTROLS (src/ui-controls.js)
+   UI CONTROLS (src/ui-controls.js) — registers the 'controls' section
+   and performs the initial store → S/DOM render.
    ================================================================ */
 const ui = initUiControls({
-    $, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
-    resetPositions, sel, doLoadScene, initCams, layoutPanels,
-    camRig, P, SCENE_CAM,
+    $, store, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
+    resetPositions, sel, doLoadScene, SCENE_CAM,
+    restoreHidden: objectOps.restoreHidden, onModelFile,
 });
 window.nudge = ui.nudge;
 window.openCamDialog = ui.openCamDialog;
@@ -505,7 +608,7 @@ window.refreshH = refreshH;
 refreshH();
 
 // Debug/test hook (headless regression scripts inspect blend state)
-window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S };
+window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegistry, assetParser, sceneIO, syncObjs, registerModel, R };
 
 /* ================================================================
    RESIZE + RENDER LOOP (src/render-loop.js)

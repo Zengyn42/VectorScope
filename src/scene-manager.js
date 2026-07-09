@@ -20,7 +20,8 @@
  * @param {object}   opts.fallback       - createFallbackScene instance
  * @param {Function} opts.log            - status logger
  * @returns {{doLoadScene: Function, addFallback: Function,
- *            removeFallback: Function, armFallbackTimer: Function}}
+ *            removeFallback: Function, armFallbackTimer: Function,
+ *            syncObjs: Function}}
  */
 export function createSceneManager({ S, sceneAnim, loadScene, getLoaderState, fallback, log }) {
     /** Sync S.objs / S.origPos from the loader registry. */
@@ -54,5 +55,5 @@ export function createSceneManager({ S, sceneAnim, loadScene, getLoaderState, fa
         setTimeout(() => { if (!getLoaderState().loaded) { addFallback(); log('Fallback scene'); } }, ms);
     }
 
-    return { doLoadScene, addFallback, removeFallback, armFallbackTimer };
+    return { doLoadScene, addFallback, removeFallback, armFallbackTimer, syncObjs };
 }
