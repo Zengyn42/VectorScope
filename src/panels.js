@@ -44,11 +44,12 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         P.bev = { x: 0, y: H - bevH, w: bevW, h: bevH };
 
         /* Bottom row: 4 camera panels, each fixed 9:16 (portrait),
-           block centered horizontally, anchored to the bottom edge */
+           block left-aligned, anchored to the bottom edge
+           (right side stays free for the homography matrix HUD) */
         let pw = Math.min(Math.floor((W - 3 * GAP) / 4), Math.floor(botH * 9 / 16));
         let ph = Math.floor(pw * 16 / 9);
         if (ph > botH) { ph = botH; pw = Math.floor(ph * 9 / 16); }
-        const x0 = Math.floor((W - (4 * pw + 3 * GAP)) / 2);
+        const x0 = 0;
         P.m  = { x: x0,                 y: 0, w: pw, h: ph };
         P.s1 = { x: x0 + (pw + GAP),     y: 0, w: pw, h: ph };
         P.s2 = { x: x0 + 2 * (pw + GAP), y: 0, w: pw, h: ph };
