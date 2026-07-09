@@ -329,6 +329,7 @@ import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
 import { SRC, computeSampleMatrix, zoomSource, segName } from './src/zoom-pipeline.js';
 import { createBlendController } from './src/blend.js';
+import { createSceneAnimator } from './src/scene-anim.js';
 import { createZoomAnimator } from './src/zoom-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
 import { createBevGhost } from './src/bev-ghost.js';
@@ -412,6 +413,12 @@ const bevGhost = createBevGhost({ THREE, scene, getClipY: () => S.clipY });
    property (R.main), never destructure. */
 const camRig = createCameraRig({ THREE, scene, SCENE_CAM, bevSize: 6 });
 const R = camRig.rig;
+
+/* Scene animation (src/scene-anim.js): procedural presets assigned per
+   object from the Selection panel. `depth` mode moves along the main
+   camera's optical axis — snapshotted at assignment time.
+   Declared before SCENE LOADING (doLoadScene calls clearAll). */
+const sceneAnim = createSceneAnimator({});
 function initCams(p) { camRig.init(p); S.camParams = p; }
 initCams(DEF_CAM);
 
@@ -442,6 +449,7 @@ initLoader({ scene, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/', ambientL
 
 function doLoadScene(url, isDefault = false) {
     log('Loading scene…');
+    sceneAnim.clearAll();          // objects are about to be replaced
     loadScene(url, {
         isDefault,
         onProgress: (loaded, total) => log(`Loading ${(loaded / total * 100) | 0}%…`),
@@ -456,7 +464,7 @@ function doLoadScene(url, isDefault = false) {
    race bug). Wrappers sync S.objs/S.origPos with the loader registry. */
 const fallback = createFallbackScene({
     THREE, scene, getLoaderState,
-    onRemove: (o) => { if (S.sel === o) sel(null); },
+    onRemove: (o) => { sceneAnim.clear(o); if (S.sel === o) sel(null); },
 });
 function addFallback() {
     fallback.add();
@@ -490,6 +498,11 @@ const { onSelChange } = initSelectionPanel({
     THREE, S, SCENE_CAM,
     getMainCam: () => R.main, getSecCam: () => R.sec1, getSecCam2: () => R.sec2,
     onCamEdit: () => { initCams(S.camParams); layoutPanels(); camRig.updateBevAspect(P.bev); refreshH(); },
+    getAnim: (o) => sceneAnim.get(o),
+    onAnimSet: (o, mode, speed) => {
+        const d = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
+        sceneAnim.setAnim(o, mode, { speed, dir: [d.x, d.y, d.z] });
+    },
     $,
 });
 
@@ -583,6 +596,7 @@ $('sld-od').oninput = function () {
 $('btn-reset').onclick = () => {
     animator.stopAll();
     blendCtl.reset(); matWarp.uniforms.uBlend.value = 1;
+    sceneAnim.clearAll();
     resetPositions(); sel(null);
     S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
     S.zoom = 1; $('sld-z').value = 0; $('vz').textContent = '1.00x';
@@ -660,7 +674,7 @@ window.refreshH = refreshH;
 refreshH();
 
 // Debug/test hook (headless regression scripts inspect blend state)
-window.VS_DEBUG = { matWarp, blendCtl, S };
+window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S };
 
 /* ================================================================
    RESIZE + RENDER LOOP
@@ -685,6 +699,9 @@ onResize();
 
 function frame() {
     requestAnimationFrame(frame);
+    // Scene animation — skip the object being dragged (its base follows
+    // the drag so motion resumes smoothly from the drop point).
+    sceneAnim.update((o) => S.dragging && S.sel === o);
     R.main.updateMatrixWorld(true);
     R.sec1.updateMatrixWorld(true);
     if (R.sec2) R.sec2.updateMatrixWorld(true);

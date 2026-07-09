@@ -41,7 +41,7 @@
  * });
  * // Pass onSelChange to initInteraction()
  */
-export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam, getSecCam2, onCamEdit, $ }) {
+export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam, getSecCam2, onCamEdit, getAnim, onAnimSet, $ }) {
 
     /** Compute depth of a 3D point along the main camera's look-at direction. */
     function depthToMainCam(worldPos) {
@@ -133,12 +133,42 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
         html += `<span class="cam-lbl">ry</span>${camInp('oi-ry', rad2deg(obj.rotation.y).toFixed(1), 1)} `;
         html += `<span class="cam-lbl">rz</span>${camInp('oi-rz', rad2deg(obj.rotation.z).toFixed(1), 1)}`;
         html += `</div>`;
+
+        // Animation controls (procedural presets from src/scene-anim.js)
+        if (getAnim && onAnimSet) {
+            const cur = getAnim(obj);
+            const MODES = [['none', 'None'], ['depth', 'Depth'], ['orbit', 'Orbit'],
+                           ['bounce', 'Bounce'], ['spin', 'Spin']];
+            html += `<div style="color:#e94560;font-size:10px;text-transform:uppercase;margin:6px 0 2px">Animation</div>`;
+            html += `<div>` + MODES.map(([m, label]) =>
+                `<button class="zp-btn anim-btn${cur.mode === m ? ' active' : ''}" data-amode="${m}">${label}</button>`
+            ).join(' ') + `</div>`;
+            html += `<div style="margin-top:4px">` +
+                `<span class="cam-lbl">speed</span>` +
+                `<input type="range" id="oi-aspd" min="0.2" max="3" step="0.1" value="${cur.speed}" style="width:110px;vertical-align:middle"> ` +
+                `<span class="cam-lbl" id="oi-aspd-v">${(+cur.speed).toFixed(1)}</span></div>`;
+        }
         $('cam-detail').innerHTML = html;
 
         ['oi-rx', 'oi-ry', 'oi-rz'].forEach(id => {
             const el = $(id);
             if (el) el.addEventListener('input', applyObjRot);
         });
+
+        if (getAnim && onAnimSet) {
+            const btns = $('cam-detail').querySelectorAll('.anim-btn');
+            const activeMode = () =>
+                [...btns].find(b => b.classList.contains('active'))?.dataset.amode || 'none';
+            btns.forEach(b => b.addEventListener('click', () => {
+                onAnimSet(obj, b.dataset.amode, parseFloat($('oi-aspd').value));
+                btns.forEach(x => x.classList.toggle('active', x === b));
+            }));
+            $('oi-aspd').addEventListener('input', function () {
+                $('oi-aspd-v').textContent = (+this.value).toFixed(1);
+                const m = activeMode();
+                if (m !== 'none') onAnimSet(obj, m, +this.value);  // re-assign with new speed
+            });
+        }
     }
 
     /** Render camera pose editor (position + orientation inputs) into the panel. */
