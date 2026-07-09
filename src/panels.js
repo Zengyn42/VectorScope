@@ -26,6 +26,7 @@
  */
 export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
     const GAP = 2;
+    const BOT_GAP = 12;   // buffer between bottom-row camera panels
     const P = { bev: {}, m: {}, s1: {}, s2: {}, c: {} };
 
     function layoutPanels() {
@@ -46,14 +47,14 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         /* Bottom row: 4 camera panels, each fixed 9:16 (portrait),
            block left-aligned, anchored to the bottom edge
            (right side stays free for the homography matrix HUD) */
-        let pw = Math.min(Math.floor((W - 3 * GAP) / 4), Math.floor(botH * 9 / 16));
+        let pw = Math.min(Math.floor((W - 3 * BOT_GAP) / 4), Math.floor(botH * 9 / 16));
         let ph = Math.floor(pw * 16 / 9);
         if (ph > botH) { ph = botH; pw = Math.floor(ph * 9 / 16); }
         const x0 = 0;
-        P.m  = { x: x0,                 y: 0, w: pw, h: ph };
-        P.s1 = { x: x0 + (pw + GAP),     y: 0, w: pw, h: ph };
-        P.s2 = { x: x0 + 2 * (pw + GAP), y: 0, w: pw, h: ph };
-        P.c  = { x: x0 + 3 * (pw + GAP), y: 0, w: pw, h: ph };
+        P.m  = { x: x0,                     y: 0, w: pw, h: ph };
+        P.s1 = { x: x0 + (pw + BOT_GAP),     y: 0, w: pw, h: ph };
+        P.s2 = { x: x0 + 2 * (pw + BOT_GAP), y: 0, w: pw, h: ph };
+        P.c  = { x: x0 + 3 * (pw + BOT_GAP), y: 0, w: pw, h: ph };
 
         /* Position DOM overlay panels (CSS coords, top-left origin) */
         const infoEl = $('panel-info');
@@ -97,7 +98,7 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         ['sep-v1', 'sep-v2', 'sep-v3'].forEach((id, i) => {
             const el = $(id);
             if (!el) return;
-            el.style.left = (x0 + (i + 1) * (pw + GAP) - GAP) + 'px';
+            el.style.left = (x0 + (i + 1) * (pw + BOT_GAP) - Math.ceil(BOT_GAP / 2)) + 'px';
             el.style.top = (H - ph) + 'px';
             el.style.height = ph + 'px';
         });
