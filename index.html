@@ -226,6 +226,14 @@ input[type="file"] { display: none; }
         <button class="zp-btn" data-z="10">10x</button>
       </div>
       <div class="ctrl-row">
+        <label>Blend:</label>
+        <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
+        <!-- X = cross-fade length in frames after a camera switch; 0 = off -->
+        <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
+        <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
+        <span class="val" id="vblend">20f</span>
+      </div>
+      <div class="ctrl-row">
         <button id="btn-warp">Warp</button>
         <button id="btn-play">&#9654; Play</button>
       </div>
@@ -320,6 +328,7 @@ import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
 import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
 import { SRC, computeSampleMatrix, zoomSource, segName } from './src/zoom-pipeline.js';
+import { createBlendController } from './src/blend.js';
 import { createZoomAnimator } from './src/zoom-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
 import { createBevGhost } from './src/bev-ghost.js';
@@ -352,6 +361,8 @@ window.nudge = function(id, dir) {
 const S = {
     warp: false, zoom: 1.0, prewarpScale: 1.0, prewarpScale2: 1.0, depthD: 3.0,
     clipY: 2.0,            // BEV clipping plane height
+    blendX: 20,            // camera-transition blend length in frames (0 = off)
+    sampleSrc: SRC.MAIN, sampleM: null,   // current frame's sampling state (set by refreshH)
     sel: null, selCam: null, // selected object / selected camera name
     dragging: false,
     dragPlane: new THREE.Plane(), dragOff: new THREE.Vector3(),
@@ -417,6 +428,12 @@ const dCam = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1);
 const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
 dScene.add(quad);
 const matWarp = createWarpMaterial(THREE, rtS.texture, rtM.texture, rtS2.texture, RT_W, RT_H);
+
+/* Camera-transition blending (src/blend.js): after a source switch the
+   Combined view cross-fades from the outgoing camera's frozen last frame
+   to the live incoming camera over S.blendX frames. The outgoing RT is
+   not re-rendered during the blend, so it holds its last frame for free. */
+const blendCtl = createBlendController({ getX: () => S.blendX });
 
 /* ================================================================
    SCENE LOADING
@@ -522,6 +539,11 @@ $('sld-clip').oninput = function () {
     $('vclip').textContent = S.clipY.toFixed(1);
 };
 
+$('sld-blend').oninput = function () {
+    S.blendX = Math.round(+this.value);
+    $('vblend').textContent = S.blendX + 'f';
+};
+
 $('btn-warp').onclick = () => {
     S.warp = !S.warp;
     $('btn-warp').classList.toggle('active', S.warp);
@@ -560,6 +582,7 @@ $('sld-od').oninput = function () {
 
 $('btn-reset').onclick = () => {
     animator.stopAll();
+    blendCtl.reset(); matWarp.uniforms.uBlend.value = 1;
     resetPositions(); sel(null);
     S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
     S.zoom = 1; $('sld-z').value = 0; $('vz').textContent = '1.00x';
@@ -624,6 +647,9 @@ function refreshH() {
         Msamp[0], Msamp[1], Msamp[2],
         Msamp[3], Msamp[4], Msamp[5],
         Msamp[6], Msamp[7], Msamp[8]);
+    // Stash the sampling state for the per-frame blend controller
+    S.sampleSrc = src;
+    S.sampleM = Msamp;
 
     const H_disp = Msamp.slice();
     const s = H_disp[8];
@@ -632,6 +658,9 @@ function refreshH() {
 }
 window.refreshH = refreshH;
 refreshH();
+
+// Debug/test hook (headless regression scripts inspect blend state)
+window.VS_DEBUG = { matWarp, blendCtl, S };
 
 /* ================================================================
    RESIZE + RENDER LOOP
@@ -675,6 +704,20 @@ function frame() {
     } else {
         R.sec2.aspect = rtAspect; R.sec2.updateProjectionMatrix();
         renderer.setRenderTarget(rtS2); renderer.clear(); renderer.render(scene, R.sec2);
+    }
+
+    /* Pass 2: camera-transition blend — advance the cross-fade and feed
+       the frozen previous-camera sampling state into the warp shader. */
+    if (S.sampleM) {
+        const { t: blendT, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
+        matWarp.uniforms.uBlend.value = blendT;
+        if (prevSrc !== null) {
+            matWarp.uniforms.uPrevSrc.value = prevSrc;
+            matWarp.uniforms.uPrevHi.value.set(
+                prevM[0], prevM[1], prevM[2],
+                prevM[3], prevM[4], prevM[5],
+                prevM[6], prevM[7], prevM[8]);
+        }
     }
 
     /* Pass 3-7: On-screen panel renders */

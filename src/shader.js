@@ -29,6 +29,9 @@
  * | `uSrc` | int     | Source selector: 0 = sec1, 1 = main, 2 = sec2 |
  * | `uHi`  | mat3    | Pixel-space sampling matrix (output px → source px) |
  * | `uR`   | vec2    | Render target resolution [width, height] |
+ * | `uPrevSrc` | int  | Outgoing camera source during a transition blend |
+ * | `uPrevHi`  | mat3 | Frozen sampling matrix of the outgoing camera's last frame |
+ * | `uBlend`   | float| Weight of the current frame (n/X); 1.0 disables blending |
  *
  * Out-of-bounds pixels render as dark background `(0.06, 0.06, 0.12)`.
  *
@@ -56,19 +59,33 @@ uniform sampler2D tS1, tM, tS2;
 uniform int uSrc;
 uniform mat3 uHi;
 uniform vec2 uR;
+uniform int uPrevSrc;    // outgoing camera during a transition blend
+uniform mat3 uPrevHi;    // its frozen sampling matrix (last displayed frame)
+uniform float uBlend;    // weight of the CURRENT frame: n/X; 1.0 = no blend
 varying vec2 vUv;
+
+// Warp-sample one camera texture: apply the pixel-space sampling matrix M
+// (output px -> source px) and fetch from the selected source.
+vec4 warpSample(int src, mat3 M, vec2 px){
+    vec3 sp = M * vec3(px, 1.);
+    vec2 s = vec2(sp.x / sp.z / uR.x, 1. - sp.y / sp.z / uR.y);
+    if(s.x >= 0. && s.x <= 1. && s.y >= 0. && s.y <= 1.){
+        if(src == 0)      return texture2D(tS1, s);
+        else if(src == 2) return texture2D(tS2, s);
+        else              return texture2D(tM, s);
+    }
+    return vec4(.06, .06, .12, 1.);
+}
+
 void main(){
     // Output pixel coords (y-down image convention)
     vec2 px = vec2(vUv.x * uR.x, (1. - vUv.y) * uR.y);
-    vec3 sp = uHi * vec3(px, 1.);
-    vec2 s = vec2(sp.x / sp.z / uR.x, 1. - sp.y / sp.z / uR.y);
-    vec4 col;
-    if(s.x >= 0. && s.x <= 1. && s.y >= 0. && s.y <= 1.){
-        if(uSrc == 0)      col = texture2D(tS1, s);
-        else if(uSrc == 2) col = texture2D(tS2, s);
-        else               col = texture2D(tM, s);
-    } else {
-        col = vec4(.06, .06, .12, 1.);
+    vec4 col = warpSample(uSrc, uHi, px);
+    // Camera-transition blending: cross-fade from the outgoing camera's
+    // frozen last frame to the live incoming camera over X frames.
+    if(uBlend < 1.){
+        vec4 prev = warpSample(uPrevSrc, uPrevHi, px);
+        col = mix(prev, col, uBlend);
     }
     gl_FragColor = col;
     // RT textures hold linear values; direct-rendered panels get the
@@ -97,6 +114,9 @@ export function createWarpMaterial(THREE, texS1, texM, texS2, rtW, rtH) {
             uSrc: { value: 1 },
             uHi: { value: new THREE.Matrix3() },
             uR: { value: new THREE.Vector2(rtW, rtH) },
+            uPrevSrc: { value: 1 },
+            uPrevHi: { value: new THREE.Matrix3() },
+            uBlend: { value: 1.0 },
         },
     });
 }
