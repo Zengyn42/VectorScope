@@ -26,7 +26,7 @@
  */
 export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
     const GAP = 2;
-    const BOT_GAP = 12;   // buffer between bottom-row camera panels
+    const BOT_GAP = 28;   // buffer between bottom-row camera panels
     const P = { bev: {}, m: {}, s1: {}, s2: {}, c: {} };
 
     function layoutPanels() {
@@ -94,14 +94,26 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
             sepH.style.top = (H - botH - GAP) + 'px';
         }
 
-        /* Vertical separators between bottom panels */
-        ['sep-v1', 'sep-v2', 'sep-v3'].forEach((id, i) => {
+        /* Vertical separators are replaced by per-panel red borders — hide them */
+        ['sep-v1', 'sep-v2', 'sep-v3'].forEach(id => {
+            const el = $(id);
+            if (el) el.style.display = 'none';
+        });
+
+        /* Red border outline around each camera view (GL → CSS coords) */
+        const setBorder = (id, p) => {
             const el = $(id);
             if (!el) return;
-            el.style.left = (x0 + (i + 1) * (pw + BOT_GAP) - Math.ceil(BOT_GAP / 2)) + 'px';
-            el.style.top = (H - ph) + 'px';
-            el.style.height = ph + 'px';
-        });
+            el.style.left = p.x + 'px';
+            el.style.top = (H - p.y - p.h) + 'px';
+            el.style.width = p.w + 'px';
+            el.style.height = p.h + 'px';
+        };
+        setBorder('bd-m', P.m);
+        setBorder('bd-s1', P.s1);
+        setBorder('bd-s2', P.s2);
+        setBorder('bd-c', P.c);
+        setBorder('bd-bev', P.bev);
 
         /* Sync camera aspect to bottom panel shape (9:16) */
         if (onCameraAspect) onCameraAspect(pw / ph);

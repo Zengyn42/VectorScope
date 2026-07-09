@@ -90,6 +90,13 @@ input[type="file"] { display: none; }
     font-size: 11px; pointer-events: none; z-index: 10; white-space: nowrap;
 }
 
+/* ── Red border outline around each camera view ── */
+.pborder {
+    position: absolute; box-sizing: border-box;
+    border: 2px solid #ff2b2b;
+    pointer-events: none; z-index: 8;
+}
+
 /* ── Panel separators ── */
 .panel-sep-v {
     position: absolute; top: 0; width: 2px;
@@ -236,6 +243,13 @@ input[type="file"] { display: none; }
     <div class="panel-sep-v" id="sep-v1"></div>
     <div class="panel-sep-v" id="sep-v2"></div>
     <div class="panel-sep-v" id="sep-v3"></div>
+
+    <!-- Red border outlines around each camera view (positioned by panels.js) -->
+    <div class="pborder" id="bd-bev"></div>
+    <div class="pborder" id="bd-m"></div>
+    <div class="pborder" id="bd-s1"></div>
+    <div class="pborder" id="bd-s2"></div>
+    <div class="pborder" id="bd-c"></div>
 
     <!-- AF selection rectangle overlay -->
     <div id="af-rect" style="display:none;position:absolute;border:2px solid #e94560;background:rgba(233,69,96,.15);pointer-events:none;z-index:15;"></div>
