@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { M } from '../src/math.js';
 import { computeHPair, zoomMatrix } from '../src/homography.js';
 import {
-    SRC, normLerp, segName, zoomSource, computeSampleMatrix, easeInOutQuad,
+    SRC, normLerp, segName, zoomSource, followerSource,
+    computeSampleMatrix, computeFollowerMatrix, easeInOutQuad,
 } from '../src/zoom-pipeline.js';
 
 const EPS = 1e-6;
@@ -198,6 +199,90 @@ describe('computeSampleMatrix — no sec2', () => {
             assert.equal(src, SRC.MAIN, `src @${z}x`);
             assertVecClose(m, zoomMatrix(z, W, H), `fallback crop @${z}x`);
         }
+    });
+});
+
+// ── followerSource (docs/CAMERAS.md leading/follower table) ──
+
+describe('followerSource', () => {
+    it('matches the leading/follower table (half-open from above)', () => {
+        assert.equal(followerSource(0.5, true), SRC.MAIN);    // leading UW
+        assert.equal(followerSource(0.999, true), SRC.MAIN);
+        assert.equal(followerSource(1.0, true), SRC.SEC1);    // leading main
+        assert.equal(followerSource(1.999, true), SRC.SEC1);
+        assert.equal(followerSource(2.0, true), SRC.SEC2);    // 2.0x exact → Tele
+        assert.equal(followerSource(4.999, true), SRC.SEC2);
+        assert.equal(followerSource(5.0, true), SRC.MAIN);    // leading Tele
+        assert.equal(followerSource(10, true), SRC.MAIN);
+    });
+
+    it('follower is never the leading source', () => {
+        for (const z of [0.5, 0.9, 1.0, 1.5, 2.0, 3, 4.9, 5.0, 10]) {
+            assert.notEqual(followerSource(z, true), zoomSource(z, true), `z=${z}`);
+        }
+    });
+
+    it('without sec2 stays SEC1 for z ≥ 1 (only boundary is 1.0x)', () => {
+        assert.equal(followerSource(0.7, false), SRC.MAIN);
+        for (const z of [1.0, 1.5, 2.0, 3, 5, 10]) {
+            assert.equal(followerSource(z, false), SRC.SEC1, `z=${z}`);
+        }
+    });
+});
+
+// ── computeFollowerMatrix (dual-mode blend layer) ──
+
+function follower(z, over = {}) {
+    return computeFollowerMatrix({
+        z, warp: true, D, params: makeRig(), prewarp1: 1, prewarp2: 1, w: W, h: H,
+        ...over,
+    });
+}
+
+describe('computeFollowerMatrix', () => {
+    it('is H(follower←leading, D) ∘ M_leading', () => {
+        const p = makeRig();
+        const z = 1.5;                                     // leading main, follower UW
+        const lead = sample(z);
+        const Hlf = computeHPair(p.secondary_camera, p.main_camera, D);
+        const { src, m } = follower(z);
+        assert.equal(src, SRC.SEC1);
+        assertVecClose(norm(m), norm(M.mul(Hlf, lead.m)), 'composition');
+    });
+
+    it('boundary 1.0x: M_follower(1⁻) ≈ M_leading(1⁺) = I on main', () => {
+        const f = follower(1 - 1e-9);
+        assert.equal(f.src, SRC.MAIN);
+        assertVecClose(norm(f.m), M.id(), 'follower @1x⁻ ≈ I', 1e-4);
+    });
+
+    it('boundary 1.0x: M_follower(1⁺) ≈ M_leading(1⁻) on UW', () => {
+        const f = follower(1.0);                           // leading main, follower UW
+        const leadBelow = sample(1 - 1e-9);                // leading UW just below 1x
+        assert.equal(f.src, SRC.SEC1);
+        assert.equal(leadBelow.src, SRC.SEC1);
+        assertVecClose(norm(f.m), norm(leadBelow.m), 'follower @1x⁺ ≈ leading @1x⁻', 1e-4);
+    });
+
+    it('boundary 5.0x: M_follower(5⁻) ≈ M_leading(5⁺) = I on Tele', () => {
+        const f = follower(5 - 1e-9);
+        assert.equal(f.src, SRC.SEC2);
+        assertVecClose(norm(f.m), M.id(), 'follower @5x⁻ ≈ I', 1e-4);
+    });
+
+    it('boundary 5.0x: M_follower(5⁺) ≈ M_leading(5⁻) on main', () => {
+        const f = follower(5.0);                           // leading Tele, follower main
+        const leadBelow = sample(5 - 1e-9);                // leading main just below 5x
+        assert.equal(f.src, SRC.MAIN);
+        assert.equal(leadBelow.src, SRC.MAIN);
+        assertVecClose(norm(f.m), norm(leadBelow.m), 'follower @5x⁺ ≈ leading @5x⁻', 1e-4);
+    });
+
+    it('no sec2: works for z ≥ 1 with follower = UW', () => {
+        const { src, m } = follower(3, { params: makeRig({ withS2: false }) });
+        assert.equal(src, SRC.SEC1);
+        assert.equal(m.length, 9);
+        assert.ok(m.every(Number.isFinite), 'finite matrix');
     });
 });
 

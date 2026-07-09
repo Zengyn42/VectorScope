@@ -19,7 +19,8 @@
  * which the host uses to rebuild cameras and refresh the homography.
  *
  * **Camera name convention** (must match camMarkerMap values):
- * `'Main Camera'`, `'Secondary 1'`, `'Secondary 2'`.
+ * `'Main Camera'`, `'UW Camera'` (ultra wide), `'Tele Camera'` (telescope) —
+ * see docs/CAMERAS.md for the naming convention.
  *
  * @param {object} opts
  * @param {object}   opts.THREE       - Three.js namespace
@@ -58,8 +59,8 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
     /** Resolve camera object + params key from a camera display name. */
     function resolveCam(name) {
         if (name === 'Main Camera')  return { cam: getMainCam(), key: 'main_camera',        isMain: true };
-        if (name === 'Secondary 1')  return { cam: getSecCam(),  key: 'secondary_camera',   isMain: false };
-        if (name === 'Secondary 2')  return { cam: getSecCam2(), key: 'secondary_camera_2', isMain: false };
+        if (name === 'UW Camera')    return { cam: getSecCam(),  key: 'secondary_camera',   isMain: false };
+        if (name === 'Tele Camera')  return { cam: getSecCam2(), key: 'secondary_camera_2', isMain: false };
         return { cam: null, key: null, isMain: false };
     }
 

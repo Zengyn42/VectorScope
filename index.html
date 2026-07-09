@@ -8,7 +8,7 @@
   ==================================================
   Two-row layout:
     Top row:    Bird's Eye (canvas) | Object Info (DOM) | Controls (DOM)
-    Bottom row: Main Camera | Secondary 1 | Secondary 2 | Combined (all canvas)
+    Bottom row: Main Camera | UW Camera | Tele Camera | Combined (all canvas)
 
   See architecture.md for the full system design document.
 -->
@@ -232,6 +232,8 @@ input[type="file"] { display: none; }
         <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
         <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
         <span class="val" id="vblend">20f</span>
+        <!-- Blend mode: Single = frozen outgoing frame; Dual = live follower RT (docs/CAMERAS.md) -->
+        <button id="btn-bmode" style="min-width:52px">Single</button>
       </div>
       <div class="ctrl-row">
         <button id="btn-warp">Warp</button>
@@ -242,8 +244,8 @@ input[type="file"] { display: none; }
     <!-- Panel labels (positioned by panels.js) -->
     <div class="plbl" id="lbl-bev" style="color:#ffb74d">&#9678; Bird's Eye</div>
     <div class="plbl" id="lbl-m" style="color:#4fc3f7">&#9678; Main Camera</div>
-    <div class="plbl" id="lbl-s1" style="color:#81c784">&#9678; Secondary 1</div>
-    <div class="plbl" id="lbl-s2" style="color:#fff176">&#9678; Secondary 2</div>
+    <div class="plbl" id="lbl-s1" style="color:#81c784">&#9678; UW Camera</div>
+    <div class="plbl" id="lbl-s2" style="color:#fff176">&#9678; Tele Camera</div>
     <div class="plbl" id="lbl-c" style="color:#e94560">&#9678; Combined &mdash; 1.00x</div>
 
     <!-- Separators -->
@@ -327,7 +329,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
 import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
-import { SRC, computeSampleMatrix, zoomSource, segName } from './src/zoom-pipeline.js';
+import { SRC, computeSampleMatrix, computeFollowerMatrix, zoomSource, followerSource, segName } from './src/zoom-pipeline.js';
 import { createBlendController } from './src/blend.js';
 import { createSceneAnimator } from './src/scene-anim.js';
 import { createZoomAnimator } from './src/zoom-anim.js';
@@ -363,7 +365,9 @@ const S = {
     warp: false, zoom: 1.0, prewarpScale: 1.0, prewarpScale2: 1.0, depthD: 3.0,
     clipY: 2.0,            // BEV clipping plane height
     blendX: 20,            // camera-transition blend length in frames (0 = off)
+    blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
     sampleSrc: SRC.MAIN, sampleM: null,   // current frame's sampling state (set by refreshH)
+    followerSrc: null, followerM: null,   // live follower state for dual-mode blends (set by refreshH)
     sel: null, selCam: null, // selected object / selected camera name
     dragging: false,
     dragPlane: new THREE.Plane(), dragOff: new THREE.Vector3(),
@@ -557,6 +561,14 @@ $('sld-blend').oninput = function () {
     $('vblend').textContent = S.blendX + 'f';
 };
 
+/* Blend mode toggle — Single: frozen outgoing frame; Dual: live follower
+   camera rendered + warped with H(follower←leading, D) each blend frame. */
+$('btn-bmode').onclick = () => {
+    S.blendMode = S.blendMode === 'single' ? 'dual' : 'single';
+    $('btn-bmode').textContent = S.blendMode === 'single' ? 'Single' : 'Dual';
+    $('btn-bmode').classList.toggle('active', S.blendMode === 'dual');
+};
+
 $('btn-warp').onclick = () => {
     S.warp = !S.warp;
     $('btn-warp').classList.toggle('active', S.warp);
@@ -596,6 +608,7 @@ $('sld-od').oninput = function () {
 $('btn-reset').onclick = () => {
     animator.stopAll();
     blendCtl.reset(); matWarp.uniforms.uBlend.value = 1;
+    S.blendMode = 'single'; $('btn-bmode').textContent = 'Single'; $('btn-bmode').classList.remove('active');
     sceneAnim.clearAll();
     resetPositions(); sel(null);
     S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
@@ -664,6 +677,15 @@ function refreshH() {
     // Stash the sampling state for the per-frame blend controller
     S.sampleSrc = src;
     S.sampleM = Msamp;
+    // Live follower state for dual-mode blends (recomputed on every zoom /
+    // camera-param change so the previous layer tracks the leading view).
+    const fol = computeFollowerMatrix({
+        z: S.zoom, warp: S.warp, D: S.depthD, params,
+        prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
+        w: RT_W, h: RT_H,
+    });
+    S.followerSrc = fol.src;
+    S.followerM = fol.m;
 
     const H_disp = Msamp.slice();
     const s = H_disp[8];
@@ -680,12 +702,12 @@ window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S };
    RESIZE + RENDER LOOP
 
    Render passes per frame:
-     1. scene → rtM   (main cam @ RT res, for Combined warp shader)
-     2. scene → rtS   (sec1 cam @ RT res, for Combined warp shader)
+     1. scene → leading source RT (rtS/rtM/rtS2, for Combined warp shader;
+        dual-mode blends also render the live follower RT)
      3. scene → BEV panel     (R.bev, orthographic top-down)
      4. scene → Main panel    (R.main, direct)
-     5. scene → Sec1 panel    (R.sec1, direct)
-     6. scene → Sec2 panel    (R.sec2, direct)
+     5. scene → UW panel      (R.sec1, direct)
+     6. scene → Tele panel    (R.sec2, direct)
      7. quad  → Combined panel (warp shader)
    ================================================================ */
 function onResize() {
@@ -710,30 +732,38 @@ function frame() {
     const rtAspect = RT_W / RT_H;
 
     /* Pass 1: Off-screen RT render for the Combined warp shader.
-       Only the source RT needed by the current zoom segment is rendered. */
+       Single mode: only the leading source RT is rendered (the outgoing RT
+       freezes for free during a blend). Dual mode: while a blend is active
+       the live follower RT is rendered too. */
+    const renderSrcRT = (s) => {
+        const cam = s === SRC.SEC1 ? R.sec1 : s === SRC.SEC2 ? R.sec2 : R.main;
+        const rt  = s === SRC.SEC1 ? rtS   : s === SRC.SEC2 ? rtS2   : rtM;
+        cam.aspect = rtAspect; cam.updateProjectionMatrix();
+        renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, cam);
+    };
     const zsrc = zoomSource(S.zoom, !!R.sec2);
-    if (zsrc === SRC.SEC1) {
-        R.sec1.aspect = rtAspect; R.sec1.updateProjectionMatrix();
-        renderer.setRenderTarget(rtS); renderer.clear(); renderer.render(scene, R.sec1);
-    } else if (zsrc === SRC.MAIN) {
-        R.main.aspect = rtAspect; R.main.updateProjectionMatrix();
-        renderer.setRenderTarget(rtM); renderer.clear(); renderer.render(scene, R.main);
-    } else {
-        R.sec2.aspect = rtAspect; R.sec2.updateProjectionMatrix();
-        renderer.setRenderTarget(rtS2); renderer.clear(); renderer.render(scene, R.sec2);
+    renderSrcRT(zsrc);
+    const dual = S.blendMode === 'dual';
+    if (dual && blendCtl.isBlending() && S.followerSrc !== null && S.followerSrc !== zsrc
+        && (S.followerSrc !== SRC.SEC2 || R.sec2)) {
+        renderSrcRT(S.followerSrc);
     }
 
     /* Pass 2: camera-transition blend — advance the cross-fade and feed
-       the frozen previous-camera sampling state into the warp shader. */
+       the previous-layer sampling state into the warp shader.
+       Single: frozen outgoing-camera state from the controller.
+       Dual:   live follower state (S.followerSrc/M, kept fresh by refreshH). */
     if (S.sampleM) {
         const { t: blendT, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
         matWarp.uniforms.uBlend.value = blendT;
         if (prevSrc !== null) {
-            matWarp.uniforms.uPrevSrc.value = prevSrc;
+            const pSrc = dual ? S.followerSrc : prevSrc;
+            const pM   = dual ? S.followerM   : prevM;
+            matWarp.uniforms.uPrevSrc.value = pSrc;
             matWarp.uniforms.uPrevHi.value.set(
-                prevM[0], prevM[1], prevM[2],
-                prevM[3], prevM[4], prevM[5],
-                prevM[6], prevM[7], prevM[8]);
+                pM[0], pM[1], pM[2],
+                pM[3], pM[4], pM[5],
+                pM[6], pM[7], pM[8]);
         }
     }
 
@@ -754,13 +784,13 @@ function frame() {
     renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
     renderer.render(scene, R.main);
 
-    /* Pass 5: Secondary 1 panel */
+    /* Pass 5: UW Camera panel */
     R.sec1.aspect = panelAspect; R.sec1.updateProjectionMatrix();
     renderer.setViewport(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
     renderer.setScissor(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
     renderer.render(scene, R.sec1);
 
-    /* Pass 6: Secondary 2 panel */
+    /* Pass 6: Tele Camera panel */
     if (R.sec2) {
         R.sec2.aspect = panelAspect; R.sec2.updateProjectionMatrix();
         renderer.setViewport(P.s2.x, P.s2.y, P.s2.w, P.s2.h);

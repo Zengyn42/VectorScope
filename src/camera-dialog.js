@@ -111,9 +111,9 @@ export function renderCamDialog(container, { camParams, sceneCam }) {
     container.innerHTML =
         sceneSectionHTML(sceneCam) +
         camSectionHTML('main_camera', 'Main Camera', camParams.main_camera, 'identity = coincides with scene camera') +
-        camSectionHTML('secondary_camera', 'Secondary Camera 1', camParams.secondary_camera, 'relative to main') +
+        camSectionHTML('secondary_camera', 'UW Camera (Ultra Wide)', camParams.secondary_camera, 'relative to main') +
         (camParams.secondary_camera_2
-            ? camSectionHTML('secondary_camera_2', 'Secondary Camera 2', camParams.secondary_camera_2, 'relative to main')
+            ? camSectionHTML('secondary_camera_2', 'Tele Camera (Telescope)', camParams.secondary_camera_2, 'relative to main')
             : '');
 }
 

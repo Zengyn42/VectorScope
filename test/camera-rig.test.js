@@ -81,7 +81,7 @@ test('markers: 3 with sec2, labels registered in markerMap', () => {
     init(PARAMS);
     assert.equal(rig.markers.length, 3);
     assert.deepEqual([...rig.markerMap.values()].sort(),
-        ['Main Camera', 'Secondary 1', 'Secondary 2']);
+        ['Main Camera', 'Tele Camera', 'UW Camera']);
     // markers live on layer 1 only (BEV pass)
     let allLayer1 = true;
     rig.markers[0].traverse(c => { if (c !== rig.markers[0] && c.layers.mask !== 2) allLayer1 = false; });

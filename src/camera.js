@@ -11,10 +11,11 @@
  * **Stereo camera model:**
  * - **Main camera** has identity extrinsics (position [0,0,0], rotation [0,0,0]),
  *   meaning it coincides with the scene camera in 3D space.
- * - **Secondary camera** extrinsics are *relative to the main camera*.
- *   Default: 0.5m rightward offset, no rotation (parallel stereo rig).
- * - Focal lengths differ: main = 1500px, secondary = 750px (2x wider FOV).
- *   This simulates a common real-world setup where the secondary camera
+ * - **UW camera** (ultra wide, `secondary_camera`) extrinsics are *relative
+ *   to the main camera*. Default: 0.5m rightward offset, no rotation
+ *   (parallel stereo rig). See docs/CAMERAS.md for the naming convention.
+ * - Focal lengths differ: main = 1500px, UW = 750px (2x wider FOV).
+ *   This simulates a common real-world setup where the UW camera
  *   captures a wider field of view for context.
  *
  * Pure data — no DOM, no THREE.js dependency.
@@ -39,7 +40,7 @@ export let SCENE_CAM = { position: [1.7, 0.8, 4.5], rotation_euler_deg: [0, 0, 0
 /**
  * Default stereo camera parameters for homography computation.
  * Main camera: identity extrinsics, fx/fy = 1500.
- * Secondary camera: 0.5m rightward offset, fx/fy = 750 (wider FOV).
+ * UW camera (`secondary_camera`): 0.5m rightward offset, fx/fy = 750 (ultra-wide FOV).
  * @type {{ main_camera: object, secondary_camera: object }}
  */
 export const DEF_CAM = {

@@ -131,8 +131,8 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize = 6 }) {
             rig.markerMap.set(mk, label);
         };
         addMarker(0x4fc3f7, 'Main Camera', p.main_camera);
-        addMarker(0x81c784, 'Secondary 1', p.secondary_camera);
-        if (rig.sec2) addMarker(0xfff176, 'Secondary 2', p.secondary_camera_2);
+        addMarker(0x81c784, 'UW Camera', p.secondary_camera);
+        if (rig.sec2) addMarker(0xfff176, 'Tele Camera', p.secondary_camera_2);
     }
 
     /** Update BEV camera aspect to match its panel rect ({w, h}). */

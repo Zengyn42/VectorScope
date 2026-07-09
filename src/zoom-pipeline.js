@@ -72,6 +72,67 @@ export function zoomSource(z, hasS2) {
 }
 
 /**
+ * Which camera is the **follower** at a given zoom — the camera standing by
+ * to take over at the nearest segment boundary (see docs/CAMERAS.md).
+ * Half-open from above: at exactly 2.0x the follower is the Tele camera.
+ *
+ * | Zoom        | Leading (zoomSource) | Follower       |
+ * |-------------|----------------------|----------------|
+ * | [0.5, 1.0)x | SEC1 (UW)            | MAIN           |
+ * | [1.0, 2.0)x | MAIN                 | SEC1 (UW)      |
+ * | [2.0, 5.0)x | MAIN                 | SEC2 (Tele)    |
+ * | [5.0, ∞ )x  | SEC2 (Tele)          | MAIN           |
+ *
+ * Without a second secondary camera the only boundary is 1.0x, so the
+ * follower stays SEC1 for all z ≥ 1.
+ *
+ * @param {number} z - zoom factor
+ * @param {boolean} hasS2 - whether the Tele camera exists
+ * @returns {number} SRC.SEC1 | SRC.MAIN | SRC.SEC2
+ */
+export function followerSource(z, hasS2) {
+    if (z < 1.0) return SRC.MAIN;
+    if (z < 2.0 || !hasS2) return SRC.SEC1;
+    return z < 5.0 ? SRC.SEC2 : SRC.MAIN;
+}
+
+/**
+ * Compute the **follower camera's** sampling matrix for dual-mode blending:
+ * the matrix that samples the follower's RT so it aligns with the leading
+ * camera's current Combined output.
+ *
+ *     M_follower = H(follower ← leading, D) ∘ M_leading
+ *
+ * where `M_leading` is {@link computeSampleMatrix} (output px → leading px)
+ * and `H(follower ← leading, D)` is the plane-induced homography mapping
+ * leading px → follower px at focus depth D
+ * (`computeHPair(followerParams, leadingParams, D)`).
+ *
+ * Continuity (warp ON): approaching a segment boundary, the follower matrix
+ * converges to the leading matrix on the far side of the boundary, so the
+ * two blend layers align at the hand-off (exactly on the focus plane).
+ *
+ * @param {object} opts - same options as {@link computeSampleMatrix}
+ * @returns {{src: number, m: number[]}} follower source index + 3×3
+ *          row-major sampling matrix (output px → follower px)
+ */
+export function computeFollowerMatrix(opts) {
+    const p = opts.params;
+    const hasS2 = !!p.secondary_camera_2;
+    const lead = computeSampleMatrix(opts);
+    const src = followerSource(opts.z, hasS2);
+    const D = opts.D;
+
+    // H(follower ← leading): computeHPair(cam1, cam2) maps cam2 px → cam1 px,
+    // so cam1 = follower, cam2 = leading.
+    const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
+                       : s === SRC.SEC2 ? p.secondary_camera_2
+                       : p.main_camera;
+    const Hlf = computeHPair(camOf(src), camOf(lead.src), D);
+    return { src, m: M.mul(Hlf, lead.m) };
+}
+
+/**
  * Compute the sampling matrix (output px → source px) and source index
  * for the Combined view.
  *

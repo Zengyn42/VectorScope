@@ -23,14 +23,14 @@
  * **Uniforms:**
  * | Name   | Type    | Description |
  * |--------|---------|-------------|
- * | `tS1`  | sampler | Secondary 1 (wide) render target texture |
+ * | `tS1`  | sampler | UW camera (ultra wide) render target texture |
  * | `tM`   | sampler | Main camera render target texture |
- * | `tS2`  | sampler | Secondary 2 (tele) render target texture |
- * | `uSrc` | int     | Source selector: 0 = sec1, 1 = main, 2 = sec2 |
+ * | `tS2`  | sampler | Tele camera (telescope) render target texture |
+ * | `uSrc` | int     | Source selector: 0 = UW, 1 = main, 2 = Tele |
  * | `uHi`  | mat3    | Pixel-space sampling matrix (output px → source px) |
  * | `uR`   | vec2    | Render target resolution [width, height] |
- * | `uPrevSrc` | int  | Outgoing camera source during a transition blend |
- * | `uPrevHi`  | mat3 | Frozen sampling matrix of the outgoing camera's last frame |
+ * | `uPrevSrc` | int  | Previous-layer source during a transition blend (single: outgoing camera; dual: live follower) |
+ * | `uPrevHi`  | mat3 | Previous-layer sampling matrix (single: frozen last frame; dual: live follower matrix) |
  * | `uBlend`   | float| Weight of the current frame (n/X); 1.0 disables blending |
  *
  * Out-of-bounds pixels render as dark background `(0.06, 0.06, 0.12)`.
@@ -97,9 +97,9 @@ void main(){
 /**
  * Create the ShaderMaterial for the Combined warp panel.
  * @param {THREE} THREE - Three.js namespace
- * @param {THREE.Texture} texS1 - Secondary 1 (wide) RT texture
+ * @param {THREE.Texture} texS1 - UW camera (ultra wide) RT texture
  * @param {THREE.Texture} texM  - Main camera RT texture
- * @param {THREE.Texture} texS2 - Secondary 2 (tele) RT texture
+ * @param {THREE.Texture} texS2 - Tele camera (telescope) RT texture
  * @param {number} rtW - RT width
  * @param {number} rtH - RT height
  */
