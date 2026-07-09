@@ -318,9 +318,8 @@ window.addEventListener('unhandledrejection', e => {
 import * as THREE from 'three';
 import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
 import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
-import { M } from './src/math.js';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
-import { computeHPair, zoomMatrix } from './src/homography.js';
+import { SRC, computeSampleMatrix, zoomSource, segName, easeInOutQuad } from './src/zoom-pipeline.js';
 import { initLoader, loadScene, getLoaderState, resetPositions } from './src/loader.js';
 import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './src/camera-dialog.js';
 import { createWarpMaterial } from './src/shader.js';
@@ -714,10 +713,6 @@ $('sld-d').oninput = function () { S.depthD = +this.value; $('vd').textContent =
 $('sld-pw').oninput = function () { S.prewarpScale = +this.value; $('vpw').textContent = S.prewarpScale.toFixed(2) + 'x'; refreshH(); };
 $('sld-pw2').oninput = function () { S.prewarpScale2 = +this.value; $('vpw2').textContent = S.prewarpScale2.toFixed(2) + 'x'; refreshH(); };
 
-/** Zoom segment name for the Combined panel label. */
-function segName(z) {
-    return z < 1 ? 'S1\u2192M' : z <= 2 ? 'M' : z < 5 ? 'M\u2192S2' : 'S2';
-}
 function updateZoomUI() {
     $('vz').textContent = S.zoom.toFixed(2) + 'x';
     $('lbl-c').textContent = `\u25CE Combined \u2014 ${segName(S.zoom)} @ ${S.zoom.toFixed(2)}x`;
@@ -755,10 +750,9 @@ function animateZoomTo(target) {
     if (Math.abs(to - from) < 1e-6) return;
     const dur = 600;   // ms
     const t0 = performance.now();
-    const ease = t => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;  // easeInOutQuad
     function step(now) {
         const t = Math.min((now - t0) / dur, 1);
-        const lv = from + (to - from) * ease(t);
+        const lv = from + (to - from) * easeInOutQuad(t);
         S.zoom = 10 ** lv;
         $('sld-z').value = lv;
         updateZoomUI();
@@ -852,63 +846,19 @@ function displayH(H, label) {
         `\u2514 ${f(H[6])}  ${f(H[7])}  ${f(H[8])} \u2518`;
 }
 
-/** Normalize both matrices to h33 = 1, blend elementwise, renormalize.
- *  Linear matrix interpolation per confirmed design (t computed in log-zoom space). */
-function normLerp(A, B, t) {
-    const a = A.map(v => v / A[8]);
-    const b = B.map(v => v / B[8]);
-    const o = a.map((v, i) => v + (b[i] - v) * t);
-    const s = o[8];
-    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) o[i] /= s;
-    return o;
-}
-
-/* 4-segment continuous zoom pipeline (sampling matrix: output px → source px).
-   Source intervals are half-open — boundary zoom belongs to the NEXT camera:
-   Segment A  [0.5, 1.0)x : source = sec1;  warp ON: normLerp(I, H(sec1←main), log t)
-   Segment B  [1.0, 2.0]x : source = main;  plain crop(z)
-   Segment C  (2.0, 5.0)x : source = main;  warp ON: normLerp(crop(2), H(main←sec2 view), log t)
-   Segment D  [5.0, 10 ]x : source = sec2;  plain crop(z/5)
-   So z=1.0 → main full frame; z=5.0 → sec2 full frame.
-   Warp OFF: A → prewarp1·crop(z) on sec1; C → prewarp2·crop(z) on main. */
+/* Sampling matrix + source selection live in src/zoom-pipeline.js (pure,
+   unit-tested). This function pushes the result into shader uniforms and
+   the H-matrix HUD. */
 function refreshH() {
     if (!S.camParams) return;
-    const p = S.camParams;
-    const z = S.zoom;
-    const hasS2 = !!p.secondary_camera_2 && !!sec2Cam;
-    let src, Msamp;
-
-    if (z < 1.0) {
-        /* ── Segment A: sec1 → main handover ── */
-        src = 0;
-        if (S.warp) {
-            // Endpoint @1.0x: main px → sec1 px (computeHPair(cam1, cam2) maps cam2 px → cam1 px)
-            const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, S.depthD);
-            const t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
-            Msamp = normLerp(M.id(), Hm2s1, t);
-        } else {
-            Msamp = M.mul(zoomMatrix(S.prewarpScale, RT_W, RT_H), zoomMatrix(z, RT_W, RT_H));
-        }
-    } else if (z <= 2.0 || !hasS2) {
-        /* ── Segment B: main plain crop (also fallback when no sec2) ── */
-        src = 1;
-        Msamp = zoomMatrix(z, RT_W, RT_H);
-    } else if (z < 5.0) {
-        /* ── Segment C: main → sec2 handover ── */
-        src = 1;
-        if (S.warp) {
-            // Start @2.0x: crop(2); endpoint @5.0x: sec2-view px → main px
-            const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, S.depthD);
-            const t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
-            Msamp = normLerp(zoomMatrix(2, RT_W, RT_H), Hs2m, t);
-        } else {
-            Msamp = M.mul(zoomMatrix(S.prewarpScale2, RT_W, RT_H), zoomMatrix(z, RT_W, RT_H));
-        }
-    } else {
-        /* ── Segment D: sec2 direct, residual crop ── */
-        src = 2;
-        Msamp = zoomMatrix(z / 5, RT_W, RT_H);
-    }
+    // If sec2 isn't materialized as a Three.js camera, hide it from the
+    // pipeline so segments C/D fall back to a plain main-camera crop.
+    const params = sec2Cam ? S.camParams : { ...S.camParams, secondary_camera_2: undefined };
+    const { src, m: Msamp } = computeSampleMatrix({
+        z: S.zoom, warp: S.warp, D: S.depthD, params,
+        prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
+        w: RT_W, h: RT_H,
+    });
 
     matWarp.uniforms.uSrc.value = src;
     matWarp.uniforms.uHi.value.set(
@@ -919,7 +869,7 @@ function refreshH() {
     const H_disp = Msamp.slice();
     const s = H_disp[8];
     if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
-    displayH(H_disp, `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${segName(z)}${S.warp ? '' : ' raw'})`);
+    displayH(H_disp, `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${segName(S.zoom)}${S.warp ? '' : ' raw'})`);
 }
 window.refreshH = refreshH;
 refreshH();
@@ -955,12 +905,12 @@ function frame() {
     const rtAspect = RT_W / RT_H;
 
     /* Pass 1: Off-screen RT render for the Combined warp shader.
-       Only the source RT needed by the current zoom segment is rendered:
-       z < 1 → sec1 (rtS); 1 ≤ z < 5 → main (rtM); z ≥ 5 → sec2 (rtS2). */
-    if (S.zoom < 1.0) {
+       Only the source RT needed by the current zoom segment is rendered. */
+    const zsrc = zoomSource(S.zoom, !!sec2Cam);
+    if (zsrc === SRC.SEC1) {
         secCam.aspect = rtAspect; secCam.updateProjectionMatrix();
         renderer.setRenderTarget(rtS); renderer.clear(); renderer.render(scene, secCam);
-    } else if (S.zoom < 5.0 || !sec2Cam) {
+    } else if (zsrc === SRC.MAIN) {
         mainCam.aspect = rtAspect; mainCam.updateProjectionMatrix();
         renderer.setRenderTarget(rtM); renderer.clear(); renderer.render(scene, mainCam);
     } else {
