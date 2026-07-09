@@ -64,6 +64,8 @@ button.active { background: #e94560; border-color: #e94560; }
     color: #e0e0e0; cursor: pointer; font-weight: bold;
 }
 .sld-btn:hover { background: #533483; }
+.zp-btn { padding: 2px 7px; font-size: 11px; font-family: monospace; }
+.zp-btn.active { background: #e94560; border-color: #e94560; }
 input[type="range"] { width: 100px; accent-color: #e94560; }
 input[type="file"] { display: none; }
 .val {
@@ -151,6 +153,13 @@ input[type="file"] { display: none; }
     <!-- Top row: DOM overlay panels (info + controls) -->
     <div id="panel-info">
       <div class="panel-title">Selection</div>
+      <div class="ctrl-row" style="margin-bottom:8px">
+        <label>Ghost Y:</label>
+        <button class="sld-btn" onclick="nudge('sld-clip',-1)">&minus;</button>
+        <input type="range" id="sld-clip" min="0.3" max="8.0" step="0.1" value="2.0">
+        <button class="sld-btn" onclick="nudge('sld-clip',1)">+</button>
+        <span class="val" id="vclip">2.0</span>
+      </div>
       <span id="selinfo">Click object or camera in any panel</span>
       <div id="obj-depth-row" class="cg" style="margin-top:8px;display:none">
         <label>Obj Depth:</label>
@@ -180,25 +189,34 @@ input[type="file"] { display: none; }
         <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
       </div>
       <div class="ctrl-row">
-        <label>Prewarp:</label>
+        <label>Prewarp1:</label>
         <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
         <input type="range" id="sld-pw" min="0.25" max="4.0" step="0.01" value="1.0">
         <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
         <span class="val" id="vpw">1.00x</span>
       </div>
       <div class="ctrl-row">
+        <label>Prewarp2:</label>
+        <button class="sld-btn" onclick="nudge('sld-pw2',-1)">&minus;</button>
+        <input type="range" id="sld-pw2" min="0.25" max="4.0" step="0.01" value="1.0">
+        <button class="sld-btn" onclick="nudge('sld-pw2',1)">+</button>
+        <span class="val" id="vpw2">1.00x</span>
+      </div>
+      <div class="ctrl-row">
         <label>Zoom:</label>
         <button class="sld-btn" onclick="nudge('sld-z',-1)">&minus;</button>
-        <input type="range" id="sld-z" min="0.5" max="2.0" step="0.01" value="1.0">
+        <!-- log10 scale: -0.30103 → 0.5x, 0 → 1x, 1 → 10x -->
+        <input type="range" id="sld-z" min="-0.30103" max="1" step="0.001" value="0">
         <button class="sld-btn" onclick="nudge('sld-z',1)">+</button>
         <span class="val" id="vz">1.00x</span>
       </div>
-      <div class="ctrl-row">
-        <label>Ghost Y:</label>
-        <button class="sld-btn" onclick="nudge('sld-clip',-1)">&minus;</button>
-        <input type="range" id="sld-clip" min="0.3" max="8.0" step="0.1" value="2.0">
-        <button class="sld-btn" onclick="nudge('sld-clip',1)">+</button>
-        <span class="val" id="vclip">2.0</span>
+      <div class="ctrl-row" id="zoom-presets">
+        <label>Go:</label>
+        <button class="zp-btn" data-z="0.5">0.5x</button>
+        <button class="zp-btn" data-z="1">1.0x</button>
+        <button class="zp-btn" data-z="2">2.0x</button>
+        <button class="zp-btn" data-z="5">5.0x</button>
+        <button class="zp-btn" data-z="10">10x</button>
       </div>
       <div class="ctrl-row">
         <button id="btn-warp">Warp</button>
@@ -288,7 +306,7 @@ import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
 import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
 import { M } from './src/math.js';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
-import { computeH, zoomMatrix } from './src/homography.js';
+import { computeHPair, zoomMatrix } from './src/homography.js';
 import { initLoader, loadScene, getLoaderState, resetPositions } from './src/loader.js';
 import { renderCamDialog, readCamInputs, readSceneInputs, bindDialog } from './src/camera-dialog.js';
 import { createWarpMaterial } from './src/shader.js';
@@ -315,7 +333,7 @@ window.nudge = function(id, dir) {
    STATE
    ================================================================ */
 const S = {
-    warp: false, zoom: 1.0, prewarpScale: 1.0, depthD: 3.0,
+    warp: false, zoom: 1.0, prewarpScale: 1.0, prewarpScale2: 1.0, depthD: 3.0,
     clipY: 2.0,            // BEV clipping plane height
     sel: null, selCam: null, // selected object / selected camera name
     dragging: false,
@@ -560,6 +578,7 @@ function syncCamMarkers() {
 /* ── Render Targets ── */
 const rtM = new THREE.WebGLRenderTarget(RT_W, RT_H);
 const rtS = new THREE.WebGLRenderTarget(RT_W, RT_H);
+const rtS2 = new THREE.WebGLRenderTarget(RT_W, RT_H);
 const rtDepth = new THREE.WebGLRenderTarget(RT_W, RT_H);
 const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 
@@ -568,7 +587,7 @@ const dScene = new THREE.Scene();
 const dCam = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1);
 const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
 dScene.add(quad);
-const matWarp = createWarpMaterial(THREE, rtM.texture, rtS.texture, RT_W, RT_H);
+const matWarp = createWarpMaterial(THREE, rtS.texture, rtM.texture, rtS2.texture, RT_W, RT_H);
 
 /* ================================================================
    SCENE LOADING
@@ -580,15 +599,21 @@ function doLoadScene(url, isDefault = false) {
     loadScene(url, {
         isDefault,
         onProgress: (loaded, total) => log(`Loading ${(loaded / total * 100) | 0}%…`),
-        onComplete: (count) => { const ls = getLoaderState(); S.objs = ls.objs; S.origPos = ls.origPos; log(`Loaded: ${count} objects`); },
+        onComplete: (count) => { removeFallback(); const ls = getLoaderState(); S.objs = ls.objs; S.origPos = ls.origPos; log(`Loaded: ${count} objects`); },
         onError: () => { if (isDefault && !getLoaderState().loaded) { addFallback(); log('Fallback scene'); } },
     });
 }
 
+/* ── Fallback placeholder scene ──
+   Shown if the glb hasn't loaded within 5s (slow network). Tracked in
+   fallbackObjs so it can be fully removed once the real scene arrives —
+   otherwise both scenes coexist (fallback race bug). */
+let fallbackObjs = [];
 function addFallback() {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshStandardMaterial({ color: 0x3a3a5c }));
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
+    fallbackObjs.push(floor);
     const ls = getLoaderState();
     [[0xe94560,[-1.2,.4,2],'Red Cube',new THREE.BoxGeometry(.8,.8,.8)],
      [0x533483,[1,.5,3.5],'Purple Sphere',new THREE.SphereGeometry(.5,32,32)],
@@ -598,9 +623,25 @@ function addFallback() {
     ].forEach(([c,p,n,g]) => {
         const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: c, roughness: .3 }));
         m.position.set(...p); m.name = n; scene.add(m);
+        fallbackObjs.push(m);
         ls.objs.push(m); ls.origPos.set(m.uuid, m.position.clone());
     });
     S.objs = ls.objs; S.origPos = ls.origPos; ls.loaded = true;
+}
+
+/** Remove fallback placeholders once the real scene finishes loading. */
+function removeFallback() {
+    if (!fallbackObjs.length) return;
+    const ls = getLoaderState();
+    for (const o of fallbackObjs) {
+        scene.remove(o);
+        const i = ls.objs.indexOf(o);
+        if (i >= 0) ls.objs.splice(i, 1);
+        ls.origPos.delete(o.uuid);
+        if (S.sel === o) sel(null);
+    }
+    fallbackObjs = [];
+    S.objs = ls.objs; S.origPos = ls.origPos;
 }
 
 doLoadScene('assets/bedroom.glb', true);
@@ -657,11 +698,20 @@ initAutofocus({
    ================================================================ */
 $('sld-d').oninput = function () { S.depthD = +this.value; $('vd').textContent = S.depthD.toFixed(1); refreshH(); };
 $('sld-pw').oninput = function () { S.prewarpScale = +this.value; $('vpw').textContent = S.prewarpScale.toFixed(2) + 'x'; refreshH(); };
-$('sld-z').oninput = function () {
-    S.zoom = +this.value;
+$('sld-pw2').oninput = function () { S.prewarpScale2 = +this.value; $('vpw2').textContent = S.prewarpScale2.toFixed(2) + 'x'; refreshH(); };
+
+/** Zoom segment name for the Combined panel label. */
+function segName(z) {
+    return z < 1 ? 'S1\u2192M' : z <= 2 ? 'M' : z < 5 ? 'M\u2192S2' : 'S2';
+}
+function updateZoomUI() {
     $('vz').textContent = S.zoom.toFixed(2) + 'x';
-    const src = S.zoom <= 1 ? 'Sec' : 'Main';
-    $('lbl-c').textContent = `\u25CE Combined \u2014 ${src} @ ${S.zoom.toFixed(2)}x`;
+    $('lbl-c').textContent = `\u25CE Combined \u2014 ${segName(S.zoom)} @ ${S.zoom.toFixed(2)}x`;
+}
+$('sld-z').oninput = function () {
+    stopPresetAnim();             // manual drag overrides an in-flight preset animation
+    S.zoom = 10 ** +this.value;   // slider is log10 scale
+    updateZoomUI();
     refreshH();
 };
 
@@ -677,17 +727,56 @@ $('btn-warp').onclick = () => {
     refreshH();
 };
 
+/* ── Zoom preset buttons: animated transition to target zoom ──
+   Eases from the current zoom to the target in log space (~600ms),
+   so the perceived zoom speed is uniform across all segments. */
+let presetAnim = null;
+function stopPresetAnim() {
+    if (presetAnim) { cancelAnimationFrame(presetAnim); presetAnim = null; }
+}
+function animateZoomTo(target) {
+    stopPlay();
+    stopPresetAnim();
+    const from = Math.log10(S.zoom), to = Math.log10(target);
+    if (Math.abs(to - from) < 1e-6) return;
+    const dur = 600;   // ms
+    const t0 = performance.now();
+    const ease = t => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;  // easeInOutQuad
+    function step(now) {
+        const t = Math.min((now - t0) / dur, 1);
+        const lv = from + (to - from) * ease(t);
+        S.zoom = 10 ** lv;
+        $('sld-z').value = lv;
+        updateZoomUI();
+        refreshH();
+        presetAnim = t < 1 ? requestAnimationFrame(step) : null;
+    }
+    presetAnim = requestAnimationFrame(step);
+}
+document.querySelectorAll('.zp-btn').forEach(b => {
+    b.onclick = () => animateZoomTo(parseFloat(b.dataset.z));
+});
+
 let playAnim = null;
+function stopPlay() {
+    if (playAnim) {
+        cancelAnimationFrame(playAnim); playAnim = null;
+        $('btn-play').classList.remove('active'); $('btn-play').textContent = '\u25B6 Play';
+    }
+}
 $('btn-play').onclick = () => {
-    if (playAnim) { cancelAnimationFrame(playAnim); playAnim = null; $('btn-play').classList.remove('active'); $('btn-play').textContent = '\u25B6 Play'; return; }
+    if (playAnim) { stopPlay(); return; }
+    stopPresetAnim();
     $('btn-play').classList.add('active'); $('btn-play').textContent = '\u25A0 Stop';
     let dir = 1;
+    const LO = Math.log10(0.5), HI = 1;   // bounce over full 0.5x–10x in log space
     function tick() {
-        S.zoom += 0.008 * dir;
-        if (S.zoom >= 2.0) { S.zoom = 2.0; dir = -1; }
-        if (S.zoom <= 0.5) { S.zoom = 0.5; dir = 1; }
-        $('sld-z').value = S.zoom; $('vz').textContent = S.zoom.toFixed(2) + 'x';
-        $('lbl-c').textContent = `\u25CE Combined \u2014 ${S.zoom <= 1 ? 'Sec' : 'Main'} @ ${S.zoom.toFixed(2)}x`;
+        let lv = Math.log10(S.zoom) + 0.004 * dir;
+        if (lv >= HI) { lv = HI; dir = -1; }
+        if (lv <= LO) { lv = LO; dir = 1; }
+        S.zoom = 10 ** lv;
+        $('sld-z').value = lv;
+        updateZoomUI();
         refreshH();
         playAnim = requestAnimationFrame(tick);
     }
@@ -703,11 +792,14 @@ $('sld-od').oninput = function () {
 };
 
 $('btn-reset').onclick = () => {
+    stopPlay(); stopPresetAnim();
     resetPositions(); sel(null);
     S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
-    S.zoom = 1; $('sld-z').value = 1; $('vz').textContent = '1.00x';
+    S.zoom = 1; $('sld-z').value = 0; $('vz').textContent = '1.00x';
+    S.prewarpScale = 1; $('sld-pw').value = 1; $('vpw').textContent = '1.00x';
+    S.prewarpScale2 = 1; $('sld-pw2').value = 1; $('vpw2').textContent = '1.00x';
     S.warp = false; $('btn-warp').classList.remove('active'); $('btn-warp').textContent = 'Warp';
-    $('lbl-c').textContent = '\u25CE Combined \u2014 1.00x';
+    $('lbl-c').textContent = '\u25CE Combined \u2014 M @ 1.00x';
     refreshH(); log('Reset done');
 };
 
@@ -746,32 +838,76 @@ function displayH(H, label) {
         `\u2514 ${f(H[6])}  ${f(H[7])}  ${f(H[8])} \u2518`;
 }
 
+/** Normalize both matrices to h33 = 1, blend elementwise, renormalize.
+ *  Linear matrix interpolation per confirmed design (t computed in log-zoom space). */
+function normLerp(A, B, t) {
+    const a = A.map(v => v / A[8]);
+    const b = B.map(v => v / B[8]);
+    const o = a.map((v, i) => v + (b[i] - v) * t);
+    const s = o[8];
+    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) o[i] /= s;
+    return o;
+}
+
+/* 4-segment continuous zoom pipeline (sampling matrix: output px → source px).
+   Source intervals are half-open — boundary zoom belongs to the NEXT camera:
+   Segment A  [0.5, 1.0)x : source = sec1;  warp ON: normLerp(I, H(sec1←main), log t)
+   Segment B  [1.0, 2.0]x : source = main;  plain crop(z)
+   Segment C  (2.0, 5.0)x : source = main;  warp ON: normLerp(crop(2), H(main←sec2 view), log t)
+   Segment D  [5.0, 10 ]x : source = sec2;  plain crop(z/5)
+   So z=1.0 → main full frame; z=5.0 → sec2 full frame.
+   Warp OFF: A → prewarp1·crop(z) on sec1; C → prewarp2·crop(z) on main. */
 function refreshH() {
     if (!S.camParams) return;
-    const H = computeH(S.camParams, S.depthD);
-    const Sp = zoomMatrix(S.prewarpScale, RT_W, RT_H);
-    const Hinv = M.inv(H);
+    const p = S.camParams;
+    const z = S.zoom;
+    const hasS2 = !!p.secondary_camera_2 && !!sec2Cam;
+    let src, Msamp;
 
-    if (S.warp) {
-        if (Hinv) matWarp.uniforms.uHi.value.set(Hinv[0],Hinv[1],Hinv[2],Hinv[3],Hinv[4],Hinv[5],Hinv[6],Hinv[7],Hinv[8]);
+    if (z < 1.0) {
+        /* ── Segment A: sec1 → main handover ── */
+        src = 0;
+        if (S.warp) {
+            // Endpoint @1.0x: main px → sec1 px (computeHPair(cam1, cam2) maps cam2 px → cam1 px)
+            const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, S.depthD);
+            const t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
+            Msamp = normLerp(M.id(), Hm2s1, t);
+        } else {
+            Msamp = M.mul(zoomMatrix(S.prewarpScale, RT_W, RT_H), zoomMatrix(z, RT_W, RT_H));
+        }
+    } else if (z <= 2.0 || !hasS2) {
+        /* ── Segment B: main plain crop (also fallback when no sec2) ── */
+        src = 1;
+        Msamp = zoomMatrix(z, RT_W, RT_H);
+    } else if (z < 5.0) {
+        /* ── Segment C: main → sec2 handover ── */
+        src = 1;
+        if (S.warp) {
+            // Start @2.0x: crop(2); endpoint @5.0x: sec2-view px → main px
+            const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, S.depthD);
+            const t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
+            Msamp = normLerp(zoomMatrix(2, RT_W, RT_H), Hs2m, t);
+        } else {
+            Msamp = M.mul(zoomMatrix(S.prewarpScale2, RT_W, RT_H), zoomMatrix(z, RT_W, RT_H));
+        }
     } else {
-        matWarp.uniforms.uHi.value.set(Sp[0],Sp[1],Sp[2],Sp[3],Sp[4],Sp[5],Sp[6],Sp[7],Sp[8]);
+        /* ── Segment D: sec2 direct, residual crop ── */
+        src = 2;
+        Msamp = zoomMatrix(z / 5, RT_W, RT_H);
     }
-    matWarp.uniforms.uZ.value = S.zoom;
-    matWarp.uniforms.uW.value = S.warp || S.prewarpScale !== 1.0;
-    matWarp.uniforms.uCrop.value = S.zoom;
 
-    const Z = zoomMatrix(S.zoom, RT_W, RT_H);
-    const Zi = M.inv(Z) || M.id();
-    const Si = M.inv(Sp) || M.id();
-    const H_eff = S.warp ? M.mul(Zi, H) : M.mul(Zi, Si);
-    const s = H_eff[8];
-    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_eff[i] /= s;
+    matWarp.uniforms.uSrc.value = src;
+    matWarp.uniforms.uHi.value.set(
+        Msamp[0], Msamp[1], Msamp[2],
+        Msamp[3], Msamp[4], Msamp[5],
+        Msamp[6], Msamp[7], Msamp[8]);
 
-    const src = S.zoom <= 1 ? 'Sec' : 'Main';
-    const pw = S.prewarpScale !== 1.0 ? ` PW=${S.prewarpScale.toFixed(2)}` : '';
-    displayH(H_eff, `H_applied (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)}${pw} ${src})`);
+    const H_disp = Msamp.slice();
+    const s = H_disp[8];
+    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
+    displayH(H_disp, `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${segName(z)}${S.warp ? '' : ' raw'})`);
 }
+window.refreshH = refreshH;
 refreshH();
 
 /* ================================================================
@@ -804,11 +940,19 @@ function frame() {
 
     const rtAspect = RT_W / RT_H;
 
-    /* Pass 1-2: Off-screen RT renders for Combined warp shader */
-    mainCam.aspect = rtAspect; mainCam.updateProjectionMatrix();
-    renderer.setRenderTarget(rtM); renderer.clear(); renderer.render(scene, mainCam);
-    secCam.aspect = rtAspect; secCam.updateProjectionMatrix();
-    renderer.setRenderTarget(rtS); renderer.clear(); renderer.render(scene, secCam);
+    /* Pass 1: Off-screen RT render for the Combined warp shader.
+       Only the source RT needed by the current zoom segment is rendered:
+       z < 1 → sec1 (rtS); 1 ≤ z < 5 → main (rtM); z ≥ 5 → sec2 (rtS2). */
+    if (S.zoom < 1.0) {
+        secCam.aspect = rtAspect; secCam.updateProjectionMatrix();
+        renderer.setRenderTarget(rtS); renderer.clear(); renderer.render(scene, secCam);
+    } else if (S.zoom < 5.0 || !sec2Cam) {
+        mainCam.aspect = rtAspect; mainCam.updateProjectionMatrix();
+        renderer.setRenderTarget(rtM); renderer.clear(); renderer.render(scene, mainCam);
+    } else {
+        sec2Cam.aspect = rtAspect; sec2Cam.updateProjectionMatrix();
+        renderer.setRenderTarget(rtS2); renderer.clear(); renderer.render(scene, sec2Cam);
+    }
 
     /* Pass 3-7: On-screen panel renders */
     renderer.setRenderTarget(null); renderer.clear(); renderer.setScissorTest(true);

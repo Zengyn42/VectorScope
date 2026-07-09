@@ -54,7 +54,9 @@ export const DEF_CAM = {
         image_size: [1080, 1920],
     },
     secondary_camera_2: {
-        intrinsics: { fx: 750, fy: 750, cx: 540, cy: 960 },
+        // Telephoto: 5x the main focal length → 1/5 FOV. The combined-view
+        // zoom pipeline hands over from main to sec2 exactly at 5.0x.
+        intrinsics: { fx: 7500, fy: 7500, cx: 540, cy: 960 },
         extrinsics: { position: [-0.5, 0, 0], rotation_euler_deg: [0, 0, 0] },
         image_size: [1080, 1920],
     },

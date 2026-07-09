@@ -68,7 +68,23 @@ export function eulerR(deg) {
  * @returns {number[]} 3×3 homography matrix (row-major, normalized so H[8]=1)
  */
 export function computeH(p, D) {
-    const mc = p.main_camera, sc = p.secondary_camera;
+    return computeHPair(p.main_camera, p.secondary_camera, D);
+}
+
+/**
+ * Generalized plane-induced homography between any two cameras of the rig.
+ * Returns H mapping **cam2 pixel → cam1 pixel**.
+ *
+ * Both cameras' extrinsics are relative to the rig (main camera) frame.
+ * The plane is fronto-parallel in the RIG frame at depth D
+ * (i.e. defined w.r.t. the main camera, shared by all pairs).
+ *
+ * @param {object} mc  cam1 params ({ intrinsics, extrinsics })
+ * @param {object} sc  cam2 params ({ intrinsics, extrinsics })
+ * @param {number} D   Plane depth from the rig (main camera) frame
+ * @returns {number[]} 3×3 homography (row-major, normalized so H[8]=1)
+ */
+export function computeHPair(mc, sc, D) {
     const K1 = M.K(mc.intrinsics.fx, mc.intrinsics.fy, mc.intrinsics.cx, mc.intrinsics.cy);
     const K2 = M.K(sc.intrinsics.fx, sc.intrinsics.fy, sc.intrinsics.cx, sc.intrinsics.cy);
     const K2i = M.inv(K2);
@@ -101,10 +117,13 @@ export function computeH(p, D) {
         t1[2] - (R12[6] * t2[0] + R12[7] * t2[1] + R12[8] * t2[2]),
     ];
 
-    // Plane at depth D from cam1: n1=[0,0,1] in cam1 frame
-    const n1 = [0, 0, 1];
+    // Plane fronto-parallel in the RIG frame at depth D: n_r = [0,0,1].
+    // Transform into cam1 frame: n1 = R1·n_r, d1 = D + n1ᵀt1
+    // (reduces to n1=[0,0,1], d1=D when cam1 has identity extrinsics).
+    const n1 = M.v(R1_cv, [0, 0, 1]);
+    const d1 = D + (n1[0] * t1[0] + n1[1] * t1[1] + n1[2] * t1[2]);
     const n2 = M.v(M.T(R12), n1);                   // plane normal in cam2 frame
-    const d2 = D - (n1[0] * t12[0] + n1[1] * t12[1] + n1[2] * t12[2]);
+    const d2 = d1 - (n1[0] * t12[0] + n1[1] * t12[1] + n1[2] * t12[2]);
 
     // H = K1 · (R12 + t12·n2ᵀ/d2) · K2⁻¹
     const tn = M.out(t12, n2);
