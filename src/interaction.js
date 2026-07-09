@@ -62,10 +62,14 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
             S.selCam = null;
             $('sld-od').disabled = false;
             syncDepthSlider();
+            const os = $('sld-os');
+            if (os) { os.disabled = false; syncScaleSlider(); }
             if (onSelChange) onSelChange('object', obj.name || '(unnamed)');
         } else {
             $('sld-od').disabled = true;
             $('vod').textContent = '\u2014';
+            const os = $('sld-os');
+            if (os) { os.disabled = true; $('vos').textContent = '\u2014'; }
             if (!S.selCam && onSelChange) onSelChange(null, null);
         }
     }
@@ -79,6 +83,20 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         const d = c.sub(mainCam.position).dot(dir);
         $('sld-od').value = d;
         $('vod').textContent = d.toFixed(1);
+    }
+
+    /** Sync the Obj Scale slider to the selected object's scale multiplier.
+        The base scale is lazily snapshotted on first selection so the slider
+        always expresses a factor relative to the object's load-time scale. */
+    function syncScaleSlider() {
+        if (!S.sel) return;
+        const os = $('sld-os');
+        if (!os) return;
+        if (!S.sel.userData._baseScale) S.sel.userData._baseScale = S.sel.scale.clone();
+        const b = S.sel.userData._baseScale;
+        const k = b.x !== 0 ? S.sel.scale.x / b.x : 1;
+        os.value = k;
+        $('vos').textContent = k.toFixed(2) + 'x';
     }
 
     canvas.addEventListener('pointerdown', e => {
@@ -189,5 +207,5 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         canvas.style.cursor = '';
     });
 
-    return { sel, syncDepthSlider };
+    return { sel, syncDepthSlider, syncScaleSlider };
 }

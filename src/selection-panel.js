@@ -250,18 +250,22 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
      */
     function onSelChange(type, name) {
         const depthRow = $('obj-depth-row');
+        const scaleRow = $('obj-scale-row');
         const camDetail = $('cam-detail');
         if (type === 'object') {
             depthRow.style.display = 'flex';
+            if (scaleRow) scaleRow.style.display = 'flex';
             camDetail.style.display = 'block';
             showObject(name);
         } else if (type === 'camera') {
             depthRow.style.display = 'none';
+            if (scaleRow) scaleRow.style.display = 'none';
             camDetail.style.display = 'block';
             showCamera(name);
         } else {
             $('selinfo').textContent = 'Click object or camera in any panel';
             depthRow.style.display = 'none';
+            if (scaleRow) scaleRow.style.display = 'none';
             camDetail.style.display = 'none';
         }
     }

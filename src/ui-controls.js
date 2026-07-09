@@ -123,6 +123,16 @@ export function initUiControls(d) {
         S.sel.position.addScaledVector(dir, target - c.sub(R.main.position).dot(dir));
     };
 
+    /* Obj Scale — multiplier relative to the object's load-time base scale
+       (snapshotted into userData._baseScale on first selection). */
+    $('sld-os').oninput = function () {
+        if (!S.sel) return;
+        if (!S.sel.userData._baseScale) S.sel.userData._baseScale = S.sel.scale.clone();
+        const k = +this.value, b = S.sel.userData._baseScale;
+        S.sel.scale.set(b.x * k, b.y * k, b.z * k);
+        $('vos').textContent = k.toFixed(2) + 'x';
+    };
+
     /* ── Reset ── */
     $('btn-reset').onclick = () => {
         animator.stopAll();
@@ -130,6 +140,11 @@ export function initUiControls(d) {
         S.blendMode = 'single'; $('btn-bmode').textContent = 'Single'; $('btn-bmode').classList.remove('active');
         sceneAnim.clearAll();
         resetPositions(); sel(null);
+        // Restore load-time scales (Obj Scale slider snapshots)
+        for (const o of S.objs) {
+            if (o.userData._baseScale) o.scale.copy(o.userData._baseScale);
+        }
+        $('sld-os').value = 1; $('vos').textContent = '\u2014';
         S.depthD = 3; $('sld-d').value = 3; $('vd').textContent = '3.0';
         S.zoom = 1; $('sld-z').value = 0; $('vz').textContent = '1.00x';
         S.prewarpScale = 1; $('sld-pw').value = 1; $('vpw').textContent = '1.00x';
