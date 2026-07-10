@@ -50,19 +50,15 @@ export const CONTROL_DEFAULTS = {
  * @param {object}   d.sceneAnim  - scene animator (clearAll on reset)
  * @param {Function} d.resetPositions - loader position reset
  * @param {Function} d.sel        - selection setter from initInteraction
- * @param {Function} d.doLoadScene - model loader wrapper (glb replace)
  * @param {Function} [d.restoreHidden] - un-hide deleted objects (Reset)
- * @param {Function} [d.onModelFile] - Load Model file handler: registers the
- *        scene asset (for scene save) then replaces the scene; falls back to
- *        a plain blob-URL doLoadScene when absent
  * @param {object}   d.SCENE_CAM  - mutable scene-camera extrinsics
  * @returns {{animator: object, nudge: Function,
  *            openCamDialog: Function, closeCamDialog: Function}}
  */
 export function initUiControls(d) {
     const { $, store, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
-            resetPositions, sel, doLoadScene, SCENE_CAM,
-            restoreHidden = () => {}, onModelFile = null } = d;
+            resetPositions, sel, SCENE_CAM,
+            restoreHidden = () => {} } = d;
 
     /* ── controls section: store → S + DOM + sampling refresh ── */
     function renderControls(c) {
@@ -167,12 +163,6 @@ export function initUiControls(d) {
     };
 
     /* ── File inputs ── */
-    $('fscene').onchange = function () {
-        if (!this.files[0]) return;
-        if (onModelFile) onModelFile(this.files[0]);
-        else doLoadScene(URL.createObjectURL(this.files[0]));
-        this.value = '';
-    };
     $('fcam').onchange = function () {
         if (!this.files[0]) return;
         const r = new FileReader();

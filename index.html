@@ -188,8 +188,6 @@ input[type="file"] { display: none; }
     <div id="panel-controls">
       <div class="panel-title">Controls</div>
       <div class="ctrl-row">
-        <button onclick="document.getElementById('fscene').click()">Load Model</button>
-        <input type="file" id="fscene" accept=".glb,.gltf">
         <button onclick="openCamDialog()">Set Camera</button>
         <input type="file" id="fcam" accept=".json" style="display:none">
         <button id="btn-reset">Reset All</button>
@@ -570,15 +568,6 @@ if (!sceneIO.isSupported()) {
         'Requires the File System Access API (Chrome/Edge)';
 }
 
-/* Load Model (fscene): replace the base scene AND its registered asset so a
-   later Save writes the new model's bytes instead of the default url. */
-async function onModelFile(file) {
-    const buf = await file.arrayBuffer();
-    assetRegistry.clear();
-    assetRegistry.setSceneAsset({ name: file.name, format: 'glb', files: [{ name: file.name, data: buf }] });
-    doLoadScene(URL.createObjectURL(new Blob([buf])));
-}
-
 /* ================================================================
    AUTOFOCUS
    ================================================================ */
@@ -594,8 +583,8 @@ initAutofocus({
    ================================================================ */
 const ui = initUiControls({
     $, store, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
-    resetPositions, sel, doLoadScene, SCENE_CAM,
-    restoreHidden: objectOps.restoreHidden, onModelFile,
+    resetPositions, sel, SCENE_CAM,
+    restoreHidden: objectOps.restoreHidden,
 });
 window.nudge = ui.nudge;
 window.openCamDialog = ui.openCamDialog;
