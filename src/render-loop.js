@@ -17,6 +17,19 @@
  * The two per-frame *decisions* — which source RTs to render and what to
  * feed the blend uniforms — are pure functions ({@link sourcesToRender},
  * {@link blendFeed}) so they can be unit-tested without a GL context.
+ *
+ * **Idle skipping (weak-GPU optimization):**
+ * The rAF loop only renders when something can have changed on screen:
+ * - *continuous* activity: object animations running, a camera-transition
+ *   blend in progress, or the user dragging an object;
+ * - *dirty* frames: one-shot changes reported via `markDirty()` (store
+ *   writes, slider input, pointer events, resize, async model loads);
+ * - a keep-alive heartbeat (1 frame every `keepAlive` skipped frames) as a
+ *   safety net for change sources that were not instrumented.
+ * The BEV panel additionally renders at reduced rate (every `bevInterval`-th
+ * rendered frame) during continuous activity; the final frame of a dirty
+ * burst always includes BEV so it never freezes stale.
+ * The gating decision is a pure function ({@link frameGate}).
  */
 
 import { SRC, zoomSource } from './zoom-pipeline.js';
@@ -70,6 +83,39 @@ export function blendFeed({ t, prevSrc, prevM, dual, followerSrc, followerM }) {
 }
 
 /**
+ * Should this rAF tick render, and must it be a "final" (full) frame?
+ *
+ * A *final* frame is the last one of a dirty burst (or a keep-alive frame):
+ * it forces the BEV panel to render so the screen is fully consistent
+ * before the loop goes idle.
+ *
+ * @param {object} opts
+ * @param {boolean} opts.continuous  - animations / blending / dragging active
+ * @param {number}  opts.dirtyFrames - remaining one-shot dirty frames
+ * @param {number}  opts.skipped     - consecutive skipped frames so far
+ * @param {number}  opts.keepAlive   - heartbeat period in skipped frames
+ * @returns {{render: boolean, finalFrame: boolean}}
+ */
+export function frameGate({ continuous, dirtyFrames, skipped, keepAlive }) {
+    if (continuous || dirtyFrames > 0 || skipped >= keepAlive) {
+        return { render: true, finalFrame: !continuous && dirtyFrames <= 1 };
+    }
+    return { render: false, finalFrame: false };
+}
+
+/**
+ * Should the BEV panel render on this rendered frame?
+ * @param {object} opts
+ * @param {boolean} opts.finalFrame  - full frame (dirty burst end / heartbeat / direct call)
+ * @param {number}  opts.tick        - rendered-frame counter
+ * @param {number}  opts.interval    - render BEV every `interval`-th frame
+ * @returns {boolean}
+ */
+export function bevDue({ finalFrame, tick, interval }) {
+    return finalFrame || tick % interval === 0;
+}
+
+/**
  * Create the render loop.
  *
  * @param {object} opts
@@ -87,14 +133,24 @@ export function blendFeed({ t, prevSrc, prevM, dual, followerSrc, followerM }) {
  * @param {number} opts.rtW       - RT width
  * @param {number} opts.rtH       - RT height
  * @param {Function} [opts.raf]   - injectable requestAnimationFrame (tests)
- * @returns {{frame: Function, start: Function}}
+ * @param {number} [opts.bevInterval=4] - BEV renders every Nth rendered frame
+ * @param {number} [opts.keepAlive=30]  - heartbeat frame every N skipped frames
+ * @returns {{frame: Function, start: Function, markDirty: Function}}
  */
 export function createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
     rtW, rtH, raf = requestAnimationFrame.bind(globalThis),
+    bevInterval = 4, keepAlive = 30,
 }) {
-    const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp } = gl;
+    const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
     const rtAspect = rtW / rtH;
+
+    let dirtyFrames = 3;   // paint the first frames on startup
+    let skipped = 0;       // consecutive skipped rAF ticks
+    let bevTick = 0;       // rendered-frame counter for BEV rate reduction
+
+    /** Request `n` rendered frames after a one-shot change (default 3). */
+    function markDirty(n = 3) { dirtyFrames = Math.max(dirtyFrames, n); }
 
     function renderSrcRT(s) {
         const cam = s === SRC.SEC1 ? R.sec1 : s === SRC.SEC2 ? R.sec2 : R.main;
@@ -103,7 +159,12 @@ export function createRenderLoop({
         renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, cam);
     }
 
-    function frame() {
+    /**
+     * Render one full frame.
+     * @param {boolean} [finalFrame=true] - force the BEV panel to render
+     *        (direct calls from tests always render everything).
+     */
+    function frame(finalFrame = true) {
         // Scene animation — skip the object being dragged (its base follows
         // the drag so motion resumes smoothly from the drop point).
         sceneAnim.update((o) => S.dragging && S.sel === o);
@@ -137,15 +198,29 @@ export function createRenderLoop({
             }
         }
 
+        /* Pass 3a: Bird's Eye → its own RT, rate-reduced: every
+           `bevInterval`-th rendered frame (~15fps at 60fps) during
+           continuous activity; always on final frames. Objects above
+           ghost height are translucent. */
+        bevTick++;
+        if (bevDue({ finalFrame, tick: bevTick, interval: bevInterval })) {
+            const dpr = renderer.getPixelRatio();
+            const bw = Math.max(1, Math.round(P.bev.w * dpr));
+            const bh = Math.max(1, Math.round(P.bev.h * dpr));
+            if (rtBev.width !== bw || rtBev.height !== bh) rtBev.setSize(bw, bh);
+            bevGhost.apply();
+            renderer.setRenderTarget(rtBev); renderer.clear();
+            renderer.render(scene, R.bev);
+            bevGhost.restore();
+        }
+
         /* Pass 3-7: on-screen panel renders */
         renderer.setRenderTarget(null); renderer.clear(); renderer.setScissorTest(true);
 
-        /* Pass 3: Bird's Eye — objects above ghost height are translucent */
-        bevGhost.apply();
+        /* Pass 3b: blit the (possibly stale) BEV RT into its panel */
         renderer.setViewport(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
         renderer.setScissor(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
-        renderer.render(scene, R.bev);
-        bevGhost.restore();
+        quad.material = matBev; renderer.render(dScene, dCam);
 
         /* Pass 4: Main Camera panel */
         const panelAspect = P.m.w / P.m.h;
@@ -180,10 +255,20 @@ export function createRenderLoop({
         renderer.setScissorTest(false);
     }
 
+    /** One rAF tick: render only when something can have changed. */
+    function tick() {
+        const continuous = sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging;
+        const gate = frameGate({ continuous, dirtyFrames, skipped, keepAlive });
+        if (!gate.render) { skipped++; return; }
+        if (dirtyFrames > 0) dirtyFrames--;
+        skipped = 0;
+        frame(gate.finalFrame);
+    }
+
     function start() {
-        const loop = () => { raf(loop); frame(); };
+        const loop = () => { raf(loop); tick(); };
         loop();
     }
 
-    return { frame, start };
+    return { frame, start, markDirty };
 }

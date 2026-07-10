@@ -69,5 +69,12 @@ export function createGlContext({ THREE, canvas, rtW, rtH, log = () => {} }) {
     dScene.add(quad);
     const matWarp = createWarpMaterial(THREE, rtS.texture, rtM.texture, rtS2.texture, rtW, rtH);
 
-    return { renderer, scene, aLight, dLight, rtM, rtS, rtS2, rtDepth, depthMat, dScene, dCam, quad, matWarp };
+    /* BEV panel RT — the BEV scene renders here at reduced rate; the RT is
+       blitted to the screen every frame (the canvas cannot rely on stale
+       regions: preserveDrawingBuffer=false). Sized to the BEV panel by the
+       render loop; samples=4 keeps MSAA parity with the direct render. */
+    const rtBev = new THREE.WebGLRenderTarget(2, 2, { samples: 4 });
+    const matBev = new THREE.MeshBasicMaterial({ map: rtBev.texture });
+
+    return { renderer, scene, aLight, dLight, rtM, rtS, rtS2, rtDepth, depthMat, dScene, dCam, quad, matWarp, rtBev, matBev };
 }

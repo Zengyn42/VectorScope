@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { sourcesToRender, blendFeed } from '../src/render-loop.js';
+import { sourcesToRender, blendFeed, frameGate, bevDue } from '../src/render-loop.js';
 import { SRC } from '../src/zoom-pipeline.js';
 
 describe('sourcesToRender', () => {
@@ -64,5 +64,54 @@ describe('blendFeed', () => {
         const feed = blendFeed({ t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: true, followerSrc: SRC.MAIN, followerM: mB });
         assert.equal(feed.uBlend, 0.4);
         assert.deepEqual(feed.prev, { src: SRC.MAIN, m: mB });
+    });
+});
+
+describe('frameGate (idle skipping)', () => {
+    const KA = 30;
+
+    it('renders while continuous activity (anims/blend/drag), never final', () => {
+        assert.deepEqual(
+            frameGate({ continuous: true, dirtyFrames: 0, skipped: 0, keepAlive: KA }),
+            { render: true, finalFrame: false });
+    });
+
+    it('renders dirty frames; the last one is final (forces BEV)', () => {
+        assert.deepEqual(
+            frameGate({ continuous: false, dirtyFrames: 3, skipped: 0, keepAlive: KA }),
+            { render: true, finalFrame: false });
+        assert.deepEqual(
+            frameGate({ continuous: false, dirtyFrames: 1, skipped: 0, keepAlive: KA }),
+            { render: true, finalFrame: true });
+    });
+
+    it('skips when idle', () => {
+        assert.deepEqual(
+            frameGate({ continuous: false, dirtyFrames: 0, skipped: 5, keepAlive: KA }),
+            { render: false, finalFrame: false });
+    });
+
+    it('keep-alive heartbeat fires as a final frame', () => {
+        assert.deepEqual(
+            frameGate({ continuous: false, dirtyFrames: 0, skipped: KA, keepAlive: KA }),
+            { render: true, finalFrame: true });
+    });
+
+    it('continuous + dirty renders but is not final', () => {
+        assert.deepEqual(
+            frameGate({ continuous: true, dirtyFrames: 1, skipped: 0, keepAlive: KA }),
+            { render: true, finalFrame: false });
+    });
+});
+
+describe('bevDue (BEV rate reduction)', () => {
+    it('final frames always render BEV', () => {
+        assert.equal(bevDue({ finalFrame: true, tick: 1, interval: 4 }), true);
+    });
+
+    it('otherwise BEV renders every interval-th frame only', () => {
+        const due = [1, 2, 3, 4, 5, 6, 7, 8]
+            .map(tick => bevDue({ finalFrame: false, tick, interval: 4 }));
+        assert.deepEqual(due, [false, false, false, true, false, false, false, true]);
     });
 });
