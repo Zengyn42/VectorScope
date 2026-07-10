@@ -191,6 +191,8 @@ input[type="file"] { display: none; }
         <button onclick="openCamDialog()">Set Camera</button>
         <input type="file" id="fcam" accept=".json" style="display:none">
         <button id="btn-reset">Reset All</button>
+        <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
+        <button id="btn-help" title="How to use VectorScope">Help</button>
       </div>
       <div class="ctrl-row">
         <button onclick="document.getElementById('fadd').click()">Add</button>
@@ -290,6 +292,58 @@ input[type="file"] { display: none; }
     </div>
   </div>
 </div>
+<!-- Help Dialog -->
+<div class="modal-overlay" id="help-dialog">
+  <div class="modal" style="user-select:text;max-width:680px">
+    <h2>How to Use VectorScope</h2>
+
+    <h3>What is this?</h3>
+    <p style="line-height:1.6;margin-bottom:8px">
+      VectorScope simulates a phone-style multi-camera rig (UW 0.5x / Main 1x / Tele 5x)
+      and shows how the <b>Combined</b> view hands over between cameras during continuous
+      zoom using plane-induced homographies at focus depth D.
+    </p>
+
+    <h3>Panels</h3>
+    <table>
+      <tr><td>Bird's Eye</td><td>Top-down overview; camera positions shown as colored markers</td></tr>
+      <tr><td>Main / UW / Tele</td><td>Direct view of each physical camera</td></tr>
+      <tr><td>Combined</td><td>The zoom-pipeline output: one camera's frame, warp-sampled per zoom level</td></tr>
+    </table>
+
+    <h3>Mouse</h3>
+    <table>
+      <tr><td>Click object</td><td>Select (works in any camera panel or Bird's Eye)</td></tr>
+      <tr><td>Drag object</td><td>Camera panels: move on the camera-facing plane; Bird's Eye: move on the ground (XZ)</td></tr>
+      <tr><td>Click camera marker</td><td>(Bird's Eye) select a camera to inspect its parameters</td></tr>
+    </table>
+
+    <h3>Controls</h3>
+    <table>
+      <tr><td>Zoom / Go / Play</td><td>Continuous 0.5&ndash;10x zoom; cameras hand over at 1x and 5x. Play bounces automatically</td></tr>
+      <tr><td>Focus D / AF</td><td>Depth of the homography focus plane; AF picks it by drag-selecting a region in Main</td></tr>
+      <tr><td>Warp</td><td>Toggle homography correction; off shows the naive prewarp/crop behavior</td></tr>
+      <tr><td>Prewarp1/2</td><td>Manual prewarp scales used when Warp is off</td></tr>
+      <tr><td>Blend / Single-Dual</td><td>Cross-fade length (frames) at camera handover; Dual blends two live cameras</td></tr>
+      <tr><td>Add / Delete</td><td>Add a .glb/.gltf or .obj (+.mtl+textures) at Focus D; Delete hides the selected object</td></tr>
+      <tr><td>Save / Load Scene</td><td>Save everything (objects, cameras, sliders, assets) to a directory; Load restores it</td></tr>
+      <tr><td>Combined</td><td>Focus mode: hide all panels except the Combined view + these controls</td></tr>
+      <tr><td>Reset All</td><td>Restore object positions, un-hide deleted objects, reset selection</td></tr>
+    </table>
+
+    <h3>Selection panel</h3>
+    <table>
+      <tr><td>Obj Depth / Scale</td><td>Move the selected object along the main camera axis; scale it</td></tr>
+      <tr><td>Animation</td><td>Give the selected object motion (depth / orbit / bounce / spin) to observe warp drift</td></tr>
+      <tr><td>Ghost Y</td><td>Bird's Eye: objects above this height render translucent</td></tr>
+    </table>
+
+    <div class="modal-actions">
+      <button onclick="document.getElementById('help-dialog').classList.remove('open')">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="hmat"></div>
 <div id="status">Loading&hellip;</div>
 
@@ -302,7 +356,7 @@ input[type="file"] { display: none; }
         var msg = document.createElement('div');
         msg.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.92);' +
             'color:#e0e0e0;display:flex;justify-content:center;align-items:center;z-index:9999;' +
-            'font-family:system-ui,sans-serif;';
+            'font-family:system-ui,sans-serif;user-select:text;';   // body disables selection; re-enable so the chrome:// URLs are copyable
         msg.innerHTML = '<div style="max-width:560px;padding:32px;background:#16213e;border:1px solid #e94560;border-radius:12px;">' +
             '<h2 style="color:#e94560;margin:0 0 16px;">WebGL Not Available</h2>' +
             '<p style="line-height:1.7;margin:0 0 16px;">VectorScope requires WebGL, which is currently disabled or unavailable in your browser.</p>' +
@@ -467,7 +521,7 @@ assetRegistry.setSceneAsset({ name: 'bedroom.glb', format: 'glb', url: 'assets/b
 /* ================================================================
    PANELS
    ================================================================ */
-const { P, layoutPanels, getPanel, toNDC } = createPanelManager({
+const { P, layoutPanels, getPanel, toNDC, setMode, getMode } = createPanelManager({
     $, RT_W, RT_H,
     onCameraAspect: (aspect) => {
         for (const c of [R.main, R.sec1, R.sec2]) {
@@ -595,13 +649,31 @@ window.openCamDialog = ui.openCamDialog;
 window.closeCamDialog = ui.closeCamDialog;
 
 /* ================================================================
+   COMBINED FOCUS MODE + HELP (transient view state — not persisted)
+   ================================================================ */
+$('btn-combined').onclick = () => {
+    const next = getMode() === 'combined' ? 'full' : 'combined';
+    setMode(next);                        // re-layouts panels + DOM decorations
+    camRig.updateBevAspect(P.bev);        // no-op when BEV is collapsed
+    $('btn-combined').classList.toggle('active', next === 'combined');
+    log(next === 'combined' ? 'Combined focus mode' : 'Full layout');
+};
+$('btn-help').onclick = () => $('help-dialog').classList.add('open');
+$('help-dialog').addEventListener('click', (e) => {
+    if (e.target === $('help-dialog')) $('help-dialog').classList.remove('open');
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') $('help-dialog').classList.remove('open');
+});
+
+/* ================================================================
    HOMOGRAPHY HUD + DEBUG HOOKS
    ================================================================ */
 window.refreshH = refreshH;
 refreshH();
 
 // Debug/test hook (headless regression scripts inspect blend state)
-window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegistry, assetParser, sceneIO, syncObjs, registerModel, R };
+window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegistry, assetParser, sceneIO, syncObjs, registerModel, R, P, setMode, getMode };
 
 /* ================================================================
    RESIZE + RENDER LOOP (src/render-loop.js)

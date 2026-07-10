@@ -3,7 +3,7 @@
  * @description
  * Panel layout manager for VectorScope's two-row viewport.
  *
- * Layout:
+ * Layout mode `full` (default):
  * ```
  * ┌──────────────┬──────────────┬──────────────┐
  * │  Bird's Eye  │  Object Info │  Controls    │  ← top row ~35%
@@ -14,6 +14,19 @@
  * └──────────┴────────┴─────────┴──────────────┘
  * ```
  *
+ * Layout mode `combined` (focus mode):
+ * ```
+ * ┌───────────────────────────────┬──────────────┐
+ * │                               │  Controls    │
+ * │       Combined (centered)     │  (DOM)       │
+ * │                               │              │
+ * └───────────────────────────────┴──────────────┘
+ * ```
+ * All other panels collapse to zero-size rects (the render loop skips
+ * zero-size panels) and their DOM decorations (labels, borders, info
+ * panel, separator) are hidden. The homography HUD and status HUD are
+ * `position:fixed` and remain visible in both modes.
+ *
  * Canvas-rendered panels: bev, m, s1, s2, c (GL coordinates, y-up)
  * DOM overlay panels: panel-info, panel-controls (CSS positioned by JS)
  *
@@ -22,14 +35,35 @@
  * @param {number}   opts.RT_W - Render target width (pixels)
  * @param {number}   opts.RT_H - Render target height (pixels)
  * @param {Function} opts.onCameraAspect - Called with panel aspect ratio on layout change
- * @returns {{ P: object, layoutPanels: Function, getPanel: Function, toNDC: Function }}
+ * @returns {{ P: object, layoutPanels: Function, getPanel: Function, toNDC: Function,
+ *             setMode: Function, getMode: Function }}
  */
 export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
     const GAP = 2;
     const BOT_GAP = 28;   // buffer between bottom-row camera panels
     const P = { bev: {}, m: {}, s1: {}, s2: {}, c: {} };
+    let mode = 'full';    // 'full' | 'combined'
 
-    function layoutPanels() {
+    /* ── shared DOM helpers (GL → CSS coords) ── */
+    const setLabel = (id, px, H) => {
+        const el = $(id);
+        if (!el) return;
+        el.style.display = '';
+        el.style.left = (px.x + 8) + 'px';
+        el.style.top = (H - px.y - px.h + 6) + 'px';
+    };
+    const setBorder = (id, p, H) => {
+        const el = $(id);
+        if (!el) return;
+        el.style.display = '';
+        el.style.left = p.x + 'px';
+        el.style.top = (H - p.y - p.h) + 'px';
+        el.style.width = p.w + 'px';
+        el.style.height = p.h + 'px';
+    };
+    const hide = (ids) => ids.forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
+
+    function layoutFull() {
         const r = $('viewport-container').getBoundingClientRect();
         const W = r.width, H = r.height;
         const topH = Math.floor(H * 0.35);
@@ -51,7 +85,7 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         let ph = Math.floor(pw * 16 / 9);
         if (ph > botH) { ph = botH; pw = Math.floor(ph * 9 / 16); }
         const x0 = 0;
-        P.m  = { x: x0,                     y: 0, w: pw, h: ph };
+        P.m  = { x: x0,                      y: 0, w: pw, h: ph };
         P.s1 = { x: x0 + (pw + BOT_GAP),     y: 0, w: pw, h: ph };
         P.s2 = { x: x0 + 2 * (pw + BOT_GAP), y: 0, w: pw, h: ph };
         P.c  = { x: x0 + 3 * (pw + BOT_GAP), y: 0, w: pw, h: ph };
@@ -63,6 +97,7 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         const restW = W - bevW - GAP;
         const infoW = Math.floor((restW - GAP) / 2);
         if (infoEl) {
+            infoEl.style.display = '';
             infoEl.style.left = (bevW + GAP) + 'px';
             infoEl.style.top = '0px';
             infoEl.style.width = infoW + 'px';
@@ -75,51 +110,102 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
             ctrlEl.style.height = topH + 'px';
         }
 
-        /* Panel labels (convert GL → CSS coords) */
-        const setLabel = (id, px) => {
-            const el = $(id);
-            if (!el) return;
-            el.style.left = (px.x + 8) + 'px';
-            el.style.top = (H - px.y - px.h + 6) + 'px';
-        };
-        setLabel('lbl-bev', P.bev);
-        setLabel('lbl-m', P.m);
-        setLabel('lbl-s1', P.s1);
-        setLabel('lbl-s2', P.s2);
-        setLabel('lbl-c', P.c);
+        /* Panel labels + red borders */
+        setLabel('lbl-bev', P.bev, H);
+        setLabel('lbl-m', P.m, H);
+        setLabel('lbl-s1', P.s1, H);
+        setLabel('lbl-s2', P.s2, H);
+        setLabel('lbl-c', P.c, H);
+        setBorder('bd-bev', P.bev, H);
+        setBorder('bd-m', P.m, H);
+        setBorder('bd-s1', P.s1, H);
+        setBorder('bd-s2', P.s2, H);
+        setBorder('bd-c', P.c, H);
 
         /* Horizontal separator between top and bottom rows */
         const sepH = $('sep-h');
         if (sepH) {
+            sepH.style.display = '';
             sepH.style.top = (H - botH - GAP) + 'px';
         }
 
         /* Vertical separators are replaced by per-panel red borders — hide them */
-        ['sep-v1', 'sep-v2', 'sep-v3'].forEach(id => {
-            const el = $(id);
-            if (el) el.style.display = 'none';
-        });
+        hide(['sep-v1', 'sep-v2', 'sep-v3']);
 
-        /* Red border outline around each camera view (GL → CSS coords) */
-        const setBorder = (id, p) => {
-            const el = $(id);
-            if (!el) return;
-            el.style.left = p.x + 'px';
-            el.style.top = (H - p.y - p.h) + 'px';
-            el.style.width = p.w + 'px';
-            el.style.height = p.h + 'px';
-        };
-        setBorder('bd-m', P.m);
-        setBorder('bd-s1', P.s1);
-        setBorder('bd-s2', P.s2);
-        setBorder('bd-c', P.c);
-        setBorder('bd-bev', P.bev);
+        /* Restore the fixed HUDs to the right edge */
+        const hmat = $('hmat'), status = $('status');
+        if (hmat) hmat.style.right = '16px';
+        if (status) status.style.right = '16px';
 
         /* Sync camera aspect to bottom panel shape (9:16) */
         if (onCameraAspect) onCameraAspect(pw / ph);
     }
 
-    /** Determine which panel a CSS click lands on */
+    function layoutCombined() {
+        const r = $('viewport-container').getBoundingClientRect();
+        const W = r.width, H = r.height;
+        const Z = { x: 0, y: 0, w: 0, h: 0 };
+        Object.assign(P.bev, Z);
+        Object.assign(P.m, Z);
+        Object.assign(P.s1, Z);
+        Object.assign(P.s2, Z);
+
+        /* Controls panel docks to the right edge, full height */
+        const ctrlW = Math.min(360, Math.floor(W * 0.3));
+        const ctrlEl = $('panel-controls');
+        if (ctrlEl) {
+            ctrlEl.style.left = (W - ctrlW) + 'px';
+            ctrlEl.style.top = '0px';
+            ctrlEl.style.width = ctrlW + 'px';
+            ctrlEl.style.height = H + 'px';
+        }
+
+        /* Combined panel: 9:16 (RT aspect), centered in the remaining area */
+        const MARGIN = 16;
+        const availW = W - ctrlW - GAP;
+        let ch = H - 2 * MARGIN;
+        let cw = Math.floor(ch * RT_W / RT_H);
+        if (cw > availW - 2 * MARGIN) {
+            cw = availW - 2 * MARGIN;
+            ch = Math.floor(cw * RT_H / RT_W);
+        }
+        P.c = {
+            x: Math.max(0, Math.floor((availW - cw) / 2)),
+            y: Math.max(0, Math.floor((H - ch) / 2)),
+            w: cw, h: ch,
+        };
+
+        /* Hide everything that belongs to the collapsed panels */
+        hide(['panel-info', 'lbl-bev', 'lbl-m', 'lbl-s1', 'lbl-s2',
+              'bd-bev', 'bd-m', 'bd-s1', 'bd-s2',
+              'sep-h', 'sep-v1', 'sep-v2', 'sep-v3']);
+
+        setLabel('lbl-c', P.c, H);
+        setBorder('bd-c', P.c, H);
+
+        /* The fixed-position HUDs sit at the right edge — shift them left of
+           the docked controls panel so they stay readable */
+        const hmat = $('hmat'), status = $('status');
+        if (hmat) hmat.style.right = (ctrlW + 16) + 'px';
+        if (status) status.style.right = (ctrlW + 16) + 'px';
+
+        if (onCameraAspect) onCameraAspect(RT_W / RT_H);
+    }
+
+    function layoutPanels() {
+        if (mode === 'combined') layoutCombined();
+        else layoutFull();
+    }
+
+    /** Switch layout mode ('full' | 'combined') and re-layout. */
+    function setMode(m) {
+        mode = m === 'combined' ? 'combined' : 'full';
+        layoutPanels();
+    }
+
+    function getMode() { return mode; }
+
+    /** Determine which panel a CSS click lands on (zero-size panels never match) */
     function getPanel(cx, cy) {
         const r = $('main-canvas').getBoundingClientRect();
         const x = cx - r.left, y = cy - r.top;
@@ -145,5 +231,5 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         };
     }
 
-    return { P, layoutPanels, getPanel, toNDC };
+    return { P, layoutPanels, getPanel, toNDC, setMode, getMode };
 }

@@ -203,7 +203,7 @@ export function createRenderLoop({
            continuous activity; always on final frames. Objects above
            ghost height are translucent. */
         bevTick++;
-        if (bevDue({ finalFrame, tick: bevTick, interval: bevInterval })) {
+        if (P.bev.w > 0 && bevDue({ finalFrame, tick: bevTick, interval: bevInterval })) {
             const dpr = renderer.getPixelRatio();
             const bw = Math.max(1, Math.round(P.bev.w * dpr));
             const bh = Math.max(1, Math.round(P.bev.h * dpr));
@@ -217,26 +217,34 @@ export function createRenderLoop({
         /* Pass 3-7: on-screen panel renders */
         renderer.setRenderTarget(null); renderer.clear(); renderer.setScissorTest(true);
 
+        /* Passes 3b-6 skip zero-size panels (combined focus layout mode) */
+
         /* Pass 3b: blit the (possibly stale) BEV RT into its panel */
-        renderer.setViewport(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
-        renderer.setScissor(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
-        quad.material = matBev; renderer.render(dScene, dCam);
+        if (P.bev.w > 0) {
+            renderer.setViewport(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
+            renderer.setScissor(P.bev.x, P.bev.y, P.bev.w, P.bev.h);
+            quad.material = matBev; renderer.render(dScene, dCam);
+        }
 
         /* Pass 4: Main Camera panel */
-        const panelAspect = P.m.w / P.m.h;
-        R.main.aspect = panelAspect; R.main.updateProjectionMatrix();
-        renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h);
-        renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
-        renderer.render(scene, R.main);
+        const panelAspect = P.m.h > 0 ? P.m.w / P.m.h : rtAspect;
+        if (P.m.w > 0) {
+            R.main.aspect = panelAspect; R.main.updateProjectionMatrix();
+            renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h);
+            renderer.setScissor(P.m.x, P.m.y, P.m.w, P.m.h);
+            renderer.render(scene, R.main);
+        }
 
         /* Pass 5: UW Camera panel */
-        R.sec1.aspect = panelAspect; R.sec1.updateProjectionMatrix();
-        renderer.setViewport(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
-        renderer.setScissor(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
-        renderer.render(scene, R.sec1);
+        if (P.s1.w > 0) {
+            R.sec1.aspect = panelAspect; R.sec1.updateProjectionMatrix();
+            renderer.setViewport(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
+            renderer.setScissor(P.s1.x, P.s1.y, P.s1.w, P.s1.h);
+            renderer.render(scene, R.sec1);
+        }
 
         /* Pass 6: Tele Camera panel */
-        if (R.sec2) {
+        if (R.sec2 && P.s2.w > 0) {
             R.sec2.aspect = panelAspect; R.sec2.updateProjectionMatrix();
             renderer.setViewport(P.s2.x, P.s2.y, P.s2.w, P.s2.h);
             renderer.setScissor(P.s2.x, P.s2.y, P.s2.w, P.s2.h);
