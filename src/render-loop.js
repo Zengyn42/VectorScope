@@ -116,6 +116,25 @@ export function bevDue({ finalFrame, tick, interval }) {
 }
 
 /**
+ * Should the Combined source RT(s) refresh on this rendered frame?
+ *
+ * Time-based cap: refresh at most `fps` times per second, regardless of
+ * the display's rAF rate (60/120/144 Hz). Final frames always refresh so
+ * the last presented image is up to date before the loop goes idle.
+ *
+ * @param {object} opts
+ * @param {boolean} opts.finalFrame - full frame (dirty burst end / heartbeat / direct call)
+ * @param {number}  opts.now        - current time in ms
+ * @param {number}  opts.last       - time of the previous refresh in ms
+ * @param {number}  opts.fps        - target refresh rate; <= 0 disables the cap
+ * @returns {boolean}
+ */
+export function combinedDue({ finalFrame, now, last, fps }) {
+    if (finalFrame || fps <= 0) return true;
+    return now - last >= 1000 / fps - 1;   // 1ms tolerance for rAF jitter
+}
+
+/**
  * Create the render loop.
  *
  * @param {object} opts
@@ -135,19 +154,24 @@ export function bevDue({ finalFrame, tick, interval }) {
  * @param {Function} [opts.raf]   - injectable requestAnimationFrame (tests)
  * @param {number} [opts.bevInterval=4] - BEV renders every Nth rendered frame
  * @param {number} [opts.keepAlive=30]  - heartbeat frame every N skipped frames
+ * @param {number} [opts.combinedFps=30] - Combined source RT refresh cap; <=0 = uncapped
+ * @param {Function} [opts.now]         - injectable clock in ms (tests)
  * @returns {{frame: Function, start: Function, markDirty: Function}}
  */
 export function createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
     rtW, rtH, raf = requestAnimationFrame.bind(globalThis),
     bevInterval = 4, keepAlive = 30,
+    combinedFps = 30, now = () => performance.now(),
 }) {
     const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
     const rtAspect = rtW / rtH;
 
-    let dirtyFrames = 3;   // paint the first frames on startup
-    let skipped = 0;       // consecutive skipped rAF ticks
-    let bevTick = 0;       // rendered-frame counter for BEV rate reduction
+    let dirtyFrames = 3;      // paint the first frames on startup
+    let skipped = 0;          // consecutive skipped rAF ticks
+    let bevTick = 0;          // rendered-frame counter for BEV rate reduction
+    let combinedLast = -1e9;  // time of the last Combined source RT refresh
+    let lastSrcSig = '';      // source set of that refresh (handover detection)
 
     /** Request `n` rendered frames after a one-shot change (default 3). */
     function markDirty(n = 3) { dirtyFrames = Math.max(dirtyFrames, n); }
@@ -179,13 +203,26 @@ export function createRenderLoop({
            outgoing camera's fresh last frame, so no stale pixels show. */
         const dual = S.blendMode === 'dual';
         const zsrc = zoomSource(S.zoom, !!R.sec2);
-        for (const s of sourcesToRender({
+        const sources = sourcesToRender({
             zsrc, dual, blending: blendCtl.isBlending(),
             followerSrc: S.followerSrc, hasS2: !!R.sec2,
-        })) renderSrcRT(s);
+        });
+        /* Fixed-rate cap (~combinedFps): skip the source RT refresh when
+           not yet due — the warp shader keeps sampling the previous RT
+           contents. A change in the source set (zoom handover, blend
+           start) forces a refresh so a stale RT of the *wrong* camera is
+           never shown. */
+        const srcSig = sources.join(',');
+        const due = combinedDue({ finalFrame, now: now(), last: combinedLast, fps: combinedFps })
+            || srcSig !== lastSrcSig;
+        if (due) {
+            combinedLast = now();
+            lastSrcSig = srcSig;
+            for (const s of sources) renderSrcRT(s);
+        }
 
         /* Pass 2: advance the cross-fade, feed the previous-layer uniforms */
-        if (S.sampleM) {
+        if (due && S.sampleM) {
             const { t, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
             const feed = blendFeed({
                 t, prevSrc, prevM, dual,
