@@ -158,7 +158,8 @@ export function paceDue({ now, last, fps }) {
  * @param {number} [opts.keepAlive=30]  - heartbeat frame every N skipped frames
  * @param {number} [opts.fps=30]        - fixed loop rate (CPU clock); <=0 = every rAF tick
  * @param {Function} [opts.now]         - injectable clock in ms (tests)
- * @returns {{frame: Function, start: Function, markDirty: Function}}
+ * @returns {{frame: Function, start: Function, markDirty: Function,
+ *            setFps: Function, getFps: Function}}
  */
 export function createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
@@ -309,5 +310,11 @@ export function createRenderLoop({
         loop();
     }
 
-    return { frame, start, markDirty };
+    /** Change the fixed loop rate at runtime (30/60 FPS button). A frame
+     *  that finishes late is simply dropped — `lastFrameT` is stamped with
+     *  the actual render time, so the loop never queues catch-up frames. */
+    function setFps(n) { fps = n; }
+    function getFps() { return fps; }
+
+    return { frame, start, markDirty, setFps, getFps };
 }

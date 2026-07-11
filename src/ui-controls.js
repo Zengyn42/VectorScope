@@ -34,6 +34,7 @@ export const HELP = {
         ['Blend / Single-Dual', 'Cross-fade length (frames) at camera handover; Dual blends two live cameras'],
         ['Set Camera', 'Inspect/edit intrinsics + extrinsics of all three cameras, or load a camera JSON'],
         ['Reset All', 'Restore object positions, un-hide deleted objects, reset selection'],
+        ['30/60 FPS', 'Fixed render rate driven by a CPU clock; frames that finish late are dropped, never queued'],
     ],
 };
 

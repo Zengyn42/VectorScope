@@ -192,6 +192,7 @@ input[type="file"] { display: none; }
         <input type="file" id="fcam" accept=".json" style="display:none">
         <button id="btn-reset">Reset All</button>
         <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
+        <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
         <button id="btn-help" title="How to use VectorScope">Help</button>
       </div>
       <div class="ctrl-row">
@@ -702,6 +703,22 @@ canvas.addEventListener('pointerdown', markDirty, true);   // selection highligh
 canvas.addEventListener('pointerup', markDirty, true);
 window.addEventListener('resize', markDirty);
 VS_DEBUG.markDirty = markDirty;
+VS_DEBUG.loop = loop;
+
+/* 30/60 FPS toggle — fixed CPU-clock rate; a frame that can't be produced
+   in time is dropped (the loop stamps the actual render time, so it never
+   queues catch-up frames). */
+function syncFpsBtn() {
+    const f = loop.getFps();
+    $('btn-fps').textContent = f > 0 ? `${f} FPS` : 'VSYNC';
+}
+$('btn-fps').onclick = () => {
+    loop.setFps(loop.getFps() === 30 ? 60 : 30);
+    syncFpsBtn();
+    markDirty();
+    log(`Render rate: ${loop.getFps()} fps (late frames dropped)`);
+};
+syncFpsBtn();
 
 loop.start();
 
