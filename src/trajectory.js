@@ -100,7 +100,8 @@ export function parseTrajectory(json) {
 
     /* Expand delta encoding into dense records */
     const frames = [];
-    let prev = { blend: false, camParams: null };
+    let prev = { blend: false, camParams: null, prewarp1: null, prewarp2: null,
+        warp: null, blendX: null, blendMode: null, sampleM: null, followerM: null };
     json.frames.forEach((f, i) => {
         const rec = {
             lead: f.lead ?? prev.lead,
@@ -111,6 +112,14 @@ export function parseTrajectory(json) {
             sceneCam: f.sceneCam ?? prev.sceneCam,
             camParams: f.camParams ?? prev.camParams,
             blendT: null,               // filled by the run pass below
+            // Extended fields (optional — recorded trajectories include these)
+            prewarp1: f.prewarp1 ?? prev.prewarp1,
+            prewarp2: f.prewarp2 ?? prev.prewarp2,
+            warp: f.warp ?? prev.warp,
+            blendX: f.blendX ?? prev.blendX,
+            blendMode: f.blendMode ?? prev.blendMode,
+            sampleM: f.sampleM ?? prev.sampleM,
+            followerM: f.followerM ?? prev.followerM,
         };
         if (!CAM_NAMES.includes(rec.lead)) throw new Error(`trajectory: frame ${i}: bad lead '${rec.lead}'`);
         if (!CAM_NAMES.includes(rec.follower)) throw new Error(`trajectory: frame ${i}: bad follower '${rec.follower}'`);

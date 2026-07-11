@@ -67,6 +67,11 @@ button.active { background: #e94560; border-color: #e94560; }
 .zp-btn { padding: 2px 7px; font-size: 11px; font-family: monospace; }
 .zp-btn.active { background: #e94560; border-color: #e94560; }
 input[type="range"] { width: 100px; accent-color: #e94560; }
+select {
+    padding: 2px 6px; background: #0f3460; color: #e0e0e0;
+    border: 1px solid #533483; border-radius: 4px; font-size: 12px;
+    max-width: 120px;
+}
 input[type="file"] { display: none; }
 .val {
     min-width: 40px; text-align: right; font-size: 12px;
@@ -255,15 +260,18 @@ input[type="file"] { display: none; }
         <button id="btn-warp">Warp</button>
         <button id="btn-play">&#9654; Play</button>
       </div>
-      <!-- Trajectory transport (src/transport.js): load a trajectory JSON,
-           play at its own fps, pause, step ±1 frame, seek via progress bar.
-           While engaged, all scene controls above are locked (objects stay
-           operable); Stop returns to free mode + built-in zoom rules. -->
+      <!-- Trajectory: list selector + load folder + record + transport -->
       <div class="ctrl-row" id="traj-row">
-        <button id="btn-traj-load" title="Load a camera trajectory JSON">Traj</button>
-        <input type="file" id="ftraj" accept=".json" style="display:none">
+        <select id="sel-traj" title="Select trajectory (default = free mode)">
+          <option value="__default__" selected>default</option>
+        </select>
+        <button id="btn-traj-load" title="Load a folder of trajectory JSONs">Load</button>
+        <button id="btn-traj-rec" title="Start/stop recording a trajectory"
+                style="min-width:36px">&#9679; Rec</button>
+      </div>
+      <div class="ctrl-row" id="traj-transport-row">
         <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                title="Play / pause the loaded trajectory">&#9654;</button>
+                title="Play / pause the selected trajectory">&#9654;</button>
         <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
         <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
         <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
@@ -399,6 +407,7 @@ import { createSceneManager } from './src/scene-manager.js';
 import { createConfigStore } from './src/config-store.js';
 import { parseTrajectory, CAM_TO_SRC } from './src/trajectory.js';
 import { createTransport } from './src/transport.js';
+import { createRecorder } from './src/recorder.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -460,6 +469,7 @@ const R = camRig.rig;
    machine + the master clock. onChange is late-bound — the real handler is
    assigned in the TRAJECTORY TRANSPORT UI section (needs markDirty etc.). */
 let onTransportChange = () => {};
+let onPostFrame = () => {};
 const transport = createTransport({ onChange: (ev) => onTransportChange(ev) });
 
 /* Scene animation (src/scene-anim.js): procedural presets assigned per
@@ -750,6 +760,12 @@ function applyTrajFrame(rec) {
     $('sld-z').value = Math.log10(rec.zoom);
     $('vd').textContent = rec.focusD.toFixed(1);
     $('sld-d').value = rec.focusD;
+    /* Extended fields (recorded trajectories): prewarp, warp, blend params */
+    if (rec.prewarp1 != null) { S.prewarpScale = rec.prewarp1; $('sld-pw').value = rec.prewarp1; $('vpw').textContent = rec.prewarp1.toFixed(2) + 'x'; }
+    if (rec.prewarp2 != null) { S.prewarpScale2 = rec.prewarp2; $('sld-pw2').value = rec.prewarp2; $('vpw2').textContent = rec.prewarp2.toFixed(2) + 'x'; }
+    if (rec.warp != null) S.warp = rec.warp;
+    if (rec.blendX != null) { S.blendX = rec.blendX; $('sld-blend').value = rec.blendX; $('vblend').textContent = rec.blendX + 'f'; }
+    if (rec.blendMode != null) S.blendMode = rec.blendMode;
     if (rec.camParams) S.camParams = rec.camParams;
     /* Fast pose path — no camera/marker rebuild (camRig.applyPose) */
     camRig.applyPose(rec.camParams || S.camParams, rec.sceneCam);
@@ -760,6 +776,7 @@ const loop = createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
     rtW: RT_W, rtH: RT_H,
     transport, onTrajFrame: applyTrajFrame,
+    onPostFrame: () => onPostFrame(),
     ...(urlP.has('fps') ? { fps: Number(urlP.get('fps')) } : {}),
     ...(urlP.has('keepalive') ? { keepAlive: Number(urlP.get('keepalive')) } : {}),
 });
@@ -806,8 +823,7 @@ syncFpsBtn();
    (boss rule #5); animations run on the frame clock (boss rule #6).
    ================================================================ */
 
-/* Controls locked while a trajectory is engaged. Object ops (Add/Delete,
-   selection, drag, per-object animation) deliberately stay enabled. */
+/* Controls locked while a trajectory is engaged OR recording. */
 const TRAJ_LOCK_IDS = [
     'sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-blend', 'sld-clip',
     'btn-af', 'btn-warp', 'btn-play', 'btn-bmode', 'btn-reset', 'btn-setcam',
@@ -816,28 +832,131 @@ const TRAJ_LOCK_IDS = [
 function lockControls(locked) {
     for (const id of TRAJ_LOCK_IDS) { const el = $(id); if (el) el.disabled = locked; }
     for (const b of document.querySelectorAll('#zoom-presets .zp-btn')) b.disabled = locked;
-    // The ± nudge buttons live in the same row as their slider.
     for (const id of ['sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-blend']) {
         const s = $(id);
         if (s) for (const b of s.parentElement.querySelectorAll('.sld-btn')) b.disabled = locked;
     }
 }
 
+/* ── Trajectory List ── */
+const trajLibrary = new Map();   // name → parsed trajectory object
+
+function addToLibrary(traj) {
+    trajLibrary.set(traj.name, traj);
+    syncTrajList();
+}
+
+function syncTrajList() {
+    const sel = $('sel-traj');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="__default__">default</option>';
+    for (const name of trajLibrary.keys()) {
+        const opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        sel.appendChild(opt);
+    }
+    // Restore selection if still valid
+    if (cur !== '__default__' && trajLibrary.has(cur)) sel.value = cur;
+}
+
+$('sel-traj').onchange = function () {
+    if (this.value === '__default__') {
+        transport.stop();
+        log('Trajectory: free mode (default)');
+    } else {
+        const traj = trajLibrary.get(this.value);
+        if (traj) {
+            transport.load(traj);
+            log(`Trajectory: ${traj.name} \u2014 ${traj.length}f @ ${traj.fps}fps (\u25B6 to play)`);
+        }
+    }
+};
+
+/* ── Load Folder (multiple trajectories) ── */
+$('btn-traj-load').onclick = async () => {
+    try {
+        // Use File System Access API directory picker
+        if (!window.showDirectoryPicker) {
+            log('Folder picker not supported — use Chrome/Edge');
+            return;
+        }
+        const dirHandle = await window.showDirectoryPicker();
+        let count = 0;
+        for await (const entry of dirHandle.values()) {
+            if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue;
+            try {
+                const file = await entry.getFile();
+                const traj = parseTrajectory(JSON.parse(await file.text()));
+                addToLibrary(traj);
+                count++;
+            } catch (e) { console.warn(`Skipped ${entry.name}:`, e.message); }
+        }
+        if (count > 0) log(`Loaded ${count} trajectory file${count > 1 ? 's' : ''}`);
+        else log('No valid trajectory files in folder');
+    } catch (e) {
+        if (e.name !== 'AbortError') { log(`Load folder failed: ${e.message}`); console.error(e); }
+    }
+};
+
+/* ── Recorder ── */
+const recorder = createRecorder({
+    getState: () => ({
+        zoom: S.zoom, depthD: S.depthD,
+        prewarpScale: S.prewarpScale, prewarpScale2: S.prewarpScale2,
+        warp: S.warp, blendX: S.blendX, blendMode: S.blendMode,
+        sampleSrc: S.sampleSrc, sampleM: S.sampleM,
+        followerSrc: S.followerSrc, followerM: S.followerM,
+        camParams: S.camParams, isBlending: blendCtl.isBlending(),
+    }),
+    getSceneCam: () => SCENE_CAM,
+    getFps: () => loop.getFps(),
+});
+
+onPostFrame = () => recorder.capture();
+
+$('btn-traj-rec').onclick = () => {
+    if (recorder.isRecording()) {
+        // Stop recording → produce trajectory → add to library
+        const traj = recorder.stop();
+        $('btn-traj-rec').classList.remove('active');
+        if (traj && traj.frames.length > 0) {
+            const parsed = parseTrajectory(traj);
+            addToLibrary(parsed);
+            $('sel-traj').value = parsed.name;
+            transport.load(parsed);
+            log(`Recorded: ${parsed.name} \u2014 ${parsed.length}f @ ${parsed.fps}fps`);
+        } else {
+            log('Recording empty — discarded');
+        }
+    } else {
+        // Cannot record while playing
+        if (transport.isEngaged()) {
+            log('Stop playback before recording');
+            return;
+        }
+        recorder.start();
+        $('btn-traj-rec').classList.add('active');
+        syncTrajUI();
+        log(`Recording @ ${loop.getFps()} fps \u2014 press Rec again to stop`);
+    }
+};
+
+/* ── Transport controls ── */
 function syncTrajUI() {
     const traj = transport.getTrajectory();
     const engaged = transport.isEngaged();
-    $('btn-traj-play').disabled = !traj;
-    $('btn-traj-back').disabled = !traj;
-    $('btn-traj-fwd').disabled = !traj;
+    const canPlay = !!traj && !recorder.isRecording();
+    $('btn-traj-play').disabled = !canPlay;
+    $('btn-traj-back').disabled = !canPlay;
+    $('btn-traj-fwd').disabled = !canPlay;
     $('btn-traj-stop').disabled = !engaged;
-    $('sld-traj').disabled = !traj;
+    $('sld-traj').disabled = !canPlay;
     if (traj) {
         $('sld-traj').max = traj.length - 1;
         $('sld-traj').value = transport.getFrame();
         $('vtraj').textContent = `${transport.getFrame()}/${traj.length - 1}`;
     } else {
-        $('sld-traj').max = 0;
-        $('sld-traj').value = 0;
+        $('sld-traj').max = 0; $('sld-traj').value = 0;
         $('vtraj').textContent = '\u2013/\u2013';
     }
     $('btn-traj-play').innerHTML = transport.isPlaying() ? '&#10074;&#10074;' : '&#9654;';
@@ -847,16 +966,11 @@ let trajWasEngaged = false;
 onTransportChange = (ev) => {
     const engaged = transport.isEngaged();
     if (engaged !== trajWasEngaged) {
-        /* Master clock source flipped (wall time ↔ frame time): re-anchor
-           object animations so their phase is preserved across the jump. */
         sceneAnim.resyncClock();
         trajWasEngaged = engaged;
         lockControls(engaged);
     }
     if (ev === 'stop') {
-        /* Back to free mode: drop the trajectory's blend/sampling residue
-           and re-apply the persisted config — rig pose, zoom, Focus D and
-           the slider DOM all snap back to the user's free-mode state. */
         blendCtl.reset();
         store.set('cameras', {});
         store.set('controls', {});
@@ -865,17 +979,6 @@ onTransportChange = (ev) => {
     markDirty();
 };
 
-$('btn-traj-load').onclick = () => $('ftraj').click();
-$('ftraj').onchange = async function () {
-    if (!this.files.length) return;
-    const f = this.files[0];
-    this.value = '';
-    try {
-        const traj = parseTrajectory(JSON.parse(await f.text()));
-        transport.load(traj);
-        log(`Trajectory: ${traj.name} \u2014 ${traj.length} frames @ ${traj.fps} fps (\u25B6 to play)`);
-    } catch (e) { log(`Trajectory load failed: ${e.message}`); console.error(e); }
-};
 $('btn-traj-play').onclick = () => transport.togglePlay();
 $('btn-traj-stop').onclick = () => transport.stop();
 $('btn-traj-back').onclick = () => transport.step(-1);
@@ -883,6 +986,8 @@ $('btn-traj-fwd').onclick = () => transport.step(1);
 $('sld-traj').oninput = function () { transport.seek(+this.value); };
 
 VS_DEBUG.transport = transport;
+VS_DEBUG.recorder = recorder;
+VS_DEBUG.trajLibrary = trajLibrary;
 VS_DEBUG.parseTrajectory = parseTrajectory;
 
 loop.start();

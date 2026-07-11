@@ -164,6 +164,8 @@ export function paceDue({ now, last, fps }) {
  *        counter; while engaged, `onTrajFrame(rec)` is invoked before every
  *        rendered frame so the trajectory drives cameras/zoom/focus/blend.
  * @param {Function} [opts.onTrajFrame] - receives the current dense frame record
+ * @param {Function} [opts.onPostFrame] - called after every rendered frame
+ *        (regardless of play mode) — used by the recorder to capture state
  * @returns {{frame: Function, start: Function, markDirty: Function,
  *            setFps: Function, getFps: Function}}
  */
@@ -172,7 +174,7 @@ export function createRenderLoop({
     rtW, rtH, raf = requestAnimationFrame.bind(globalThis),
     bevInterval = 2, keepAlive = 30,
     fps = 30, now = () => performance.now(),
-    transport = null, onTrajFrame = () => {},
+    transport = null, onTrajFrame = () => {}, onPostFrame = () => {},
 }) {
     const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
     const rtAspect = rtW / rtH;
@@ -314,6 +316,7 @@ export function createRenderLoop({
         quad.material = matWarp; renderer.render(dScene, dCam);
 
         renderer.setScissorTest(false);
+        onPostFrame();
     }
 
     /** One rAF tick: render only when something can have changed, at a
