@@ -618,13 +618,20 @@ window.openCamDialog = ui.openCamDialog;
 window.closeCamDialog = ui.closeCamDialog;
 
 /* ================================================================
-   COMBINED FOCUS MODE + HELP (transient view state — not persisted)
+   COMBINED FOCUS MODE + HELP
+   View mode is a persisted store section — scene save/load restores it.
    ================================================================ */
+store.register('view', {
+    defaults: { mode: 'full' },           // 'full' | 'combined'
+    apply: (v) => {
+        setMode(v.mode);                  // re-layouts panels + DOM decorations
+        camRig.updateBevAspect(P.bev);    // no-op when BEV is collapsed
+        $('btn-combined').classList.toggle('active', v.mode === 'combined');
+    },
+});
 $('btn-combined').onclick = () => {
     const next = getMode() === 'combined' ? 'full' : 'combined';
-    setMode(next);                        // re-layouts panels + DOM decorations
-    camRig.updateBevAspect(P.bev);        // no-op when BEV is collapsed
-    $('btn-combined').classList.toggle('active', next === 'combined');
+    store.set('view', { mode: next });
     log(next === 'combined' ? 'Combined focus mode' : 'Full layout');
 };
 /* Help content is distributed: each module exports a HELP section next to
@@ -715,15 +722,19 @@ VS_DEBUG.loop = loop;
 
 /* 30/60 FPS toggle — fixed CPU-clock rate; a frame that can't be produced
    in time is dropped (the loop stamps the actual render time, so it never
-   queues catch-up frames). */
+   queues catch-up frames). Persisted as the 'render' store section.
+   Note: a ?fps= URL override bypasses the store until the next toggle/load. */
 function syncFpsBtn() {
     const f = loop.getFps();
     $('btn-fps').textContent = f > 0 ? `${f} FPS` : 'VSYNC';
 }
+store.register('render', {
+    defaults: { fps: 30 },
+    apply: (v) => { loop.setFps(v.fps); syncFpsBtn(); },
+});
+store.subscribe('render', markDirty);   // registered after the bulk subscribe loop above
 $('btn-fps').onclick = () => {
-    loop.setFps(loop.getFps() === 30 ? 60 : 30);
-    syncFpsBtn();
-    markDirty();
+    store.set('render', { fps: loop.getFps() === 30 ? 60 : 30 });
     log(`Render rate: ${loop.getFps()} fps (late frames dropped)`);
 };
 syncFpsBtn();

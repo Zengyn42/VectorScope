@@ -6,7 +6,8 @@
  * **Save layout** (a user-chosen directory):
  * ```
  * <dir>/
- *   scene.json          — {version, controls, cameras, objects, assets}
+ *   scene.json          — {version, <every store section>, objects, assets}
+ *                          (controls, cameras, view, render, …)
  *   assets/
  *     bedroom.glb       — raw asset bytes (originals, NOT base64)
  *     chair.obj  chair.mtl  chair_diffuse.png  …
@@ -19,7 +20,7 @@
  * from the directory → `registerModel` (scene assets register children,
  * object assets register the root) → `adoptObjects` → `applyObjects`
  * (transforms + permanent drop of unlisted objects) → `store.applyAll`
- * (controls + cameras sections).
+ * (every config section present in the save).
  *
  * Browser support: Chrome/Edge. `isSupported()` gates the UI buttons.
  */
@@ -47,8 +48,8 @@ export const HELP = {
     title: 'Scene Save / Load',
     order: 51,
     entries: [
-        ['Save Scene', 'Pick a directory — writes scene.json (cameras, sliders, objects) + assets/ with the raw model files'],
-        ['Load Scene', 'Pick a saved directory — fully replaces the current scene, restoring everything'],
+        ['Save Scene', 'Pick a directory — writes scene.json (all sliders, buttons, zoom, cameras, view mode, FPS, objects) + assets/ with the raw model files'],
+        ['Load Scene', 'Pick a saved directory — fully replaces the current scene and restores every panel state'],
     ],
 };
 
@@ -107,10 +108,12 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
             });
         }
 
+        /* Every registered config section is saved (controls, cameras, view,
+           render, …) — a module that registers a store section gets scene
+           save/load for free. */
         const json = {
             version: SAVE_VERSION,
-            controls: store.get('controls'),
-            cameras: store.get('cameras'),
+            ...store.serialize(),
             objects,
             assets: assetMeta,
         };
@@ -173,7 +176,9 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
         }
 
         const res = objectOps.applyObjects(json.objects || [], scene);
-        store.applyAll({ controls: json.controls, cameras: json.cameras });
+        /* Restore every known config section present in the save; unknown
+           keys (version/objects/assets, future sections) are ignored. */
+        store.applyAll(json);
         onAfterLoad();
         log(`Scene loaded: ${res.applied} object(s)` +
             (res.removed ? `, ${res.removed} dropped` : '') +
