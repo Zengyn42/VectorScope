@@ -25,6 +25,18 @@
  * @param {Function} opts.$             - getElementById shorthand
  * @returns {{ sel: Function, syncDepthSlider: Function }}
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Mouse',
+    order: 20,
+    entries: [
+        ['Click object', 'Select (works in any camera panel or Bird\'s Eye)'],
+        ['Drag object', 'Camera panels: move on the camera-facing plane; Bird\'s Eye: move on the ground (XZ)'],
+        ['Click camera marker', '(Bird\'s Eye) select a camera to inspect its parameters'],
+        ['Click empty space', 'Deselect'],
+    ],
+};
+
 export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $ }) {
     const rc = new THREE.Raycaster();
     const hitPt = new THREE.Vector3();

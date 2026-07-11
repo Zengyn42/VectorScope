@@ -28,6 +28,17 @@
  * @param {Function} d.sel        - selection setter (from initInteraction)
  * @param {Function} [d.log]      - status logger
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Objects',
+    order: 50,
+    entries: [
+        ['Add', 'Load a .glb/.gltf or .obj (+.mtl + textures) and place it at Focus D in front of the Main camera'],
+        ['Delete', 'Hide the selected object (Reset un-hides it; a Save excludes hidden objects permanently)'],
+        ['Obj Depth / Scale', '(Selection panel) move the selected object along the main camera axis; scale it'],
+    ],
+};
+
 export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocusD, sceneAnim, sel, log = () => {} }) {
 
     /** Assign unique `userData._vsid` to registered objects (idempotent). */

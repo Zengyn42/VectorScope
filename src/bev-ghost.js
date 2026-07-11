@@ -22,6 +22,15 @@
  * @param {Function} opts.getClipY - returns current ghost height (world Y)
  * @returns {{ apply: Function, restore: Function }}
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'BEV Ghost Mode',
+    order: 70,
+    entries: [
+        ['Ghost Y', 'Objects entirely above this height render translucent in Bird\'s Eye (ceilings don\'t block the view) and are not clickable there'],
+    ],
+};
+
 export function createBevGhost({ THREE, scene, getClipY }) {
     const box = new THREE.Box3();
     const ghosted = [];

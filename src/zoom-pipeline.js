@@ -31,6 +31,21 @@ import { computeHPair, zoomMatrix } from './homography.js';
 /** Source texture indices, matching the shader's `uSrc` uniform. */
 export const SRC = { SEC1: 0, MAIN: 1, SEC2: 2 };
 
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Zoom Pipeline',
+    order: 30,
+    text: 'The Combined view hands over between the three cameras as zoom changes. '
+        + 'Each camera renders at fixed resolution — zooming crops and magnifies its '
+        + 'frame (digital zoom), so the image blurs near a handover and snaps sharp after it.',
+    entries: [
+        ['0.5 – 1.0x', 'UW camera, warped toward the Main view (homography interpolation)'],
+        ['1.0 – 2.0x', 'Main camera, plain center crop'],
+        ['2.0 – 5.0x', 'Main camera, warped toward the Tele view'],
+        ['5.0 – 10x', 'Tele camera, plain center crop'],
+    ],
+};
+
 /**
  * Normalize both homographies to h33 = 1, blend elementwise, renormalize.
  * Projective matrices are scale-equivalent, so blending without fixing the

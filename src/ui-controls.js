@@ -22,6 +22,21 @@ import { createZoomAnimator } from './zoom-anim.js';
 import { renderCamDialog, bindDialog } from './camera-dialog.js';
 import { segName } from './zoom-pipeline.js';
 
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Controls',
+    order: 40,
+    entries: [
+        ['Zoom / Go / Play', 'Continuous 0.5–10x zoom; cameras hand over at 1x and 5x. Play bounces automatically'],
+        ['Focus D', 'Depth of the homography focus plane — objects at this depth align perfectly across cameras'],
+        ['Warp', 'Toggle homography correction; off shows the naive prewarp/crop behavior'],
+        ['Prewarp1/2', 'Manual prewarp scales used when Warp is off (segments 0.5–1x / 2–5x)'],
+        ['Blend / Single-Dual', 'Cross-fade length (frames) at camera handover; Dual blends two live cameras'],
+        ['Set Camera', 'Inspect/edit intrinsics + extrinsics of all three cameras, or load a camera JSON'],
+        ['Reset All', 'Restore object positions, un-hide deleted objects, reset selection'],
+    ],
+};
+
 /** Default values of the persistable `controls` section. */
 export const CONTROL_DEFAULTS = {
     zoom: 1.0,

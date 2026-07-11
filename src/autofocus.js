@@ -64,6 +64,15 @@
  * @param {Function} opts.getMainCam - Returns the current main `PerspectiveCamera`
  * @param {Function} opts.onFocus    - Callback invoked with the computed focus depth (meters)
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Autofocus',
+    order: 41,
+    entries: [
+        ['AF button', 'Click AF, then drag a rectangle on the Main panel — Focus D is set to the median depth inside it (tap-to-focus)'],
+    ],
+};
+
 export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P, RT_W, RT_H, getMainCam, onFocus }) {
     const afState = { active: false, dragging: false, x0: 0, y0: 0 };
     const afRect = $('af-rect');

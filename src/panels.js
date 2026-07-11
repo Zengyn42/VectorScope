@@ -38,6 +38,18 @@
  * @returns {{ P: object, layoutPanels: Function, getPanel: Function, toNDC: Function,
  *             setMode: Function, getMode: Function }}
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Panels',
+    order: 10,
+    entries: [
+        ['Bird\'s Eye', 'Top-down overview; camera positions shown as colored markers'],
+        ['Main / UW / Tele', 'Direct view of each physical camera (1x / 0.5x / 5x)'],
+        ['Combined', 'The zoom-pipeline output: one camera\'s frame, warp-sampled per zoom level'],
+        ['Combined button', 'Focus mode: hide everything except the Combined view + the controls panel'],
+    ],
+};
+
 export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
     const GAP = 2;
     const BOT_GAP = 28;   // buffer between bottom-row camera panels

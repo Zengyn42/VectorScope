@@ -51,6 +51,21 @@ export const ANIM_DEFAULTS = {
  * @returns {{offset: number[], spinY: number}} offset from base position
  *          and rotation to add around world Y (radians)
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Object Animation',
+    order: 60,
+    text: 'Assign motion to the selected object (Selection panel) to observe warp drift, '
+        + 'handover blending and autofocus on moving content.',
+    entries: [
+        ['depth', 'Sinusoid along the main camera axis — shows the homography breaking off the focus plane'],
+        ['orbit', 'Horizontal circle — shows lateral parallax vs the stereo baseline'],
+        ['bounce', 'Vertical hops'],
+        ['spin', 'Rotation in place (silhouette change without parallax)'],
+        ['speed buttons', '0.25x – 8x animation speed for the selected object'],
+    ],
+};
+
 export function animPose(mode, t, { speed = 1, dir = [0, 0, -1], amp } = {}) {
     const w = speed;                 // rad/s
     switch (mode) {

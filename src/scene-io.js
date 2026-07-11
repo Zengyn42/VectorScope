@@ -42,6 +42,16 @@ export const SAVE_VERSION = 1;
  *        (re-sync S.objs, UI refresh)
  * @param {Function} [d.log]        - status logger
  */
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Scene Save / Load',
+    order: 51,
+    entries: [
+        ['Save Scene', 'Pick a directory — writes scene.json (cameras, sliders, objects) + assets/ with the raw model files'],
+        ['Load Scene', 'Pick a saved directory — fully replaces the current scene, restoring everything'],
+    ],
+};
+
 export function createSceneIO({ store, assetRegistry, objectOps, assetParser, loader, scene,
                                 onBeforeReplace = () => {}, onAfterLoad = () => {}, log = () => {} }) {
 
