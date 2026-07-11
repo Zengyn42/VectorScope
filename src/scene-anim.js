@@ -173,7 +173,23 @@ export function createSceneAnimator({ now = () => performance.now() } = {}) {
                 continue;
             }
             const t = (tNow - e.t0) / 1000;
+            e.tCur = t;                       // phase snapshot for resyncClock
             applyPose(obj, e, animPose(e.mode, t, { speed: e.speed, dir: e.dir }));
+        }
+    }
+
+    /**
+     * Re-anchor every animation to the injected clock's *current* value while
+     * preserving its phase. Call when the clock source jumps discontinuously —
+     * e.g. the transport switching between wall time (free mode) and frame
+     * time (trajectory Play mode). Without this, t = now - t0 would explode
+     * across the switch.
+     */
+    function resyncClock() {
+        const tNow = now();
+        for (const e of anims.values()) {
+            e.t0 = tNow - (e.tCur ?? 0) * 1000;
+            e.tPrev = tNow;
         }
     }
 
@@ -182,5 +198,5 @@ export function createSceneAnimator({ now = () => performance.now() } = {}) {
         for (const obj of [...anims.keys()]) clear(obj);
     }
 
-    return { setAnim, get, getState, update, clear, clearAll, count: () => anims.size };
+    return { setAnim, get, getState, update, resyncClock, clear, clearAll, count: () => anims.size };
 }

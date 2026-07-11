@@ -158,6 +158,12 @@ export function paceDue({ now, last, fps }) {
  * @param {number} [opts.keepAlive=30]  - heartbeat frame every N skipped frames
  * @param {number} [opts.fps=30]        - fixed loop rate (CPU clock); <=0 = every rAF tick
  * @param {Function} [opts.now]         - injectable clock in ms (tests)
+ * @param {object} [opts.transport]     - trajectory transport (src/transport.js).
+ *        While playing, the transport paces the loop at the trajectory's own
+ *        fps (the fixed-fps setting does not apply) and advances the frame
+ *        counter; while engaged, `onTrajFrame(rec)` is invoked before every
+ *        rendered frame so the trajectory drives cameras/zoom/focus/blend.
+ * @param {Function} [opts.onTrajFrame] - receives the current dense frame record
  * @returns {{frame: Function, start: Function, markDirty: Function,
  *            setFps: Function, getFps: Function}}
  */
@@ -166,6 +172,7 @@ export function createRenderLoop({
     rtW, rtH, raf = requestAnimationFrame.bind(globalThis),
     bevInterval = 2, keepAlive = 30,
     fps = 30, now = () => performance.now(),
+    transport = null, onTrajFrame = () => {},
 }) {
     const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
     const rtAspect = rtW / rtH;
@@ -191,6 +198,12 @@ export function createRenderLoop({
      *        (direct calls from tests always render everything).
      */
     function frame(finalFrame = true) {
+        /* Trajectory frame (Play mode): apply the current record BEFORE
+           anything renders — rig pose, zoom, focus D, lead/follower and the
+           blend state all come from the file. `rec` stays null in free mode. */
+        const rec = transport?.isEngaged() ? transport.current() : null;
+        if (rec) onTrajFrame(rec);
+
         // Scene animation — skip the object being dragged (its base follows
         // the drag so motion resumes smoothly from the drop point).
         sceneAnim.update((o) => S.dragging && S.sel === o);
@@ -203,15 +216,29 @@ export function createRenderLoop({
            NOTE: uses the blend state from *before* this frame's update —
            on the transition frame itself the follower RT still holds the
            outgoing camera's fresh last frame, so no stale pixels show. */
-        const dual = S.blendMode === 'dual';
-        const zsrc = zoomSource(S.zoom, !!R.sec2);
+        /* Trajectory blend is always "dual" (live follower layer): both
+           layers are re-rendered every frame, so any seek reproduces the
+           exact blend state — a frozen outgoing frame could not. */
+        const dual = rec ? true : S.blendMode === 'dual';
+        const trajBlending = !!rec && rec.blendT !== null;
+        const zsrc = rec ? S.sampleSrc : zoomSource(S.zoom, !!R.sec2);
         for (const s of sourcesToRender({
-            zsrc, dual, blending: blendCtl.isBlending(),
+            zsrc, dual, blending: rec ? trajBlending : blendCtl.isBlending(),
             followerSrc: S.followerSrc, hasS2: !!R.sec2,
         })) renderSrcRT(s);
 
-        /* Pass 2: advance the cross-fade, feed the previous-layer uniforms */
-        if (S.sampleM) {
+        /* Pass 2: cross-fade uniforms.
+           Free mode: the blend controller detects source switches and counts
+           frames. Play mode: the trajectory states the blend per frame
+           (blendT precomputed from the file's blend runs) — the controller
+           is bypassed entirely so its history stays untouched. */
+        if (rec) {
+            matWarp.uniforms.uBlend.value = trajBlending ? rec.blendT : 1;
+            if (trajBlending && S.followerM) {
+                matWarp.uniforms.uPrevSrc.value = S.followerSrc;
+                matWarp.uniforms.uPrevHi.value.set(...S.followerM);
+            }
+        } else if (S.sampleM) {
             const { t, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
             const feed = blendFeed({
                 t, prevSrc, prevM, dual,
@@ -292,13 +319,23 @@ export function createRenderLoop({
     /** One rAF tick: render only when something can have changed, at a
      *  fixed CPU-clock rate (`fps`) so every frame has the same cost. */
     function tick() {
-        const continuous = sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging;
+        const playing = !!transport?.isPlaying();
+        const continuous = playing
+            || sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging;
         const gate = frameGate({ continuous, dirtyFrames, skipped, keepAlive });
         if (!gate.render) { skipped++; return; }
         /* Pacing defers the frame without consuming dirtyFrames or
            counting as skipped — the next due tick picks it up. */
         const t = now();
-        if (!paceDue({ now: t, last: lastFrameT, fps })) return;
+        if (playing) {
+            /* Play mode: the transport is the sole pacer — it advances the
+               frame counter at the trajectory's own fps (late rAF ticks drop
+               frames by jumping the counter). The fixed-fps setting is
+               ignored so playback speed always matches the file. */
+            if (!transport.advance(t)) return;
+        } else if (!paceDue({ now: t, last: lastFrameT, fps })) {
+            return;
+        }
         lastFrameT = t;
         if (dirtyFrames > 0) dirtyFrames--;
         skipped = 0;

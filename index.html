@@ -188,7 +188,7 @@ input[type="file"] { display: none; }
     <div id="panel-controls">
       <div class="panel-title">Controls</div>
       <div class="ctrl-row">
-        <button onclick="openCamDialog()">Set Camera</button>
+        <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
         <input type="file" id="fcam" accept=".json" style="display:none">
         <button id="btn-reset">Reset All</button>
         <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
@@ -254,6 +254,23 @@ input[type="file"] { display: none; }
       <div class="ctrl-row">
         <button id="btn-warp">Warp</button>
         <button id="btn-play">&#9654; Play</button>
+      </div>
+      <!-- Trajectory transport (src/transport.js): load a trajectory JSON,
+           play at its own fps, pause, step ±1 frame, seek via progress bar.
+           While engaged, all scene controls above are locked (objects stay
+           operable); Stop returns to free mode + built-in zoom rules. -->
+      <div class="ctrl-row" id="traj-row">
+        <button id="btn-traj-load" title="Load a camera trajectory JSON">Traj</button>
+        <input type="file" id="ftraj" accept=".json" style="display:none">
+        <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                title="Play / pause the loaded trajectory">&#9654;</button>
+        <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
+        <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
+        <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
+               title="Trajectory progress — drag to seek">
+        <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
+        <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                title="Stop: back to free mode (built-in zoom rules)">&#9632;</button>
       </div>
     </div>
 
@@ -380,6 +397,8 @@ import { createSamplingRefresh } from './src/sampling-hud.js';
 import { initUiControls } from './src/ui-controls.js';
 import { createSceneManager } from './src/scene-manager.js';
 import { createConfigStore } from './src/config-store.js';
+import { parseTrajectory, CAM_TO_SRC } from './src/trajectory.js';
+import { createTransport } from './src/transport.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -437,11 +456,20 @@ const bevGhost = createBevGhost({ THREE, scene, getClipY: () => S.clipY });
 const camRig = createCameraRig({ THREE, scene, SCENE_CAM, bevSize: 6 });
 const R = camRig.rig;
 
+/* Trajectory transport (src/transport.js): Play/Pause/Stop/Seek/Step state
+   machine + the master clock. onChange is late-bound — the real handler is
+   assigned in the TRAJECTORY TRANSPORT UI section (needs markDirty etc.). */
+let onTransportChange = () => {};
+const transport = createTransport({ onChange: (ev) => onTransportChange(ev) });
+
 /* Scene animation (src/scene-anim.js): procedural presets assigned per
    object from the Selection panel. `depth` mode moves along the main
    camera's optical axis — snapshotted at assignment time.
-   Declared before SCENE LOADING (doLoadScene calls clearAll). */
-const sceneAnim = createSceneAnimator({});
+   Declared before SCENE LOADING (doLoadScene calls clearAll).
+   Clock = the transport's master clock: wall time in free mode, exact frame
+   time while a trajectory is engaged — so pause/step/seek reposition
+   animated objects deterministically (boss rule #6). */
+const sceneAnim = createSceneAnimator({ now: () => transport.timeMs() });
 function initCams(p) { camRig.init(p); S.camParams = p; }
 initCams(DEF_CAM);
 
@@ -456,6 +484,16 @@ const blendCtl = createBlendController({ getX: () => S.blendX });
 const refreshH = createSamplingRefresh({
     S, R, matWarp, rtW: RT_W, rtH: RT_H,
     onHud: (html) => { $('hmat').innerHTML = html; },
+    /* Play mode: lead/follower come from the trajectory frame, not the
+       zoom rules (boss rule #2). Free mode: null → rules apply. */
+    getOverride: () => {
+        const rec = transport.current();
+        return rec ? {
+            leadSrc: CAM_TO_SRC[rec.lead],
+            followerSrc: CAM_TO_SRC[rec.follower],
+            label: `TRAJ f${transport.getFrame()} ${rec.lead}\u2192${rec.follower}`,
+        } : null;
+    },
 });
 
 /* ================================================================
@@ -641,6 +679,7 @@ const HELP_MODULES = [
     './src/panels.js', './src/interaction.js', './src/zoom-pipeline.js',
     './src/ui-controls.js', './src/autofocus.js', './src/object-ops.js',
     './src/scene-io.js', './src/scene-anim.js', './src/bev-ghost.js',
+    './src/trajectory.js',
 ];
 let helpBuilt = false;
 async function buildHelp() {
@@ -698,9 +737,29 @@ onResize();
    (render on every rAF tick), ?fps=N sets another rate; ?keepalive=N
    changes the idle heartbeat period. */
 const urlP = new URLSearchParams(location.search);
+
+/* Apply one trajectory frame record to the live state — called by the
+   render loop before anything renders, whenever a trajectory is engaged.
+   Writes S + DOM displays DIRECTLY (store bypassed): trajectory state is
+   transient playback state, not user config — on Stop the store re-applies
+   and everything snaps back to the persisted free-mode values. */
+function applyTrajFrame(rec) {
+    S.zoom = rec.zoom;
+    S.depthD = rec.focusD;
+    $('vz').textContent = rec.zoom.toFixed(2) + 'x';
+    $('sld-z').value = Math.log10(rec.zoom);
+    $('vd').textContent = rec.focusD.toFixed(1);
+    $('sld-d').value = rec.focusD;
+    if (rec.camParams) S.camParams = rec.camParams;
+    /* Fast pose path — no camera/marker rebuild (camRig.applyPose) */
+    camRig.applyPose(rec.camParams || S.camParams, rec.sceneCam);
+    refreshH();
+}
+
 const loop = createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
     rtW: RT_W, rtH: RT_H,
+    transport, onTrajFrame: applyTrajFrame,
     ...(urlP.has('fps') ? { fps: Number(urlP.get('fps')) } : {}),
     ...(urlP.has('keepalive') ? { keepAlive: Number(urlP.get('keepalive')) } : {}),
 });
@@ -738,6 +797,93 @@ $('btn-fps').onclick = () => {
     log(`Render rate: ${loop.getFps()} fps (late frames dropped)`);
 };
 syncFpsBtn();
+
+/* ================================================================
+   TRAJECTORY TRANSPORT UI (src/trajectory.js + src/transport.js)
+   Play mode: the trajectory drives lead/follower/zoom/focusD/rig pose/
+   blend per frame; the built-in zoom rules apply only in free mode.
+   While engaged, scene controls are locked — objects stay operable
+   (boss rule #5); animations run on the frame clock (boss rule #6).
+   ================================================================ */
+
+/* Controls locked while a trajectory is engaged. Object ops (Add/Delete,
+   selection, drag, per-object animation) deliberately stay enabled. */
+const TRAJ_LOCK_IDS = [
+    'sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-blend', 'sld-clip',
+    'btn-af', 'btn-warp', 'btn-play', 'btn-bmode', 'btn-reset', 'btn-setcam',
+    'btn-save-scene', 'btn-load-scene', 'btn-fps', 'btn-combined',
+];
+function lockControls(locked) {
+    for (const id of TRAJ_LOCK_IDS) { const el = $(id); if (el) el.disabled = locked; }
+    for (const b of document.querySelectorAll('#zoom-presets .zp-btn')) b.disabled = locked;
+    // The ± nudge buttons live in the same row as their slider.
+    for (const id of ['sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-blend']) {
+        const s = $(id);
+        if (s) for (const b of s.parentElement.querySelectorAll('.sld-btn')) b.disabled = locked;
+    }
+}
+
+function syncTrajUI() {
+    const traj = transport.getTrajectory();
+    const engaged = transport.isEngaged();
+    $('btn-traj-play').disabled = !traj;
+    $('btn-traj-back').disabled = !traj;
+    $('btn-traj-fwd').disabled = !traj;
+    $('btn-traj-stop').disabled = !engaged;
+    $('sld-traj').disabled = !traj;
+    if (traj) {
+        $('sld-traj').max = traj.length - 1;
+        $('sld-traj').value = transport.getFrame();
+        $('vtraj').textContent = `${transport.getFrame()}/${traj.length - 1}`;
+    } else {
+        $('sld-traj').max = 0;
+        $('sld-traj').value = 0;
+        $('vtraj').textContent = '\u2013/\u2013';
+    }
+    $('btn-traj-play').innerHTML = transport.isPlaying() ? '&#10074;&#10074;' : '&#9654;';
+}
+
+let trajWasEngaged = false;
+onTransportChange = (ev) => {
+    const engaged = transport.isEngaged();
+    if (engaged !== trajWasEngaged) {
+        /* Master clock source flipped (wall time ↔ frame time): re-anchor
+           object animations so their phase is preserved across the jump. */
+        sceneAnim.resyncClock();
+        trajWasEngaged = engaged;
+        lockControls(engaged);
+    }
+    if (ev === 'stop') {
+        /* Back to free mode: drop the trajectory's blend/sampling residue
+           and re-apply the persisted config — rig pose, zoom, Focus D and
+           the slider DOM all snap back to the user's free-mode state. */
+        blendCtl.reset();
+        store.set('cameras', {});
+        store.set('controls', {});
+    }
+    syncTrajUI();
+    markDirty();
+};
+
+$('btn-traj-load').onclick = () => $('ftraj').click();
+$('ftraj').onchange = async function () {
+    if (!this.files.length) return;
+    const f = this.files[0];
+    this.value = '';
+    try {
+        const traj = parseTrajectory(JSON.parse(await f.text()));
+        transport.load(traj);
+        log(`Trajectory: ${traj.name} \u2014 ${traj.length} frames @ ${traj.fps} fps (\u25B6 to play)`);
+    } catch (e) { log(`Trajectory load failed: ${e.message}`); console.error(e); }
+};
+$('btn-traj-play').onclick = () => transport.togglePlay();
+$('btn-traj-stop').onclick = () => transport.stop();
+$('btn-traj-back').onclick = () => transport.step(-1);
+$('btn-traj-fwd').onclick = () => transport.step(1);
+$('sld-traj').oninput = function () { transport.seek(+this.value); };
+
+VS_DEBUG.transport = transport;
+VS_DEBUG.parseTrajectory = parseTrajectory;
 
 loop.start();
 

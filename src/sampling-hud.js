@@ -11,7 +11,7 @@
  * {@link formatHMatrix} is a pure formatter so the HUD markup is unit-testable.
  */
 
-import { computeSampleMatrix, computeFollowerMatrix, segName } from './zoom-pipeline.js';
+import { computeSampleMatrixExplicit, computeFollowerMatrix, segName } from './zoom-pipeline.js';
 
 /**
  * Format a 3x3 row-major matrix as the HUD's box-drawing HTML.
@@ -40,11 +40,15 @@ export function formatHMatrix(H, label) {
  * @param {number} opts.rtW     - RT width (px)
  * @param {number} opts.rtH     - RT height (px)
  * @param {Function} opts.onHud - receives the HUD innerHTML string
+ * @param {Function} [opts.getOverride] - trajectory hook: returns null (free
+ *        mode — zoom rules apply) or `{leadSrc, followerSrc, label}` to force
+ *        the lead/follower sources (Play mode: read from the trajectory frame)
  * @returns {Function} refreshH — call after any zoom / warp / camera change
  */
-export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud }) {
+export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverride = () => null }) {
     return function refreshH() {
         if (!S.camParams) return;
+        const ov = getOverride();
         // If sec2 isn't materialized as a Three.js camera, hide it from the
         // pipeline so segments C/D fall back to a plain main-camera crop.
         const params = R.sec2 ? S.camParams : { ...S.camParams, secondary_camera_2: undefined };
@@ -52,8 +56,9 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud }) {
             z: S.zoom, warp: S.warp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
             w: rtW, h: rtH,
+            ...(ov ? { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc } : {}),
         };
-        const { src, m: Msamp } = computeSampleMatrix(opts);
+        const { src, m: Msamp } = computeSampleMatrixExplicit(opts);
 
         matWarp.uniforms.uSrc.value = src;
         matWarp.uniforms.uHi.value.set(...Msamp);
@@ -70,6 +75,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud }) {
         const s = H_disp[8];
         if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
         onHud(formatHMatrix(H_disp,
-            `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} ${segName(S.zoom)}${S.warp ? '' : ' raw'})`));
+            `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
+            + `${ov?.label ?? segName(S.zoom)}${S.warp ? '' : ' raw'})`));
     };
 }

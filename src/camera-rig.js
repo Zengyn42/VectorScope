@@ -76,6 +76,51 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize = 6 }) {
         return new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'ZYX'));
     };
 
+    /**
+     * Fast per-frame update for trajectory playback: reposition the existing
+     * cameras from a rig base pose + camera params WITHOUT rebuilding camera
+     * objects or markers (init() allocates geometry — far too heavy per frame).
+     * Also refreshes intrinsics-driven FOV, so per-frame focal changes work.
+     *
+     * @param {object} p - camera params (same shape as init)
+     * @param {object} basePose - `{ position, rotation_euler_deg }` rig base
+     *        pose in world (defaults to the live SCENE_CAM)
+     */
+    function applyPose(p, basePose = SCENE_CAM) {
+        if (!rig.main) return;
+        const basePos = new THREE.Vector3(...basePose.position);
+        const baseQuat = eulerQuat(basePose.rotation_euler_deg);
+
+        const setCam = (cam, cp, refQuat, refPos) => {
+            const off = new THREE.Vector3(...(cp.extrinsics?.position || [0, 0, 0]));
+            cam.position.copy(off.applyQuaternion(refQuat).add(refPos));
+            cam.quaternion.copy(refQuat).multiply(eulerQuat(cp.extrinsics?.rotation_euler_deg || [0, 0, 0]));
+            const { fy } = cp.intrinsics;
+            const fov = 2 * Math.atan(cp.image_size[1] / (2 * fy)) * 180 / Math.PI;
+            if (Math.abs(cam.fov - fov) > 1e-9) { cam.fov = fov; cam.updateProjectionMatrix(); }
+        };
+        setCam(rig.main, p.main_camera, baseQuat, basePos);
+        setCam(rig.sec1, p.secondary_camera, rig.main.quaternion, rig.main.position);
+        if (rig.sec2 && p.secondary_camera_2) {
+            setCam(rig.sec2, p.secondary_camera_2, rig.main.quaternion, rig.main.position);
+        }
+        recenterBev();
+    }
+
+    /** Center BEV slightly ahead of the main camera (along its forward
+     *  direction on XZ), so the rig sits in the lower part of the window. */
+    function recenterBev() {
+        if (!rig.bev) return;
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.main.quaternion);
+        fwd.y = 0;
+        if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+        fwd.normalize();
+        const cx = rig.main.position.x + fwd.x * bevSize * 0.4;
+        const cz = rig.main.position.z + fwd.z * bevSize * 0.4;
+        rig.bev.position.set(cx, 20, cz);
+        rig.bev.lookAt(cx, 0, cz);
+    }
+
     /** (Re)build all cameras + BEV camera + markers from camera params. */
     function init(p) {
         if (rig.main) { scene.remove(rig.main); scene.remove(rig.sec1); }
@@ -111,17 +156,7 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize = 6 }) {
             rig.bev = new THREE.OrthographicCamera(-bevSize, bevSize, bevSize, -bevSize, 0.1, 100);
             rig.bev.layers.enable(1);   // see camera markers on layer 1
         }
-        // Center BEV slightly ahead of the main camera (along its forward
-        // direction on XZ), so the camera rig sits in the lower part of the
-        // window and the scene fills the middle/upper area.
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.main.quaternion);
-        fwd.y = 0;
-        if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
-        fwd.normalize();
-        const cx = rig.main.position.x + fwd.x * bevSize * 0.4;
-        const cz = rig.main.position.z + fwd.z * bevSize * 0.4;
-        rig.bev.position.set(cx, 20, cz);
-        rig.bev.lookAt(cx, 0, cz);
+        recenterBev();
 
         // Camera markers — FOV wedge matches actual HFOV
         const addMarker = (color, label, cp) => {
@@ -154,5 +189,5 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize = 6 }) {
         }
     }
 
-    return { rig, init, updateBevAspect, syncMarkers };
+    return { rig, init, applyPose, updateBevAspect, syncMarkers };
 }

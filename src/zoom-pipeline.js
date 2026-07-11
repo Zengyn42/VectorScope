@@ -111,6 +111,32 @@ export function followerSource(z, hasS2) {
     return z < 5.0 ? SRC.SEC2 : SRC.MAIN;
 }
 
+/** Nominal magnification of each source (full-frame zoom factor). */
+export const SRC_NOMINAL = { [SRC.SEC1]: 0.5, [SRC.MAIN]: 1, [SRC.SEC2]: 5 };
+
+/**
+ * {@link computeSampleMatrix} with an **explicit lead source** (trajectory
+ * playback: the file states who leads — the zoom rules do not apply).
+ *
+ * When the requested lead matches what the zoom rules would pick anyway,
+ * the full segment math (warp interpolation etc.) is used unchanged.
+ * When the trajectory contradicts the rules (e.g. main leading at 0.8x),
+ * there is no defined warp segment — the lead renders a plain center crop
+ * at `z / nominal(lead)` (its residual digital zoom).
+ *
+ * @param {object} opts - same as computeSampleMatrix, plus:
+ * @param {number} opts.leadSrc - SRC.* index that must lead
+ * @returns {{src: number, m: number[]}}
+ */
+export function computeSampleMatrixExplicit(opts) {
+    const hasS2 = !!opts.params.secondary_camera_2;
+    const lead = (opts.leadSrc === SRC.SEC2 && !hasS2) ? SRC.MAIN : opts.leadSrc;
+    if (lead === undefined || lead === zoomSource(opts.z, hasS2)) {
+        return computeSampleMatrix(opts);
+    }
+    return { src: lead, m: zoomMatrix(opts.z / SRC_NOMINAL[lead], opts.w, opts.h) };
+}
+
 /**
  * Compute the **follower camera's** sampling matrix for dual-mode blending:
  * the matrix that samples the follower's RT so it aligns with the leading
@@ -127,15 +153,20 @@ export function followerSource(z, hasS2) {
  * converges to the leading matrix on the far side of the boundary, so the
  * two blend layers align at the hand-off (exactly on the focus plane).
  *
- * @param {object} opts - same options as {@link computeSampleMatrix}
+ * @param {object} opts - same options as {@link computeSampleMatrix}, plus:
+ * @param {number} [opts.leadSrc]     - explicit lead (trajectory mode)
+ * @param {number} [opts.followerSrc] - explicit follower (trajectory mode);
+ *        defaults to the zoom-rule follower
  * @returns {{src: number, m: number[]}} follower source index + 3×3
  *          row-major sampling matrix (output px → follower px)
  */
 export function computeFollowerMatrix(opts) {
     const p = opts.params;
     const hasS2 = !!p.secondary_camera_2;
-    const lead = computeSampleMatrix(opts);
-    const src = followerSource(opts.z, hasS2);
+    const lead = computeSampleMatrixExplicit(opts);
+    let src = opts.followerSrc ?? followerSource(opts.z, hasS2);
+    if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
+    if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
     const D = opts.D;
 
     // H(follower ← leading): computeHPair(cam1, cam2) maps cam2 px → cam1 px,
