@@ -62,7 +62,8 @@
  * @param {number}   opts.RT_W       - Render target width (pixels, typically 1920)
  * @param {number}   opts.RT_H       - Render target height (pixels, typically 1080)
  * @param {Function} opts.getMainCam - Returns the current main `PerspectiveCamera`
- * @param {Function} opts.onFocus    - Callback invoked with the computed focus depth (meters)
+ * @param {Function} opts.onFocus    - Callback invoked with the computed focus depth (meters);
+ *                                     receives `Infinity` when the region contains no object
  */
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -70,6 +71,7 @@ export const HELP = {
     order: 41,
     entries: [
         ['AF button', 'Click AF, then drag a rectangle on the Main panel — Focus D is set to the median depth inside it (tap-to-focus)'],
+        ['AF on empty space', 'If the rectangle contains no object, the distance reads "inf" and Focus D is left unchanged'],
     ],
 };
 
@@ -104,8 +106,15 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
         const rtW = rx1 - rx0, rtH = ry1 - ry0;
         if (rtW < 1 || rtH < 1) return;
 
-        // Render depth pass
+        // Render depth pass.
+        // The scene background color also fills the depth RT (three.js renders
+        // the background even under an overrideMaterial), so empty pixels would
+        // unpack to a bogus small depth. Swap in a white background for this
+        // pass: white unpacks to ndc≈1 and is filtered by the >= 0.999 check,
+        // making truly empty regions yield zero samples.
         const prevOverride = scene.overrideMaterial;
+        const prevBg = scene.background;
+        if (prevBg && prevBg.isColor) scene.background = prevBg.clone().setHex(0xffffff);
         scene.overrideMaterial = depthMat;
         mainCam.aspect = RT_W / RT_H;
         mainCam.updateProjectionMatrix();
@@ -113,6 +122,7 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
         renderer.clear();
         renderer.render(scene, mainCam);
         scene.overrideMaterial = prevOverride;
+        scene.background = prevBg;
         renderer.setRenderTarget(null);
 
         // Read selected region
@@ -130,7 +140,9 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
             const dist = -viewZ;
             if (dist > near && dist < far * 0.95) depths.push(dist);
         }
-        if (depths.length === 0) return;
+        /* Nothing in the selected region: report Infinity so the caller
+           can display "inf" instead of silently doing nothing. */
+        if (depths.length === 0) { onFocus(Infinity); return; }
 
         // Median depth
         depths.sort((a, b) => a - b);

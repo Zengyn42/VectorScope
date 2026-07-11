@@ -71,6 +71,27 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
     }
 
     /**
+     * Auto-fit wildly out-of-scale imports (e.g. cm/inch-unit OBJ exports
+     * thousands of units wide — placing those unscaled at Focus D swallows
+     * the camera and nothing appears to happen). When the largest bbox
+     * dimension is grossly too big or too small to see at Focus D, scale
+     * the object so it spans ~0.6 × Focus D.
+     * @returns {number} the applied scale factor (1 = untouched)
+     */
+    function fitToFocus(obj) {
+        const size = new THREE.Vector3();
+        new THREE.Box3().setFromObject(obj).getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        if (!isFinite(maxDim) || maxDim <= 0) return 1;
+        const focusD = getFocusD();
+        if (maxDim <= focusD * 2 && maxDim >= focusD * 0.02) return 1;  // sane size
+        const k = (focusD * 0.6) / maxDim;
+        obj.scale.multiplyScalar(k);
+        obj.updateMatrixWorld(true);
+        return k;
+    }
+
+    /**
      * Finalize newly registered objects (from loader.registerModel):
      * link to their asset, place added roots at Focus D, snapshot reset state.
      * @param {THREE.Object3D[]} objs - registered objects
@@ -82,9 +103,13 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
         const state = getLoaderState();
         for (const o of objs) {
             o.userData._assetId = assetId;
-            if (place) placeAtFocus(o);
+            if (place) {
+                const k = fitToFocus(o);
+                if (k !== 1) log(`Auto-scaled "${o.name || 'object'}" x${k.toPrecision(3)} to fit the view`);
+                placeAtFocus(o);
+            }
             state.origPos.set(o.uuid, o.position.clone());   // reset → add-moment pose
-            o.userData._baseScale = o.scale.clone();
+            o.userData._baseScale = o.scale.clone();         // after auto-fit: Reset keeps it
         }
         assignStableIds();
     }
@@ -183,5 +208,5 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
         return { applied: keep.length, removed, missing };
     }
 
-    return { assignStableIds, placeAtFocus, adoptObjects, deleteSelected, restoreHidden, serializeObjects, applyObjects };
+    return { assignStableIds, placeAtFocus, fitToFocus, adoptObjects, deleteSelected, restoreHidden, serializeObjects, applyObjects };
 }

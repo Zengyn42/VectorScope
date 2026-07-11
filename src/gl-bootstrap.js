@@ -42,12 +42,12 @@ export function createGlContext({ THREE, canvas, rtW, rtH, log = () => {} }) {
     }
     canvas.addEventListener('webglcontextlost', (e) => { log('WebGL context lost'); e.preventDefault(); });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x1a1a2e);
+    renderer.setClearColor(0x000000);
     renderer.autoClear = false;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x2a2a3e);
+    scene.background = new THREE.Color(0x000000);   // empty space defaults to black
 
     const aLight = new THREE.AmbientLight(0xffffff, 0.5);
     scene.add(aLight);

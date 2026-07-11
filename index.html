@@ -593,7 +593,15 @@ if (!sceneIO.isSupported()) {
 initAutofocus({
     $, canvas, renderer, scene, depthMat, rtDepth, P, RT_W, RT_H,
     getMainCam: () => R.main,
-    onFocus: (focusD) => { store.set('controls', { depthD: focusD }); },
+    onFocus: (focusD) => {
+        if (!isFinite(focusD)) {
+            /* No object in the AF region: show "inf", keep Focus D unchanged. */
+            $('vd').textContent = 'inf';
+            log('AF: no object in region — distance inf');
+            return;
+        }
+        store.set('controls', { depthD: focusD });
+    },
 });
 
 /* ================================================================
