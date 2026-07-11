@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { sourcesToRender, blendFeed, frameGate, bevDue, combinedDue } from '../src/render-loop.js';
+import { sourcesToRender, blendFeed, frameGate, bevDue, paceDue } from '../src/render-loop.js';
 import { SRC } from '../src/zoom-pipeline.js';
 
 describe('sourcesToRender', () => {
@@ -116,34 +116,39 @@ describe('bevDue (BEV rate reduction)', () => {
     });
 });
 
-describe('combinedDue (Combined fixed-rate cap)', () => {
-    it('final frames always refresh', () => {
-        assert.equal(combinedDue({ finalFrame: true, now: 10, last: 9, fps: 30 }), true);
+describe('paceDue (fixed-rate loop pacing)', () => {
+    it('fps <= 0 disables pacing (render every tick)', () => {
+        assert.equal(paceDue({ now: 10, last: 9, fps: 0 }), true);
+        assert.equal(paceDue({ now: 10, last: 9, fps: -1 }), true);
     });
 
-    it('fps <= 0 disables the cap', () => {
-        assert.equal(combinedDue({ finalFrame: false, now: 10, last: 9, fps: 0 }), true);
+    it('renders only after ~1000/fps ms', () => {
+        assert.equal(paceDue({ now: 16.7, last: 0, fps: 30 }), false);
+        assert.equal(paceDue({ now: 33.4, last: 0, fps: 30 }), true);
     });
 
-    it('refreshes only after ~1000/fps ms', () => {
-        assert.equal(combinedDue({ finalFrame: false, now: 16.7, last: 0, fps: 30 }), false);
-        assert.equal(combinedDue({ finalFrame: false, now: 33.4, last: 0, fps: 30 }), true);
-    });
-
-    it('60Hz rAF at 30fps cap: every other frame', () => {
-        // simulate rAF ticks at 16.67ms; last advances on each refresh
+    it('60Hz rAF at 30fps: every other tick renders', () => {
         let last = 0;
         const pattern = [];
         for (let i = 1; i <= 6; i++) {
             const now = i * 16.67;
-            const due = combinedDue({ finalFrame: false, now, last, fps: 30 });
+            const due = paceDue({ now, last, fps: 30 });
             if (due) last = now;
             pattern.push(due);
         }
         assert.deepEqual(pattern, [false, true, false, true, false, true]);
     });
 
+    it('120Hz rAF at 30fps: every 4th tick renders', () => {
+        let last = 0, renders = 0;
+        for (let i = 1; i <= 12; i++) {
+            const now = i * (1000 / 120);
+            if (paceDue({ now, last, fps: 30 })) { last = now; renders++; }
+        }
+        assert.equal(renders, 3);
+    });
+
     it('jitter tolerance: 33.0ms elapsed still counts at 30fps', () => {
-        assert.equal(combinedDue({ finalFrame: false, now: 33.0, last: 0, fps: 30 }), true);
+        assert.equal(paceDue({ now: 33.0, last: 0, fps: 30 }), true);
     });
 });

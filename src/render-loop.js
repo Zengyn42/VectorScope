@@ -116,21 +116,23 @@ export function bevDue({ finalFrame, tick, interval }) {
 }
 
 /**
- * Should the Combined source RT(s) refresh on this rendered frame?
+ * Fixed-rate pacing for the whole render loop (CPU clock).
  *
- * Time-based cap: refresh at most `fps` times per second, regardless of
- * the display's rAF rate (60/120/144 Hz). Final frames always refresh so
- * the last presented image is up to date before the loop goes idle.
+ * The loop runs on rAF but frames are only rendered when 1000/fps ms have
+ * elapsed since the previous render, so every panel steps at the same
+ * uniform cadence regardless of the display's rAF rate (60/120/144 Hz).
+ * Rendering everything at the same rate keeps per-frame GPU cost constant —
+ * a lesson learned: rendering *parts* of the frame at different rates makes
+ * heavy and light frames alternate, which reads as flicker on weak GPUs.
  *
  * @param {object} opts
- * @param {boolean} opts.finalFrame - full frame (dirty burst end / heartbeat / direct call)
- * @param {number}  opts.now        - current time in ms
- * @param {number}  opts.last       - time of the previous refresh in ms
- * @param {number}  opts.fps        - target refresh rate; <= 0 disables the cap
+ * @param {number} opts.now  - current time in ms
+ * @param {number} opts.last - time of the previous rendered frame in ms
+ * @param {number} opts.fps  - target frame rate; <= 0 disables pacing
  * @returns {boolean}
  */
-export function combinedDue({ finalFrame, now, last, fps }) {
-    if (finalFrame || fps <= 0) return true;
+export function paceDue({ now, last, fps }) {
+    if (fps <= 0) return true;
     return now - last >= 1000 / fps - 1;   // 1ms tolerance for rAF jitter
 }
 
@@ -152,26 +154,25 @@ export function combinedDue({ finalFrame, now, last, fps }) {
  * @param {number} opts.rtW       - RT width
  * @param {number} opts.rtH       - RT height
  * @param {Function} [opts.raf]   - injectable requestAnimationFrame (tests)
- * @param {number} [opts.bevInterval=4] - BEV renders every Nth rendered frame
+ * @param {number} [opts.bevInterval=2] - BEV renders every Nth rendered frame
  * @param {number} [opts.keepAlive=30]  - heartbeat frame every N skipped frames
- * @param {number} [opts.combinedFps=30] - Combined source RT refresh cap; <=0 = uncapped
+ * @param {number} [opts.fps=30]        - fixed loop rate (CPU clock); <=0 = every rAF tick
  * @param {Function} [opts.now]         - injectable clock in ms (tests)
  * @returns {{frame: Function, start: Function, markDirty: Function}}
  */
 export function createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
     rtW, rtH, raf = requestAnimationFrame.bind(globalThis),
-    bevInterval = 4, keepAlive = 30,
-    combinedFps = 30, now = () => performance.now(),
+    bevInterval = 2, keepAlive = 30,
+    fps = 30, now = () => performance.now(),
 }) {
     const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
     const rtAspect = rtW / rtH;
 
-    let dirtyFrames = 3;      // paint the first frames on startup
-    let skipped = 0;          // consecutive skipped rAF ticks
-    let bevTick = 0;          // rendered-frame counter for BEV rate reduction
-    let combinedLast = -1e9;  // time of the last Combined source RT refresh
-    let lastSrcSig = '';      // source set of that refresh (handover detection)
+    let dirtyFrames = 3;   // paint the first frames on startup
+    let skipped = 0;       // consecutive skipped rAF ticks
+    let bevTick = 0;       // rendered-frame counter for BEV rate reduction
+    let lastFrameT = -1e9; // time of the previous rendered frame (fps pacing)
 
     /** Request `n` rendered frames after a one-shot change (default 3). */
     function markDirty(n = 3) { dirtyFrames = Math.max(dirtyFrames, n); }
@@ -203,26 +204,13 @@ export function createRenderLoop({
            outgoing camera's fresh last frame, so no stale pixels show. */
         const dual = S.blendMode === 'dual';
         const zsrc = zoomSource(S.zoom, !!R.sec2);
-        const sources = sourcesToRender({
+        for (const s of sourcesToRender({
             zsrc, dual, blending: blendCtl.isBlending(),
             followerSrc: S.followerSrc, hasS2: !!R.sec2,
-        });
-        /* Fixed-rate cap (~combinedFps): skip the source RT refresh when
-           not yet due — the warp shader keeps sampling the previous RT
-           contents. A change in the source set (zoom handover, blend
-           start) forces a refresh so a stale RT of the *wrong* camera is
-           never shown. */
-        const srcSig = sources.join(',');
-        const due = combinedDue({ finalFrame, now: now(), last: combinedLast, fps: combinedFps })
-            || srcSig !== lastSrcSig;
-        if (due) {
-            combinedLast = now();
-            lastSrcSig = srcSig;
-            for (const s of sources) renderSrcRT(s);
-        }
+        })) renderSrcRT(s);
 
         /* Pass 2: advance the cross-fade, feed the previous-layer uniforms */
-        if (due && S.sampleM) {
+        if (S.sampleM) {
             const { t, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
             const feed = blendFeed({
                 t, prevSrc, prevM, dual,
@@ -300,11 +288,17 @@ export function createRenderLoop({
         renderer.setScissorTest(false);
     }
 
-    /** One rAF tick: render only when something can have changed. */
+    /** One rAF tick: render only when something can have changed, at a
+     *  fixed CPU-clock rate (`fps`) so every frame has the same cost. */
     function tick() {
         const continuous = sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging;
         const gate = frameGate({ continuous, dirtyFrames, skipped, keepAlive });
         if (!gate.render) { skipped++; return; }
+        /* Pacing defers the frame without consuming dirtyFrames or
+           counting as skipped — the next due tick picks it up. */
+        const t = now();
+        if (!paceDue({ now: t, last: lastFrameT, fps })) return;
+        lastFrameT = t;
         if (dirtyFrames > 0) dirtyFrames--;
         skipped = 0;
         frame(gate.finalFrame);

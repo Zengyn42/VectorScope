@@ -678,9 +678,15 @@ function onResize() {
 window.addEventListener('resize', onResize);
 onResize();
 
+/* Debug overrides via URL params: ?fps=0 disables the fixed 30fps pacing
+   (render on every rAF tick), ?fps=N sets another rate; ?keepalive=N
+   changes the idle heartbeat period. */
+const urlP = new URLSearchParams(location.search);
 const loop = createRenderLoop({
     renderer, scene, gl, R, S, P, camRig, bevGhost, sceneAnim, blendCtl,
     rtW: RT_W, rtH: RT_H,
+    ...(urlP.has('fps') ? { fps: Number(urlP.get('fps')) } : {}),
+    ...(urlP.has('keepalive') ? { keepAlive: Number(urlP.get('keepalive')) } : {}),
 });
 
 /* Idle-skip dirty triggers: any one-shot change requests a few rendered
