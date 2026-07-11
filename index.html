@@ -266,6 +266,7 @@ input[type="file"] { display: none; }
           <option value="__default__" selected>default</option>
         </select>
         <button id="btn-traj-load" title="Load a folder of trajectory JSONs">Load</button>
+        <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
         <button id="btn-traj-rec" title="Start/stop recording a trajectory"
                 style="min-width:36px">&#9679; Rec</button>
       </div>
@@ -895,6 +896,56 @@ $('btn-traj-load').onclick = async () => {
         else log('No valid trajectory files in folder');
     } catch (e) {
         if (e.name !== 'AbortError') { log(`Load folder failed: ${e.message}`); console.error(e); }
+    }
+};
+
+/* ── Save trajectory to disk ── */
+$('btn-traj-save').onclick = async () => {
+    const name = $('sel-traj').value;
+    if (name === '__default__' || !trajLibrary.has(name)) {
+        log('Select a trajectory to save');
+        return;
+    }
+    const traj = trajLibrary.get(name);
+    // Re-export from the parsed object: reconstruct the JSON with dense frames
+    // (simpler than keeping the original sparse JSON around)
+    const denseFrames = [];
+    for (let i = 0; i < traj.length; i++) denseFrames.push(traj.frameAt(i));
+    // Delta-encode for compact file
+    const outFrames = [];
+    for (let i = 0; i < denseFrames.length; i++) {
+        if (i === 0) { outFrames.push(denseFrames[i]); continue; }
+        const delta = {};
+        for (const [k, v] of Object.entries(denseFrames[i])) {
+            if (k === 'blendT') continue;   // internal field, not stored
+            if (JSON.stringify(v) !== JSON.stringify(denseFrames[i - 1][k])) delta[k] = v;
+        }
+        outFrames.push(Object.keys(delta).length > 0 ? delta : { zoom: denseFrames[i].zoom });
+    }
+    const json = { version: 1, name: traj.name, fps: traj.fps, frames: outFrames };
+    const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+
+    try {
+        if (window.showSaveFilePicker) {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: `${traj.name}.json`,
+                types: [{ description: 'Trajectory JSON', accept: { 'application/json': ['.json'] } }],
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            log(`Saved: ${traj.name}.json`);
+        } else {
+            // Fallback: trigger download
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `${traj.name}.json`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            log(`Downloaded: ${traj.name}.json`);
+        }
+    } catch (e) {
+        if (e.name !== 'AbortError') { log(`Save failed: ${e.message}`); console.error(e); }
     }
 };
 
