@@ -172,11 +172,11 @@ describe('computeSampleMatrix — segment D', () => {
 // ── computeSampleMatrix: warp OFF + prewarps ──
 
 describe('computeSampleMatrix — warp OFF', () => {
-    it('segment A: prewarp1 · crop(z/0.5) on sec1', () => {
+    it('segment A: prewarp1 · crop(z) on sec1', () => {
         const { src, m } = sample(0.7, { warp: false, prewarp1: 1.3 });
         assert.equal(src, SRC.SEC1);
-        // UW nominal = 0.5x, so crop relative to its FOV = z/0.5
-        assertVecClose(m, M.mul(zoomMatrix(1.3, W, H), zoomMatrix(0.7 / 0.5, W, H)), 'A raw');
+        // prewarp1 is the focal length ratio — total crop = prewarp1 × z
+        assertVecClose(m, M.mul(zoomMatrix(1.3, W, H), zoomMatrix(0.7, W, H)), 'A raw');
     });
 
     it('segment C: prewarp2 · crop(z) on main', () => {
