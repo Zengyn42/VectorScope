@@ -186,25 +186,12 @@ export function computeFollowerMatrix(opts) {
     if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
     if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
 
-    if (!opts.warp) {
-        // Warp OFF: follower uses its own prewarp-based crop (no homography).
-        // Each camera's sampling matrix at zoom z (pure prewarp crop):
-        //   UW:   zoomMatrix(prewarp1 × z)
-        //   Main: zoomMatrix(z)
-        //   Tele: zoomMatrix(z / prewarp2)
-        const { w, h, prewarp1 = 1, prewarp2 = 5 } = opts;
-        if (src === SRC.SEC1) return { src, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(opts.z, w, h)) };
-        if (src === SRC.SEC2) return { src, m: zoomMatrix(opts.z / prewarp2, w, h) };
-        return { src, m: zoomMatrix(opts.z, w, h) };
-    }
-
-    // Warp ON: H(follower ← leading) × M_leading
-    const D = opts.D;
-    const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
-                       : s === SRC.SEC2 ? p.secondary_camera_2
-                       : p.main_camera;
-    const Hlf = computeHPair(camOf(src), camOf(lead.src), D);
-    return { src, m: M.mul(Hlf, lead.m) };
+    // Compute follower's sampling matrix INDEPENDENTLY — treat it as if
+    // the follower were the leading camera. This gives it its own absolute
+    // homography (output px → follower px) without depending on the lead's matrix.
+    const folOpts = { ...opts, leadSrc: src, followerSrc: src };
+    const { m } = computeSampleMatrixExplicit(folOpts);
+    return { src, m };
 }
 
 /**

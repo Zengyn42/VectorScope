@@ -4,7 +4,7 @@ import { M } from '../src/math.js';
 import { computeHPair, zoomMatrix } from '../src/homography.js';
 import {
     SRC, normLerp, segName, zoomSource, followerSource,
-    computeSampleMatrix, computeFollowerMatrix, easeInOutQuad,
+    computeSampleMatrix, computeSampleMatrixExplicit, computeFollowerMatrix, easeInOutQuad,
 } from '../src/zoom-pipeline.js';
 
 const EPS = 1e-6;
@@ -242,42 +242,32 @@ function follower(z, over = {}) {
 }
 
 describe('computeFollowerMatrix', () => {
-    it('is H(follower←leading, D) ∘ M_leading', () => {
-        const p = makeRig();
+    it('computes follower independently (same as if follower were leading)', () => {
         const z = 1.5;                                     // leading main, follower UW
-        const lead = sample(z);
-        const Hlf = computeHPair(p.secondary_camera, p.main_camera, D);
         const { src, m } = follower(z);
         assert.equal(src, SRC.SEC1);
-        assertVecClose(norm(m), norm(M.mul(Hlf, lead.m)), 'composition');
+        // Follower should equal computeSampleMatrixExplicit with leadSrc=SEC1
+        const independent = computeSampleMatrixExplicit({
+            z, warp: true, D, params: makeRig(), prewarp1: 2, prewarp2: 5, w: W, h: H,
+            leadSrc: SRC.SEC1,
+        });
+        assertVecClose(norm(m), norm(independent.m), 'follower = independent lead');
     });
 
-    it('boundary 1.0x: M_follower(1⁻) ≈ M_leading(1⁺) = I on main', () => {
-        const f = follower(1 - 1e-9);
-        assert.equal(f.src, SRC.MAIN);
-        assertVecClose(norm(f.m), M.id(), 'follower @1x⁻ ≈ I', 1e-4);
-    });
-
-    it('boundary 1.0x: M_follower(1⁺) ≈ M_leading(1⁻) on UW', () => {
-        const f = follower(1.0);                           // leading main, follower UW
-        const leadBelow = sample(1 - 1e-9);                // leading UW just below 1x
-        assert.equal(f.src, SRC.SEC1);
-        assert.equal(leadBelow.src, SRC.SEC1);
-        assertVecClose(norm(f.m), norm(leadBelow.m), 'follower @1x⁺ ≈ leading @1x⁻', 1e-4);
-    });
-
-    it('boundary 5.0x: M_follower(5⁻) ≈ M_leading(5⁺) = I on Tele', () => {
+    it('boundary 5.0x: follower=Tele computes its own matrix at z<5', () => {
         const f = follower(5 - 1e-9);
         assert.equal(f.src, SRC.SEC2);
-        assertVecClose(norm(f.m), M.id(), 'follower @5x⁻ ≈ I', 1e-4);
+        // Tele as independent lead at z≈5: contradicts hardcoded rules → plain crop
+        // crop = z / prewarp2 = (5-ε) / 5 ≈ 1.0 → near-identity
+        assertVecClose(norm(f.m), M.id(), 'follower Tele @5x⁻ ≈ I', 1e-4);
     });
 
-    it('boundary 5.0x: M_follower(5⁺) ≈ M_leading(5⁻) on main', () => {
-        const f = follower(5.0);                           // leading Tele, follower main
-        const leadBelow = sample(5 - 1e-9);                // leading main just below 5x
-        assert.equal(f.src, SRC.MAIN);
-        assert.equal(leadBelow.src, SRC.MAIN);
-        assertVecClose(norm(f.m), norm(leadBelow.m), 'follower @5x⁺ ≈ leading @5x⁻', 1e-4);
+    it('degenerate: same source returns lead matrix', () => {
+        // At z=0.7, lead=UW follower=MAIN (default). Force followerSrc=UW (same as lead)
+        const f = follower(0.7, { followerSrc: SRC.SEC1 });
+        const lead = sample(0.7);
+        assert.equal(f.src, SRC.SEC1);
+        assertVecClose(f.m, lead.m, 'degenerate same source');
     });
 
     it('no sec2: works for z ≥ 1 with follower = UW', () => {
@@ -285,6 +275,18 @@ describe('computeFollowerMatrix', () => {
         assert.equal(src, SRC.SEC1);
         assert.equal(m.length, 9);
         assert.ok(m.every(Number.isFinite), 'finite matrix');
+    });
+
+    it('warp OFF: follower uses prewarp crop independently', () => {
+        const f = computeFollowerMatrix({
+            z: 1.5, warp: false, D, params: makeRig(), prewarp1: 2, prewarp2: 5, w: W, h: H,
+        });
+        assert.equal(f.src, SRC.SEC1);
+        // UW as independent lead at z=1.5 with warp off → contradicts hardcoded
+        // (hardcoded lead @1.5 = Main), so explicit path: crop(z/nominal)
+        // For UW: nominal = 1/(prewarp1) = 0.5, so crop = 1.5/0.5 = 3.0
+        const expected = zoomMatrix(3.0, W, H);
+        assertVecClose(f.m, expected, 'UW warp-off independent crop');
     });
 });
 
