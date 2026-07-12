@@ -101,9 +101,10 @@ void main(){
             float r = uCoverRadius;
             // The inner edge shrinks from coverRadius toward 0 as uBlend → 1
             float innerEdge = r * (1.0 - uBlend);
-            // Outside coverRadius: always show incoming (outgoing has no data)
-            // Inside: gradual radial wipe from inner edge to coverRadius
-            float radialW = smoothstep(innerEdge, r, dist);
+            // Soft feather band (20% of coverRadius) for a smooth gradient
+            // at the boundary between the two images
+            float feather = r * 0.2;
+            float radialW = smoothstep(innerEdge - feather, r + feather, dist);
             // Ensure center still progresses (at least uBlend everywhere)
             w = max(uBlend, radialW);
         }
