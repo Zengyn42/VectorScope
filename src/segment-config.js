@@ -39,11 +39,12 @@ export const RANGE_MAX = 10.0;
  * breakpoints: sorted zoom values that divide [0.5, 10.0]
  * segments: one more element than breakpoints, each has {lead, follower}
  */
-export const DEFAULT_BREAKPOINTS = [1.0, 5.0];
+export const DEFAULT_BREAKPOINTS = [1.0, 2.0, 5.0];
 export const DEFAULT_ASSIGNMENTS = [
-    { lead: SRC.SEC1, follower: SRC.MAIN },   // [0.5, 1.0)
-    { lead: SRC.MAIN, follower: SRC.SEC1 },   // [1.0, 5.0)
-    { lead: SRC.SEC2, follower: SRC.MAIN },   // [5.0, 10.0]
+    { lead: SRC.SEC1, follower: SRC.MAIN },   // [0.5, 1.0)  UW leads
+    { lead: SRC.MAIN, follower: SRC.SEC1 },   // [1.0, 2.0)  Main leads, blend from UW
+    { lead: SRC.MAIN, follower: SRC.SEC2 },   // [2.0, 5.0)  Main leads, blend to Tele
+    { lead: SRC.SEC2, follower: SRC.MAIN },   // [5.0, 10.0] Tele leads
 ];
 
 /**

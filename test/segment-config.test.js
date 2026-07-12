@@ -30,15 +30,24 @@ describe('segment-config', () => {
             assert.equal(cfg.getFollowerSource(0.7, true), SRC.MAIN);
         });
 
-        it('1.0x → Tele segment lead (z >= 1.0, < 5.0)', () => {
-            // Default: [1.0, 5.0) → Main leads, UW follows
+        it('1.0x → Main leads, UW follows (z >= 1.0, < 2.0)', () => {
             assert.equal(cfg.getLeadSource(1.0, true), SRC.MAIN);
             assert.equal(cfg.getFollowerSource(1.0, true), SRC.SEC1);
         });
 
-        it('3.0x → Main leads, UW follows (default middle segment)', () => {
+        it('1.5x → Main leads, UW follows', () => {
+            assert.equal(cfg.getLeadSource(1.5, true), SRC.MAIN);
+            assert.equal(cfg.getFollowerSource(1.5, true), SRC.SEC1);
+        });
+
+        it('2.0x → Main leads, Tele follows (z >= 2.0, < 5.0)', () => {
+            assert.equal(cfg.getLeadSource(2.0, true), SRC.MAIN);
+            assert.equal(cfg.getFollowerSource(2.0, true), SRC.SEC2);
+        });
+
+        it('3.0x → Main leads, Tele follows', () => {
             assert.equal(cfg.getLeadSource(3.0, true), SRC.MAIN);
-            assert.equal(cfg.getFollowerSource(3.0, true), SRC.SEC1);
+            assert.equal(cfg.getFollowerSource(3.0, true), SRC.SEC2);
         });
 
         it('5.0x → Tele leads, Main follows (z >= 5.0)', () => {
@@ -77,31 +86,31 @@ describe('segment-config', () => {
     describe('breakpoint operations', () => {
         it('addBreakpoint splits a segment', () => {
             const cfg = createSegmentConfig();
-            // Default: breakpoints [1.0, 5.0] → 3 segments
-            cfg.addBreakpoint(2.0);
-            assert.deepEqual(cfg.getBreakpoints(), [1.0, 2.0, 5.0]);
-            // Now 4 segments
-            assert.equal(cfg.getAssignments().length, 4);
+            // Default: breakpoints [1.0, 2.0, 5.0] → 4 segments
+            cfg.addBreakpoint(3.0);
+            assert.deepEqual(cfg.getBreakpoints(), [1.0, 2.0, 3.0, 5.0]);
+            // Now 5 segments
+            assert.equal(cfg.getAssignments().length, 5);
         });
 
         it('addBreakpoint rejects duplicates', () => {
             const cfg = createSegmentConfig();
             cfg.addBreakpoint(1.0); // already exists
-            assert.deepEqual(cfg.getBreakpoints(), [1.0, 5.0]);
+            assert.deepEqual(cfg.getBreakpoints(), [1.0, 2.0, 5.0]);
         });
 
         it('addBreakpoint rejects out-of-range values', () => {
             const cfg = createSegmentConfig();
             cfg.addBreakpoint(0.5);  // at RANGE_MIN
             cfg.addBreakpoint(10.0); // at RANGE_MAX
-            assert.deepEqual(cfg.getBreakpoints(), [1.0, 5.0]);
+            assert.deepEqual(cfg.getBreakpoints(), [1.0, 2.0, 5.0]);
         });
 
         it('removeBreakpoint merges segments', () => {
             const cfg = createSegmentConfig();
             cfg.removeBreakpoint(0); // remove 1.0 breakpoint
-            assert.deepEqual(cfg.getBreakpoints(), [5.0]);
-            assert.equal(cfg.getAssignments().length, 2);
+            assert.deepEqual(cfg.getBreakpoints(), [2.0, 5.0]);
+            assert.equal(cfg.getAssignments().length, 3);
         });
 
         it('setBreakpoint re-sorts on value change', () => {
