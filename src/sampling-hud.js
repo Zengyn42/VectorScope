@@ -11,7 +11,10 @@
  * {@link formatHMatrix} is a pure formatter so the HUD markup is unit-testable.
  */
 
-import { computeSampleMatrixExplicit, computeFollowerMatrix, segName } from './zoom-pipeline.js';
+import { computeSampleMatrixExplicit, computeFollowerMatrix, segName, SRC } from './zoom-pipeline.js';
+import { M } from './math.js';
+
+const SRC_NAME = { [SRC.SEC1]: 'UW', [SRC.MAIN]: 'Main', [SRC.SEC2]: 'Tele' };
 
 /**
  * Format a 3x3 row-major matrix as the HUD's box-drawing HTML.
@@ -71,11 +74,31 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         S.followerSrc = fol.src;
         S.followerM = fol.m;
 
-        const H_disp = Msamp.slice();
-        const s = H_disp[8];
-        if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
-        onHud(formatHMatrix(H_disp,
-            `M_sample (D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
-            + `${ov?.label ?? segName(S.zoom)}${S.warp ? '' : ' raw'})`));
+        /* HUD: show lead/follower camera names + the inter-camera homography
+           (M_follower × M_lead⁻¹) — after prewarp, this should be ≈ pure translation. */
+        const leadName = SRC_NAME[src] || '?';
+        const folName = SRC_NAME[fol.src] || '?';
+        const header = `Lead: ${leadName}  Follower: ${folName}  `
+            + `D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
+            + `${ov?.label ?? segName(S.zoom)}${S.warp ? '' : ' raw'}`;
+
+        // H_relative = M_follower × inv(M_lead) — the residual homography
+        // between the two views after each has been sampled/warped.
+        const Minv = M.inv(Msamp);
+        let hudStr = `<span style="color:#e94560">${header}</span>\n`;
+        if (Minv && src !== fol.src) {
+            const Hrel = M.mul(fol.m, Minv);
+            // Normalize so H[8] = 1
+            const s = Hrel[8];
+            if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) Hrel[i] /= s;
+            hudStr += formatHMatrix(Hrel, `H(${folName}←${leadName})`);
+        } else {
+            // Same camera or singular — show the sampling matrix directly
+            const H_disp = Msamp.slice();
+            const s = H_disp[8];
+            if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
+            hudStr += formatHMatrix(H_disp, `M_${leadName}`);
+        }
+        onHud(hudStr);
     };
 }

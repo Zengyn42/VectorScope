@@ -71,7 +71,7 @@ describe('createSamplingRefresh', () => {
         assert.deepEqual(S.sampleM, expect.m);
         assert.equal(S.followerSrc, fol.src);
         assert.deepEqual(S.followerM, fol.m);
-        assert.ok(getHud().includes('M_sample'));
+        assert.ok(getHud().includes('Lead:'));
         assert.ok(getHud().includes('Z=1.50'));
         assert.ok(getHud().includes('raw'));   // warp off
     });
