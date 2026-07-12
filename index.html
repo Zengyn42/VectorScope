@@ -779,21 +779,60 @@ const urlP = new URLSearchParams(location.search);
    transient playback state, not user config — on Stop the store re-applies
    and everything snaps back to the persisted free-mode values. */
 function applyTrajFrame(rec) {
+    /* Zoom */
     S.zoom = rec.zoom;
-    S.depthD = rec.focusD;
-    $('vz').textContent = rec.zoom.toFixed(2) + 'x';
     $('sld-z').value = Math.log10(rec.zoom);
-    $('vd').textContent = rec.focusD.toFixed(1);
+    $('vz').textContent = rec.zoom.toFixed(2) + 'x';
+    $('lbl-c').textContent = `\u25CE Combined \u2014 ${rec.zoom.toFixed(2)}x`;
+
+    /* Focus D */
+    S.depthD = rec.focusD;
     $('sld-d').value = rec.focusD;
-    /* Extended fields (recorded trajectories): prewarp, warp, blend params */
-    if (rec.prewarp1 != null) { S.prewarpScale = rec.prewarp1; $('sld-pw').value = rec.prewarp1; $('vpw').textContent = rec.prewarp1.toFixed(2) + 'x'; }
-    if (rec.prewarp2 != null) { S.prewarpScale2 = rec.prewarp2; $('sld-pw2').value = rec.prewarp2; $('vpw2').textContent = rec.prewarp2.toFixed(2) + 'x'; }
-    if (rec.warp != null) S.warp = rec.warp;
-    if (rec.blendX != null) { S.blendX = rec.blendX; $('sld-blend').value = rec.blendX; $('vblend').textContent = rec.blendX + 'f'; }
-    if (rec.blendMode != null) S.blendMode = rec.blendMode;
+    $('vd').textContent = rec.focusD.toFixed(1);
+
+    /* Prewarp 1 & 2 */
+    if (rec.prewarp1 != null) {
+        S.prewarpScale = rec.prewarp1;
+        $('sld-pw').value = rec.prewarp1;
+        $('vpw').textContent = rec.prewarp1.toFixed(2) + 'x';
+    }
+    if (rec.prewarp2 != null) {
+        S.prewarpScale2 = rec.prewarp2;
+        $('sld-pw2').value = rec.prewarp2;
+        $('vpw2').textContent = rec.prewarp2.toFixed(2) + 'x';
+    }
+
+    /* Warp */
+    if (rec.warp != null) {
+        S.warp = rec.warp;
+        $('btn-warp').classList.toggle('active', rec.warp);
+        $('btn-warp').textContent = rec.warp ? 'Warp ON' : 'Warp';
+    }
+
+    /* Blend */
+    if (rec.blendX != null) {
+        S.blendX = rec.blendX;
+        $('sld-blend').value = rec.blendX;
+        $('vblend').textContent = rec.blendX + 'f';
+    }
+    if (rec.blendMode != null) {
+        S.blendMode = rec.blendMode;
+        $('btn-bmode').textContent = rec.blendMode === 'single' ? 'Single' : 'Dual';
+        $('btn-bmode').classList.toggle('active', rec.blendMode === 'dual');
+    }
+
+    /* Camera parameters (intrinsics / extrinsics) */
     if (rec.camParams) S.camParams = rec.camParams;
-    /* Fast pose path — no camera/marker rebuild (camRig.applyPose) */
+
+    /* Scene camera pose — update the global SCENE_CAM so other systems
+       (BEV, selection, camera dialog) see the correct position. */
+    SCENE_CAM.position = rec.sceneCam.position;
+    SCENE_CAM.rotation_euler_deg = rec.sceneCam.rotation_euler_deg;
+
+    /* Apply rig pose (repositions all cameras + markers) */
     camRig.applyPose(rec.camParams || S.camParams, rec.sceneCam);
+
+    /* Recompute homography matrices + update HUD */
     refreshH();
 }
 
