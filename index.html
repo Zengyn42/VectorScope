@@ -265,7 +265,9 @@ input[type="file"] { display: none; }
         <select id="sel-traj" title="Select trajectory (default = free mode)">
           <option value="__default__" selected>default</option>
         </select>
-        <button id="btn-traj-load" title="Load a folder of trajectory JSONs">Load</button>
+        <button id="btn-traj-load" title="Load trajectory file(s)">Load</button>
+        <input type="file" id="ftraj" multiple accept=".json" style="display:none">
+        <button id="btn-traj-folder" title="Load all trajectories from a folder">Folder</button>
         <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
         <button id="btn-traj-rec" title="Start/stop recording a trajectory"
                 style="min-width:36px">&#9679; Rec</button>
@@ -874,9 +876,26 @@ $('sel-traj').onchange = function () {
 };
 
 /* ── Load Folder (multiple trajectories) ── */
-$('btn-traj-load').onclick = async () => {
+/* Load: pick one or more .json files directly */
+$('btn-traj-load').onclick = () => $('ftraj').click();
+$('ftraj').onchange = async function () {
+    if (!this.files.length) return;
+    let count = 0;
+    for (const f of this.files) {
+        try {
+            const traj = parseTrajectory(JSON.parse(await f.text()));
+            addToLibrary(traj);
+            count++;
+        } catch (e) { console.warn(`Skipped ${f.name}:`, e.message); }
+    }
+    this.value = '';
+    if (count > 0) log(`Loaded ${count} trajectory file${count > 1 ? 's' : ''}`);
+    else log('No valid trajectory files selected');
+};
+
+/* Folder: pick a folder and load all .json inside it */
+$('btn-traj-folder').onclick = async () => {
     try {
-        // Use File System Access API directory picker
         if (!window.showDirectoryPicker) {
             log('Folder picker not supported — use Chrome/Edge');
             return;
