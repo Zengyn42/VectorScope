@@ -53,8 +53,11 @@ export const HELP = {
     ],
 };
 
+export const TRAJ_DIR = 'trajectories';
+
 export function createSceneIO({ store, assetRegistry, objectOps, assetParser, loader, scene,
-                                onBeforeReplace = () => {}, onAfterLoad = () => {}, log = () => {} }) {
+                                onBeforeReplace = () => {}, onAfterLoad = () => {}, log = () => {},
+                                getTrajectories = () => [], onTrajectoriesLoaded = () => {} }) {
 
     function isSupported() {
         return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
@@ -118,7 +121,19 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
             assets: assetMeta,
         };
         await writeFile(dir, SCENE_JSON, JSON.stringify(json, null, 2));
-        log(`Scene saved: ${objects.length} object(s), ${assetMeta.length} asset(s)`);
+
+        /* Save all trajectories in the library as individual .json files
+           inside a trajectories/ subdirectory. */
+        const trajs = getTrajectories();
+        if (trajs.length > 0) {
+            const trajDir = await dir.getDirectoryHandle(TRAJ_DIR, { create: true });
+            for (const t of trajs) {
+                await writeFile(trajDir, `${t.name}.json`, JSON.stringify(t.json, null, 2));
+            }
+        }
+        const trajCount = trajs.length;
+        log(`Scene saved: ${objects.length} object(s), ${assetMeta.length} asset(s)` +
+            (trajCount ? `, ${trajCount} trajectory(s)` : ''));
         return true;
     }
 
@@ -179,10 +194,30 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
         /* Restore every known config section present in the save; unknown
            keys (version/objects/assets, future sections) are ignored. */
         store.applyAll(json);
+
+        /* Load trajectories from trajectories/ subdirectory if present. */
+        let trajCount = 0;
+        try {
+            const trajDir = await dir.getDirectoryHandle(TRAJ_DIR);
+            const trajJsons = [];
+            for await (const entry of trajDir.values()) {
+                if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue;
+                try {
+                    const file = await entry.getFile();
+                    trajJsons.push(JSON.parse(await file.text()));
+                } catch (e) { console.warn(`Skipped trajectory ${entry.name}:`, e.message); }
+            }
+            if (trajJsons.length > 0) {
+                onTrajectoriesLoaded(trajJsons);
+                trajCount = trajJsons.length;
+            }
+        } catch (_) { /* no trajectories/ dir — that's fine */ }
+
         onAfterLoad();
         log(`Scene loaded: ${res.applied} object(s)` +
             (res.removed ? `, ${res.removed} dropped` : '') +
-            (res.missing.length ? `, ${res.missing.length} missing` : ''));
+            (res.missing.length ? `, ${res.missing.length} missing` : '') +
+            (trajCount ? `, ${trajCount} trajectory(s)` : ''));
         return true;
     }
 

@@ -599,11 +599,17 @@ const objectOps = createObjectOps({
 const assetParser = createAssetParser({
     THREE, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/', OBJLoader, MTLLoader,
 });
+/* Late-bound trajectory hooks for scene-io (trajLibrary defined later). */
+let getSceneTrajectories = () => [];
+let onSceneTrajectoriesLoaded = () => {};
+
 const sceneIO = createSceneIO({
     store, assetRegistry, objectOps, assetParser,
     loader: { clearModels, registerModel }, scene,
     onBeforeReplace: () => { sceneAnim.clearAll(); sel(null); },
     onAfterLoad: () => { syncObjs(); },
+    getTrajectories: () => getSceneTrajectories(),
+    onTrajectoriesLoaded: (jsons) => onSceneTrajectoriesLoaded(jsons),
     log,
 });
 
@@ -847,6 +853,39 @@ function addToLibrary(traj) {
     trajLibrary.set(traj.name, traj);
     syncTrajList();
 }
+
+/* Wire late-bound scene-io hooks now that trajLibrary exists. */
+getSceneTrajectories = () => {
+    const out = [];
+    for (const [name, traj] of trajLibrary) {
+        // Re-export dense frames → delta-encoded JSON for storage
+        const denseFrames = [];
+        for (let i = 0; i < traj.length; i++) denseFrames.push(traj.frameAt(i));
+        const outFrames = [];
+        for (let i = 0; i < denseFrames.length; i++) {
+            if (i === 0) { outFrames.push(denseFrames[i]); continue; }
+            const delta = {};
+            for (const [k, v] of Object.entries(denseFrames[i])) {
+                if (k === 'blendT') continue;
+                if (JSON.stringify(v) !== JSON.stringify(denseFrames[i - 1][k])) delta[k] = v;
+            }
+            outFrames.push(Object.keys(delta).length > 0 ? delta : { zoom: denseFrames[i].zoom });
+        }
+        out.push({ name, json: { version: 1, name: traj.name, fps: traj.fps, frames: outFrames } });
+    }
+    return out;
+};
+onSceneTrajectoriesLoaded = (jsons) => {
+    trajLibrary.clear();
+    for (const j of jsons) {
+        try {
+            const traj = parseTrajectory(j);
+            trajLibrary.set(traj.name, traj);
+        } catch (e) { console.warn('Skipped trajectory:', e.message); }
+    }
+    syncTrajList();
+    transport.eject();
+};
 
 function syncTrajList() {
     const sel = $('sel-traj');
