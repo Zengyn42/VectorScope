@@ -265,9 +265,8 @@ input[type="file"] { display: none; }
         <select id="sel-traj" title="Select trajectory (default = free mode)">
           <option value="__default__" selected>default</option>
         </select>
-        <button id="btn-traj-load" title="Load trajectory file(s)">Load</button>
-        <input type="file" id="ftraj" multiple accept=".json" style="display:none">
-        <button id="btn-traj-folder" title="Load all trajectories from a folder">Folder</button>
+        <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
+        <input type="file" id="ftraj" accept=".json" style="display:none">
         <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
         <button id="btn-traj-rec" title="Start/stop recording a trajectory"
                 style="min-width:36px">&#9679; Rec</button>
@@ -876,46 +875,19 @@ $('sel-traj').onchange = function () {
 };
 
 /* ── Load Folder (multiple trajectories) ── */
-/* Load: pick one or more .json files directly */
+/* Load: pick a single trajectory .json file */
 $('btn-traj-load').onclick = () => $('ftraj').click();
 $('ftraj').onchange = async function () {
     if (!this.files.length) return;
-    let count = 0;
-    for (const f of this.files) {
-        try {
-            const traj = parseTrajectory(JSON.parse(await f.text()));
-            addToLibrary(traj);
-            count++;
-        } catch (e) { console.warn(`Skipped ${f.name}:`, e.message); }
-    }
+    const f = this.files[0];
     this.value = '';
-    if (count > 0) log(`Loaded ${count} trajectory file${count > 1 ? 's' : ''}`);
-    else log('No valid trajectory files selected');
-};
-
-/* Folder: pick a folder and load all .json inside it */
-$('btn-traj-folder').onclick = async () => {
     try {
-        if (!window.showDirectoryPicker) {
-            log('Folder picker not supported — use Chrome/Edge');
-            return;
-        }
-        const dirHandle = await window.showDirectoryPicker();
-        let count = 0;
-        for await (const entry of dirHandle.values()) {
-            if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue;
-            try {
-                const file = await entry.getFile();
-                const traj = parseTrajectory(JSON.parse(await file.text()));
-                addToLibrary(traj);
-                count++;
-            } catch (e) { console.warn(`Skipped ${entry.name}:`, e.message); }
-        }
-        if (count > 0) log(`Loaded ${count} trajectory file${count > 1 ? 's' : ''}`);
-        else log('No valid trajectory files in folder');
-    } catch (e) {
-        if (e.name !== 'AbortError') { log(`Load folder failed: ${e.message}`); console.error(e); }
-    }
+        const traj = parseTrajectory(JSON.parse(await f.text()));
+        addToLibrary(traj);
+        $('sel-traj').value = traj.name;
+        transport.load(traj);
+        log(`Loaded: ${traj.name} \u2014 ${traj.length}f @ ${traj.fps}fps`);
+    } catch (e) { log(`Load failed: ${e.message}`); console.error(e); }
 };
 
 /* ── Save trajectory to disk ── */
