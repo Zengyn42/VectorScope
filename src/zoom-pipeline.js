@@ -186,12 +186,28 @@ export function computeFollowerMatrix(opts) {
     if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
     if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
 
-    // Compute follower's sampling matrix INDEPENDENTLY — treat it as if
-    // the follower were the leading camera. This gives it its own absolute
-    // homography (output px → follower px) without depending on the lead's matrix.
-    const folOpts = { ...opts, leadSrc: src, followerSrc: src };
-    const { m } = computeSampleMatrixExplicit(folOpts);
-    return { src, m };
+    if (!opts.warp) {
+        // Warp OFF: each camera computes its own prewarp-based crop independently.
+        // Prewarp (focal length ratio) provides approximate alignment.
+        const { w, h, prewarp1 = 1, prewarp2 = 5 } = opts;
+        if (src === SRC.SEC1) return { src, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(opts.z, w, h)) };
+        if (src === SRC.SEC2) return { src, m: zoomMatrix(opts.z / prewarp2, w, h) };
+        return { src, m: zoomMatrix(opts.z, w, h) };
+    }
+
+    // Warp ON: each camera has its own homography, both mapped to the same
+    // output coordinate space (defined by the lead's current view).
+    //   H_lead: output px → lead RT px  (= M_lead, already computed)
+    //   H_follower: output px → follower RT px
+    //            = H(follower ← lead, D) × M_lead
+    // This guarantees alignment at focus depth D: any 3D point on the focus
+    // plane maps to the same output pixel through either camera's matrix.
+    const D = opts.D;
+    const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
+                       : s === SRC.SEC2 ? p.secondary_camera_2
+                       : p.main_camera;
+    const Hlf = computeHPair(camOf(src), camOf(lead.src), D);
+    return { src, m: M.mul(Hlf, lead.m) };
 }
 
 /**

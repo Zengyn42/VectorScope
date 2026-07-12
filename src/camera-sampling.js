@@ -1,24 +1,22 @@
 /**
  * @module camera-sampling
  * @description
- * Pure per-camera sampling matrix computation.
+ * Pure per-camera sampling matrix computation (warp-OFF / crop-only path).
  *
- * Each camera independently computes its own sampling matrix at a given zoom,
- * without depending on any other camera's result. This is the core building
- * block for both the lead and follower homography paths.
+ * Each camera independently computes its own crop-based sampling matrix at a
+ * given zoom. This is used for:
+ *   - Warp-OFF mode: each camera's matrix = zoomMatrix(z / nominal)
+ *   - Understanding the nominal/crop relationship per camera
+ *   - The follower's warp-OFF path (prewarp-based approximate alignment)
  *
- * The sampling matrix maps: output px → source camera RT px.
- * It encodes the combined effect of zoom crop + homography warp.
+ * **Warp-ON alignment** (blending) requires the plane-induced homography
+ * H(follower ← lead, D) to guarantee pixel alignment at focus depth D.
+ * That computation lives in zoom-pipeline.js/computeFollowerMatrix.
  *
  * **Per-camera nominal zoom** (the zoom value where the camera shows full frame):
  *   - UW:    nominal = 1 / prewarp1  (e.g. prewarp1=2 → nominal=0.5x)
  *   - Main:  nominal = 1.0
  *   - Tele:  nominal = prewarp2      (e.g. prewarp2=5 → nominal=5.0x)
- *
- * **Sampling matrix at zoom z for camera with nominal N:**
- *   - Warp OFF: crop(z / N) — pure digital zoom relative to full-frame
- *   - Warp ON and camera matches default segment rules: full warp interpolation
- *   - Warp ON but camera contradicts default rules: crop(z / N) fallback
  *
  * Pure module — no DOM, no Three.js. Fully unit-testable.
  */
@@ -76,11 +74,13 @@ export function cameraSampleMatrix({ z, src, w, h, prewarp1 = 1, prewarp2 = 5 })
 }
 
 /**
- * Compute lead and follower sampling matrices independently.
+ * Compute lead and follower crop matrices (warp-OFF path).
  *
- * Both cameras compute their own matrix without referencing each other.
- * In warp-off mode both use pure crop. In warp-on mode, each camera
- * uses the full pipeline independently (via computeSampleMatrixExplicit).
+ * Both cameras compute their own crop independently using prewarp ratios.
+ * This provides approximate alignment (prewarp = focal length ratio).
+ *
+ * NOTE: For warp-ON blending, use computeFollowerMatrix() from zoom-pipeline.js
+ * which applies H(follower ← lead, D) × M_lead for exact alignment at depth D.
  *
  * @param {object} opts
  * @param {number} opts.z - zoom factor
@@ -92,7 +92,7 @@ export function cameraSampleMatrix({ z, src, w, h, prewarp1 = 1, prewarp2 = 5 })
  * @param {number} [opts.prewarp2=5]
  * @returns {{lead: {src, m}, follower: {src, m}}}
  */
-export function computeBothMatrices({ z, leadSrc, followerSrc, w, h, prewarp1 = 1, prewarp2 = 5 }) {
+export function computeBothCropMatrices({ z, leadSrc, followerSrc, w, h, prewarp1 = 1, prewarp2 = 5 }) {
     const leadM = cameraSampleMatrix({ z, src: leadSrc, w, h, prewarp1, prewarp2 });
     const followerM = cameraSampleMatrix({ z, src: followerSrc, w, h, prewarp1, prewarp2 });
     return {

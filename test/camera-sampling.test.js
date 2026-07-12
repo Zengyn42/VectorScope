@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SRC } from '../src/zoom-pipeline.js';
 import { zoomMatrix } from '../src/homography.js';
 import {
-    cameraNominal, cameraCrop, cameraSampleMatrix, computeBothMatrices,
+    cameraNominal, cameraCrop, cameraSampleMatrix, computeBothCropMatrices,
 } from '../src/camera-sampling.js';
 
 const W = 1080, H = 1920;
@@ -90,9 +90,9 @@ describe('cameraSampleMatrix', () => {
     });
 });
 
-describe('computeBothMatrices', () => {
+describe('computeBothCropMatrices', () => {
     it('computes lead and follower independently', () => {
-        const { lead, follower } = computeBothMatrices({
+        const { lead, follower } = computeBothCropMatrices({
             z: 1.5, leadSrc: SRC.MAIN, followerSrc: SRC.SEC1,
             w: W, h: H, prewarp1: 2, prewarp2: 5,
         });
@@ -106,7 +106,7 @@ describe('computeBothMatrices', () => {
     });
 
     it('lead and follower are independent (different matrices)', () => {
-        const { lead, follower } = computeBothMatrices({
+        const { lead, follower } = computeBothCropMatrices({
             z: 3.0, leadSrc: SRC.MAIN, followerSrc: SRC.SEC2,
             w: W, h: H, prewarp1: 2, prewarp2: 5,
         });
@@ -116,7 +116,7 @@ describe('computeBothMatrices', () => {
     });
 
     it('same source produces same matrix', () => {
-        const { lead, follower } = computeBothMatrices({
+        const { lead, follower } = computeBothCropMatrices({
             z: 2.0, leadSrc: SRC.MAIN, followerSrc: SRC.MAIN,
             w: W, h: H, prewarp1: 2, prewarp2: 5,
         });
@@ -124,7 +124,7 @@ describe('computeBothMatrices', () => {
     });
 
     it('Tele leading at z=7.0: crop = 7/5 = 1.4', () => {
-        const { lead } = computeBothMatrices({
+        const { lead } = computeBothCropMatrices({
             z: 7.0, leadSrc: SRC.SEC2, followerSrc: SRC.MAIN,
             w: W, h: H, prewarp1: 2, prewarp2: 5,
         });
@@ -132,7 +132,7 @@ describe('computeBothMatrices', () => {
     });
 
     it('UW leading at z=0.5: crop = 0.5/0.5 = 1.0 (full frame)', () => {
-        const { lead } = computeBothMatrices({
+        const { lead } = computeBothCropMatrices({
             z: 0.5, leadSrc: SRC.SEC1, followerSrc: SRC.MAIN,
             w: W, h: H, prewarp1: 2, prewarp2: 5,
         });
