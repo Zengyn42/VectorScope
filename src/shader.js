@@ -93,7 +93,7 @@ void main(){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
-            float feather = r * 0.4;
+            float feather = r * 0.6;
 
             if(uBlendRadial == 1){
                 // Radial-IN (edges first): small FOV leading → large FOV incoming.
