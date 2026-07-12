@@ -140,7 +140,9 @@ export const SRC_NOMINAL = { [SRC.SEC1]: 0.5, [SRC.MAIN]: 1, [SRC.SEC2]: 5 };
 export function computeSampleMatrixExplicit(opts) {
     const hasS2 = !!opts.params.secondary_camera_2;
     const lead = (opts.leadSrc === SRC.SEC2 && !hasS2) ? SRC.MAIN : opts.leadSrc;
-    if (lead === undefined || lead === zoomSource(opts.z, hasS2, opts.segCfg)) {
+    // Compare against HARDCODED default rules (no segCfg) — warp interpolation
+    // math only works when the lead matches the built-in segment arrangement.
+    if (lead === undefined || lead === zoomSource(opts.z, hasS2)) {
         return computeSampleMatrix(opts);
     }
     // Explicit lead contradicts zoom rules — plain center crop using prewarp
@@ -178,7 +180,9 @@ export function computeFollowerMatrix(opts) {
     const p = opts.params;
     const hasS2 = !!p.secondary_camera_2;
     const lead = computeSampleMatrixExplicit(opts);
-    let src = opts.followerSrc ?? followerSource(opts.z, hasS2, opts.segCfg);
+    // Use explicit followerSrc if provided (from segCfg or trajectory);
+    // otherwise fall back to hardcoded default rules.
+    let src = opts.followerSrc ?? followerSource(opts.z, hasS2);
     if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
     if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
 
@@ -218,7 +222,7 @@ export function computeFollowerMatrix(opts) {
  * @param {number}  opts.h        - render target height (px)
  * @returns {{src: number, m: number[]}} source index + 3×3 row-major sampling matrix
  */
-export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h, segCfg }) {
+export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h }) {
     const hasS2 = !!p.secondary_camera_2;
 
     if (z < 1.0) {

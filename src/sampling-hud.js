@@ -55,11 +55,25 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         // If sec2 isn't materialized as a Three.js camera, hide it from the
         // pipeline so segments C/D fall back to a plain main-camera crop.
         const params = R.sec2 ? S.camParams : { ...S.camParams, secondary_camera_2: undefined };
+        // In free mode, derive leadSrc/followerSrc from segment config so
+        // custom segment assignments take effect. In play mode, trajectory
+        // overrides everything.
+        const segCfg = getSegCfg();
+        const hasS2 = !!params.secondary_camera_2;
+        let explicitSrcs = {};
+        if (ov) {
+            explicitSrcs = { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc };
+        } else if (segCfg) {
+            explicitSrcs = {
+                leadSrc: segCfg.getLeadSource(S.zoom, hasS2),
+                followerSrc: segCfg.getFollowerSource(S.zoom, hasS2),
+            };
+        }
         const opts = {
             z: S.zoom, warp: S.warp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-            w: rtW, h: rtH, segCfg: getSegCfg(),
-            ...(ov ? { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc } : {}),
+            w: rtW, h: rtH,
+            ...explicitSrcs,
         };
         const { src, m: Msamp } = computeSampleMatrixExplicit(opts);
 

@@ -443,7 +443,7 @@ import { parseTrajectory, CAM_TO_SRC } from './src/trajectory.js';
 import { createTransport } from './src/transport.js';
 import { createRecorder } from './src/recorder.js';
 import { createSegmentConfig } from './src/segment-config.js';
-import { bindSegmentDialog, renderSegmentDialog } from './src/segment-dialog.js';
+import { bindSegmentDialog } from './src/segment-dialog.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -605,9 +605,9 @@ store.register('cameras', {
 });
 
 store.register('segments', {
-    defaults: { segments: segmentConfig.serialize() },
+    defaults: segmentConfig.serialize(),
     apply: (v) => {
-        segmentConfig.restore(v.segments);
+        segmentConfig.restore(v);
         refreshH();
     },
 });

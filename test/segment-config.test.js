@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSegmentConfig, DEFAULT_SEGMENTS, CAM_NAMES, camName, camIndex } from '../src/segment-config.js';
+import {
+    createSegmentConfig, DEFAULT_BREAKPOINTS, DEFAULT_ASSIGNMENTS,
+    CAM_NAMES, camName, camIndex, RANGE_MIN, RANGE_MAX,
+} from '../src/segment-config.js';
 import { SRC } from '../src/zoom-pipeline.js';
 
 describe('segment-config', () => {
@@ -15,34 +18,30 @@ describe('segment-config', () => {
             assert.equal(camIndex('UW'), SRC.SEC1);
             assert.equal(camIndex('Main'), SRC.MAIN);
             assert.equal(camIndex('Tele'), SRC.SEC2);
-            assert.equal(camIndex('unknown'), SRC.MAIN); // fallback
+            assert.equal(camIndex('unknown'), SRC.MAIN);
         });
     });
 
     describe('default config matches hardcoded rules', () => {
         const cfg = createSegmentConfig();
 
-        it('0.5x → UW leads, Main follows', () => {
-            assert.equal(cfg.getLeadSource(0.5, true), SRC.SEC1);
-            assert.equal(cfg.getFollowerSource(0.5, true), SRC.MAIN);
+        it('0.7x → UW leads, Main follows (z < 1.0)', () => {
+            assert.equal(cfg.getLeadSource(0.7, true), SRC.SEC1);
+            assert.equal(cfg.getFollowerSource(0.7, true), SRC.MAIN);
         });
 
-        it('0.9x → UW leads, Main follows', () => {
-            assert.equal(cfg.getLeadSource(0.9, true), SRC.SEC1);
-            assert.equal(cfg.getFollowerSource(0.9, true), SRC.MAIN);
-        });
-
-        it('1.0x → Main leads, UW follows', () => {
+        it('1.0x → Tele segment lead (z >= 1.0, < 5.0)', () => {
+            // Default: [1.0, 5.0) → Main leads, UW follows
             assert.equal(cfg.getLeadSource(1.0, true), SRC.MAIN);
             assert.equal(cfg.getFollowerSource(1.0, true), SRC.SEC1);
         });
 
-        it('3.0x → Main leads, Tele follows', () => {
+        it('3.0x → Main leads, UW follows (default middle segment)', () => {
             assert.equal(cfg.getLeadSource(3.0, true), SRC.MAIN);
-            assert.equal(cfg.getFollowerSource(3.0, true), SRC.SEC2);
+            assert.equal(cfg.getFollowerSource(3.0, true), SRC.SEC1);
         });
 
-        it('5.0x → Tele leads, Main follows', () => {
+        it('5.0x → Tele leads, Main follows (z >= 5.0)', () => {
             assert.equal(cfg.getLeadSource(5.0, true), SRC.SEC2);
             assert.equal(cfg.getFollowerSource(5.0, true), SRC.MAIN);
         });
@@ -61,29 +60,80 @@ describe('segment-config', () => {
         });
 
         it('Tele follower falls back to Main when no sec2', () => {
-            assert.equal(cfg.getFollowerSource(3.0, false), SRC.MAIN);
+            // Default segment [1.0, 5.0) has follower=SEC1, not SEC2
+            // Segment [5.0, 10] has follower=MAIN — no change needed
+            // Let's test a custom config
+            const cfg2 = createSegmentConfig({
+                breakpoints: [1.0],
+                assignments: [
+                    { lead: SRC.SEC1, follower: SRC.SEC2 },
+                    { lead: SRC.MAIN, follower: SRC.SEC2 },
+                ],
+            });
+            assert.equal(cfg2.getFollowerSource(3.0, false), SRC.MAIN);
         });
     });
 
-    describe('custom config', () => {
-        it('can swap lead/follower for a segment', () => {
-            const cfg = createSegmentConfig([
-                { from: 0.5, to: 1.0, lead: SRC.MAIN, follower: SRC.SEC1 },
-                { from: 1.0, to: 10.0, lead: SRC.MAIN, follower: SRC.SEC2 },
-            ]);
-            // At 0.7x, normally UW leads — but we swapped it
-            assert.equal(cfg.getLeadSource(0.7, true), SRC.MAIN);
-            assert.equal(cfg.getFollowerSource(0.7, true), SRC.SEC1);
+    describe('breakpoint operations', () => {
+        it('addBreakpoint splits a segment', () => {
+            const cfg = createSegmentConfig();
+            // Default: breakpoints [1.0, 5.0] → 3 segments
+            cfg.addBreakpoint(2.0);
+            assert.deepEqual(cfg.getBreakpoints(), [1.0, 2.0, 5.0]);
+            // Now 4 segments
+            assert.equal(cfg.getAssignments().length, 4);
         });
 
-        it('setSegments replaces config', () => {
+        it('addBreakpoint rejects duplicates', () => {
             const cfg = createSegmentConfig();
-            cfg.setSegments([
-                { from: 0.5, to: 5.0, lead: SRC.SEC1, follower: SRC.SEC2 },
-                { from: 5.0, to: 10.0, lead: SRC.SEC2, follower: SRC.SEC1 },
-            ]);
-            assert.equal(cfg.getLeadSource(2.0, true), SRC.SEC1);
-            assert.equal(cfg.getFollowerSource(2.0, true), SRC.SEC2);
+            cfg.addBreakpoint(1.0); // already exists
+            assert.deepEqual(cfg.getBreakpoints(), [1.0, 5.0]);
+        });
+
+        it('addBreakpoint rejects out-of-range values', () => {
+            const cfg = createSegmentConfig();
+            cfg.addBreakpoint(0.5);  // at RANGE_MIN
+            cfg.addBreakpoint(10.0); // at RANGE_MAX
+            assert.deepEqual(cfg.getBreakpoints(), [1.0, 5.0]);
+        });
+
+        it('removeBreakpoint merges segments', () => {
+            const cfg = createSegmentConfig();
+            cfg.removeBreakpoint(0); // remove 1.0 breakpoint
+            assert.deepEqual(cfg.getBreakpoints(), [5.0]);
+            assert.equal(cfg.getAssignments().length, 2);
+        });
+
+        it('setBreakpoint re-sorts on value change', () => {
+            const cfg = createSegmentConfig({
+                breakpoints: [2.0, 5.0],
+                assignments: [
+                    { lead: SRC.SEC1, follower: SRC.MAIN },
+                    { lead: SRC.MAIN, follower: SRC.SEC1 },
+                    { lead: SRC.SEC2, follower: SRC.MAIN },
+                ],
+            });
+            // Move breakpoint 0 (value 2.0) to 7.0 — should re-sort after 5.0
+            cfg.setBreakpoint(0, 7.0);
+            assert.deepEqual(cfg.getBreakpoints(), [5.0, 7.0]);
+            // The assignment that was for [2.0, 5.0) should now be for [5.0, 7.0)
+        });
+
+        it('setBreakpoint clamps to valid range', () => {
+            const cfg = createSegmentConfig();
+            cfg.setBreakpoint(0, 0.1); // below RANGE_MIN+0.01
+            const bps = cfg.getBreakpoints();
+            assert.ok(bps[0] >= RANGE_MIN + 0.01);
+        });
+    });
+
+    describe('setAssignment', () => {
+        it('changes lead/follower for a segment', () => {
+            const cfg = createSegmentConfig();
+            // Segment 0: [0.5, 1.0) — change lead from UW to Main
+            cfg.setAssignment(0, SRC.MAIN, SRC.SEC1);
+            assert.equal(cfg.getLeadSource(0.7, true), SRC.MAIN);
+            assert.equal(cfg.getFollowerSource(0.7, true), SRC.SEC1);
         });
     });
 
@@ -91,19 +141,34 @@ describe('segment-config', () => {
         it('round-trips correctly', () => {
             const cfg = createSegmentConfig();
             const data = cfg.serialize();
-            assert.deepEqual(data, DEFAULT_SEGMENTS);
+            assert.deepEqual(data.breakpoints, DEFAULT_BREAKPOINTS);
+            assert.deepEqual(data.assignments, DEFAULT_ASSIGNMENTS);
 
-            cfg.setSegments([{ from: 1, to: 5, lead: SRC.MAIN, follower: SRC.SEC1 }]);
+            cfg.addBreakpoint(2.0);
             cfg.restore(data);
-            assert.deepEqual(cfg.getSegments(), DEFAULT_SEGMENTS);
+            assert.deepEqual(cfg.getBreakpoints(), DEFAULT_BREAKPOINTS);
         });
 
         it('restore ignores invalid data', () => {
             const cfg = createSegmentConfig();
             cfg.restore(null);
-            cfg.restore([]);
-            cfg.restore('bad');
-            assert.deepEqual(cfg.getSegments(), DEFAULT_SEGMENTS);
+            cfg.restore({});
+            cfg.restore({ breakpoints: [1], assignments: [] }); // length mismatch
+            assert.deepEqual(cfg.getBreakpoints(), DEFAULT_BREAKPOINTS);
+        });
+    });
+
+    describe('custom initial config', () => {
+        it('accepts custom breakpoints and assignments', () => {
+            const cfg = createSegmentConfig({
+                breakpoints: [3.0],
+                assignments: [
+                    { lead: SRC.MAIN, follower: SRC.SEC2 },
+                    { lead: SRC.SEC2, follower: SRC.MAIN },
+                ],
+            });
+            assert.equal(cfg.getLeadSource(1.0, true), SRC.MAIN);
+            assert.equal(cfg.getLeadSource(4.0, true), SRC.SEC2);
         });
     });
 });

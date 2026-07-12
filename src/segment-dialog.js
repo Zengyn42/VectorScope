@@ -1,48 +1,76 @@
 /**
  * @module segment-dialog
  * @description
- * Modal dialog for editing zoom-segment → lead/follower camera assignments.
+ * Modal dialog for editing zoom-segment configuration via breakpoints.
  *
- * Each row in the dialog represents one segment:
- *   [from] – [to] x | Lead: [dropdown] | Follower: [dropdown]
+ * Users add/remove breakpoints that divide the [0.5, 10.0] range into
+ * segments. Each segment's lead/follower camera is configurable via dropdowns.
  *
- * Users can:
- * - Change lead/follower camera for any segment
- * - Edit boundary zoom values (from/to)
- * - Add or remove segments
- * - Reset to defaults
+ * Breakpoints use the convention: segment below is z < breakpoint,
+ * segment at/above is z >= breakpoint.
  *
- * Changes are applied immediately on Close (live preview could be added later).
+ * Adjusting a breakpoint's value auto-re-sorts the segment list.
  */
 
 import { SRC } from './zoom-pipeline.js';
-import { CAM_NAMES, DEFAULT_SEGMENTS } from './segment-config.js';
+import { CAM_NAMES, RANGE_MIN, RANGE_MAX } from './segment-config.js';
 
 /**
- * Render the segment config dialog content.
- * @param {HTMLElement} container - DOM element to fill with HTML
- * @param {Array} segments - current segment array from segmentConfig.getSegments()
+ * Render the segment config dialog content from breakpoints + assignments.
+ * @param {HTMLElement} container - DOM element to fill
+ * @param {object} segmentConfig - createSegmentConfig instance
  */
-export function renderSegmentDialog(container, segments) {
-    let html = '<table style="width:100%;border-collapse:collapse;margin-bottom:12px;">';
-    html += '<tr style="color:#888;font-size:11px;text-transform:uppercase;">'
-          + '<td>From</td><td>To</td><td>Lead</td><td>Follower</td><td></td></tr>';
+export function renderSegmentDialog(container, segmentConfig) {
+    const bps = segmentConfig.getBreakpoints();
+    const assigns = segmentConfig.getAssignments();
 
-    segments.forEach((seg, i) => {
-        html += `<tr class="seg-row" data-idx="${i}" style="border-top:1px solid #0f3460;">`;
-        html += `<td><input type="number" class="seg-from" value="${seg.from}" step="0.5" min="0.1" max="20" style="width:55px;"></td>`;
-        html += `<td><input type="number" class="seg-to" value="${seg.to}" step="0.5" min="0.1" max="20" style="width:55px;"></td>`;
-        html += `<td>${makeSelect('seg-lead', seg.lead)}</td>`;
-        html += `<td>${makeSelect('seg-follower', seg.follower)}</td>`;
-        html += `<td><button class="seg-del" data-idx="${i}" style="color:#e94560;background:none;border:none;cursor:pointer;font-size:14px;" title="Remove segment">&times;</button></td>`;
+    let html = '<table style="width:100%;border-collapse:collapse;">';
+    html += '<tr style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">'
+          + '<td style="padding:2px 4px;">Range</td>'
+          + '<td style="padding:2px 4px;">Lead</td>'
+          + '<td style="padding:2px 4px;">Follower</td>'
+          + '<td></td></tr>';
+
+    // For N breakpoints, there are N+1 segments
+    const segCount = bps.length + 1;
+    for (let i = 0; i < segCount; i++) {
+        const from = i === 0 ? RANGE_MIN : bps[i - 1];
+        const to = i === segCount - 1 ? RANGE_MAX : bps[i];
+        const a = assigns[i] || { lead: SRC.MAIN, follower: SRC.SEC1 };
+
+        // Range label with convention markers
+        const fromLabel = i === 0 ? `${from.toFixed(1)}x` : `\u2265${from.toFixed(1)}x`;
+        const toLabel = i === segCount - 1 ? `${to.toFixed(1)}x` : `<${to.toFixed(1)}x`;
+        const rangeLabel = `${fromLabel} \u2013 ${toLabel}`;
+
+        html += `<tr class="seg-row" data-seg="${i}" style="border-top:1px solid #0f3460;height:32px;">`;
+        html += `<td style="padding:2px 4px;font-family:monospace;font-size:12px;color:#aaa;white-space:nowrap;">${rangeLabel}</td>`;
+        html += `<td style="padding:2px 4px;">${makeSelect('seg-lead', a.lead, i)}</td>`;
+        html += `<td style="padding:2px 4px;">${makeSelect('seg-follower', a.follower, i)}</td>`;
+        html += '<td></td>';
         html += '</tr>';
-    });
+
+        // Breakpoint row (editable divider between segments)
+        if (i < segCount - 1) {
+            html += `<tr class="bp-row" data-bp="${i}" style="background:rgba(233,69,96,0.08);">`;
+            html += `<td colspan="3" style="padding:3px 4px;font-size:11px;">`;
+            html += `<span style="color:#e94560;">\u2504</span> Breakpoint: `;
+            html += `<input type="number" class="bp-val" data-bp="${i}" value="${bps[i]}" `
+                  + `step="0.5" min="${RANGE_MIN + 0.01}" max="${RANGE_MAX - 0.01}" `
+                  + `style="width:60px;background:#0a0f1e;color:#e0e0e0;border:1px solid #333;padding:2px 4px;font-size:12px;">x`;
+            html += `</td>`;
+            html += `<td style="padding:3px 4px;"><button class="bp-del" data-bp="${i}" `
+                  + `style="color:#e94560;background:none;border:none;cursor:pointer;font-size:14px;" `
+                  + `title="Remove breakpoint">&times;</button></td>`;
+            html += '</tr>';
+        }
+    }
     html += '</table>';
     container.innerHTML = html;
 }
 
-function makeSelect(cls, selected) {
-    let html = `<select class="${cls}" style="background:#0a0f1e;color:#e0e0e0;border:1px solid #333;padding:2px 4px;">`;
+function makeSelect(cls, selected, segIdx) {
+    let html = `<select class="${cls}" data-seg="${segIdx}" style="background:#0a0f1e;color:#e0e0e0;border:1px solid #333;padding:2px 4px;font-size:12px;">`;
     CAM_NAMES.forEach((name, i) => {
         html += `<option value="${i}"${i === selected ? ' selected' : ''}>${name}</option>`;
     });
@@ -51,30 +79,11 @@ function makeSelect(cls, selected) {
 }
 
 /**
- * Read current segment values from the dialog DOM.
- * @param {HTMLElement} container
- * @returns {Array} segment array
- */
-export function readSegmentInputs(container) {
-    const rows = container.querySelectorAll('.seg-row');
-    const segs = [];
-    rows.forEach(row => {
-        segs.push({
-            from: parseFloat(row.querySelector('.seg-from').value) || 0.5,
-            to: parseFloat(row.querySelector('.seg-to').value) || 10,
-            lead: parseInt(row.querySelector('.seg-lead').value, 10),
-            follower: parseInt(row.querySelector('.seg-follower').value, 10),
-        });
-    });
-    return segs;
-}
-
-/**
- * Bind the segment dialog events: add/delete rows, reset, close.
+ * Bind the segment dialog events.
  * @param {HTMLElement} overlay - the modal overlay element
  * @param {object} opts
  * @param {object} opts.segmentConfig - createSegmentConfig instance
- * @param {Function} opts.onApply - called with new segments array after close
+ * @param {Function} opts.onApply - called after any change
  */
 export function bindSegmentDialog(overlay, { segmentConfig, onApply }) {
     const content = overlay.querySelector('#seg-params-content');
@@ -83,52 +92,90 @@ export function bindSegmentDialog(overlay, { segmentConfig, onApply }) {
     const btnClose = overlay.querySelector('#seg-close');
 
     function refresh() {
-        renderSegmentDialog(content, segmentConfig.getSegments());
-        bindDeletes();
+        renderSegmentDialog(content, segmentConfig);
+        bindInteractions();
     }
 
-    function bindDeletes() {
-        content.querySelectorAll('.seg-del').forEach(btn => {
-            btn.onclick = () => {
-                const segs = readSegmentInputs(content);
-                const idx = parseInt(btn.dataset.idx, 10);
-                segs.splice(idx, 1);
-                if (segs.length > 0) {
-                    segmentConfig.setSegments(segs);
+    function bindInteractions() {
+        // Breakpoint value changes
+        content.querySelectorAll('.bp-val').forEach(input => {
+            input.onchange = () => {
+                const idx = parseInt(input.dataset.bp, 10);
+                const val = parseFloat(input.value);
+                if (!isNaN(val)) {
+                    segmentConfig.setBreakpoint(idx, val);
                     refresh();
+                    if (onApply) onApply();
                 }
+            };
+        });
+
+        // Delete breakpoint
+        content.querySelectorAll('.bp-del').forEach(btn => {
+            btn.onclick = () => {
+                const idx = parseInt(btn.dataset.bp, 10);
+                segmentConfig.removeBreakpoint(idx);
+                refresh();
+                if (onApply) onApply();
+            };
+        });
+
+        // Lead/follower dropdowns
+        content.querySelectorAll('.seg-lead').forEach(sel => {
+            sel.onchange = () => {
+                const segIdx = parseInt(sel.dataset.seg, 10);
+                const assigns = segmentConfig.getAssignments();
+                segmentConfig.setAssignment(segIdx, parseInt(sel.value, 10), assigns[segIdx].follower);
+                if (onApply) onApply();
+            };
+        });
+        content.querySelectorAll('.seg-follower').forEach(sel => {
+            sel.onchange = () => {
+                const segIdx = parseInt(sel.dataset.seg, 10);
+                const assigns = segmentConfig.getAssignments();
+                segmentConfig.setAssignment(segIdx, assigns[segIdx].lead, parseInt(sel.value, 10));
+                if (onApply) onApply();
             };
         });
     }
 
     btnAdd.onclick = () => {
-        const segs = readSegmentInputs(content);
-        const last = segs[segs.length - 1] || { to: 10, lead: SRC.MAIN, follower: SRC.SEC1 };
-        segs.push({ from: last.to, to: last.to + 2, lead: SRC.MAIN, follower: SRC.SEC1 });
-        segmentConfig.setSegments(segs);
-        refresh();
+        // Find a sensible default value for new breakpoint
+        const bps = segmentConfig.getBreakpoints();
+        let newVal;
+        if (bps.length === 0) {
+            newVal = 2.0;
+        } else {
+            // Place between last breakpoint and RANGE_MAX
+            const last = bps[bps.length - 1];
+            newVal = Math.round((last + RANGE_MAX) / 2 * 2) / 2; // round to 0.5
+            // If that would collide, try between first pair gap
+            if (bps.some(b => Math.abs(b - newVal) < 0.1)) {
+                newVal = last + 1.0;
+            }
+        }
+        if (newVal > RANGE_MIN && newVal < RANGE_MAX) {
+            segmentConfig.addBreakpoint(newVal);
+            refresh();
+            if (onApply) onApply();
+        }
     };
 
     btnReset.onclick = () => {
-        segmentConfig.setSegments(DEFAULT_SEGMENTS);
+        segmentConfig.reset();
         refresh();
+        if (onApply) onApply();
     };
 
     btnClose.onclick = () => {
-        const segs = readSegmentInputs(content);
-        segmentConfig.setSegments(segs);
         overlay.classList.remove('open');
-        if (onApply) onApply(segs);
     };
 
     // Close on overlay click
     overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-            btnClose.click();
-        }
+        if (e.target === overlay) overlay.classList.remove('open');
     });
 
-    // Open hook: refresh content
     return {
         open() {
             refresh();
