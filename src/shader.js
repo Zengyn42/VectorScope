@@ -67,16 +67,25 @@ uniform int uBlendRadial; // 0 = flat, 1 = radial-in (edges first), -1 = radial-
 uniform float uCoverRadius; // fraction of frame radius where the LIMITED camera has valid data
 varying vec2 vUv;
 
+// Compute the source UV from a pixel-space sampling matrix.
+vec2 sampleUV(mat3 M, vec2 px){
+    vec3 sp = M * vec3(px, 1.);
+    return vec2(sp.x / sp.z / uR.x, 1. - sp.y / sp.z / uR.y);
+}
+
+bool inBounds(vec2 s){ return s.x >= 0. && s.x <= 1. && s.y >= 0. && s.y <= 1.; }
+
+vec4 texFetch(int src, vec2 s){
+    if(src == 0)      return texture2D(tS1, s);
+    else if(src == 2) return texture2D(tS2, s);
+    else              return texture2D(tM, s);
+}
+
 // Warp-sample one camera texture: apply the pixel-space sampling matrix M
 // (output px -> source px) and fetch from the selected source.
 vec4 warpSample(int src, mat3 M, vec2 px){
-    vec3 sp = M * vec3(px, 1.);
-    vec2 s = vec2(sp.x / sp.z / uR.x, 1. - sp.y / sp.z / uR.y);
-    if(s.x >= 0. && s.x <= 1. && s.y >= 0. && s.y <= 1.){
-        if(src == 0)      return texture2D(tS1, s);
-        else if(src == 2) return texture2D(tS2, s);
-        else              return texture2D(tM, s);
-    }
+    vec2 s = sampleUV(M, px);
+    if(inBounds(s)) return texFetch(src, s);
     return vec4(.06, .06, .12, 1.);
 }
 
@@ -87,9 +96,13 @@ void main(){
     // Camera-transition blending: cross-fade from the outgoing camera's
     // frozen last frame to the live incoming camera over X frames.
     if(uBlend < 1.){
-        vec4 prev = warpSample(uPrevSrc, uPrevHi, px);
-        float w = uBlend;
-        if(uBlendRadial != 0){
+        vec2 prevUV = sampleUV(uPrevHi, px);
+        bool prevOOB = !inBounds(prevUV);
+        vec4 prev = prevOOB ? col : texFetch(uPrevSrc, prevUV);
+        // If the outgoing (prev) sample is out of bounds, force full
+        // incoming — guarantees no black edges from small-FOV overshoot.
+        float w = prevOOB ? 1.0 : uBlend;
+        if(!prevOOB && uBlendRadial != 0){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
