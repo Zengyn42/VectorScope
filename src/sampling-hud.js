@@ -74,31 +74,37 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         S.followerSrc = fol.src;
         S.followerM = fol.m;
 
-        /* HUD: show lead/follower camera names + the inter-camera homography
-           (M_follower × M_lead⁻¹) — after prewarp, this should be ≈ pure translation. */
+        /* HUD: show lead/follower names + their homographies (geometric
+           correction component only — prewarp crop factored out).
+           H = M_current × inv(M_prewarp_only)
+           In warp-off mode: M_current = M_prewarp_only → H = Identity.
+           In warp-on mode: H shows the pure geometric correction. */
         const leadName = SRC_NAME[src] || '?';
         const folName = SRC_NAME[fol.src] || '?';
-        const header = `Lead: ${leadName}  Follower: ${folName}  `
+        const header = `Lead: ${leadName}  Fol: ${folName}  `
             + `D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
             + `${ov?.label ?? segName(S.zoom)}${S.warp ? '' : ' raw'}`;
 
-        // H_relative = M_follower × inv(M_lead) — the residual homography
-        // between the two views after each has been sampled/warped.
-        const Minv = M.inv(Msamp);
-        let hudStr = `<span style="color:#e94560">${header}</span>\n`;
-        if (Minv && src !== fol.src) {
-            const Hrel = M.mul(fol.m, Minv);
-            // Normalize so H[8] = 1
-            const s = Hrel[8];
-            if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) Hrel[i] /= s;
-            hudStr += formatHMatrix(Hrel, `H(${folName}←${leadName})`);
-        } else {
-            // Same camera or singular — show the sampling matrix directly
-            const H_disp = Msamp.slice();
-            const s = H_disp[8];
-            if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H_disp[i] /= s;
-            hudStr += formatHMatrix(H_disp, `M_${leadName}`);
+        // Compute the prewarp-only base (warp=false) for both cameras
+        const baseOpts = { ...opts, warp: false };
+        const leadBase = computeSampleMatrixExplicit(baseOpts);
+        const folBase = computeFollowerMatrix(baseOpts);
+
+        function extractH(M_current, M_base) {
+            const inv = M.inv(M_base);
+            if (!inv) return M.id();
+            const H = M.mul(M_current, inv);
+            const s = H[8];
+            if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H[i] /= s;
+            return H;
         }
+
+        const H_lead = extractH(Msamp, leadBase.m);
+        const H_fol = extractH(fol.m, folBase.m);
+
+        let hudStr = `<span style="color:#e94560">${header}</span>\n`;
+        hudStr += formatHMatrix(H_lead, `H_${leadName}`) + '\n';
+        hudStr += formatHMatrix(H_fol, `H_${folName}`);
         onHud(hudStr);
     };
 }
