@@ -266,6 +266,7 @@ input[type="file"] { display: none; }
           <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
           <span class="val" id="vblend">20f</span>
           <button id="btn-bmode" style="min-width:52px">Single</button>
+          <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Flat</button>
         </div>
       </div>
 
@@ -448,6 +449,7 @@ const S = {
     clipY: 2.0,            // BEV clipping plane height
     blendX: 20,            // camera-transition blend length in frames (0 = off)
     blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
+    blendShape: 'flat',    // 'flat' = uniform alpha | 'radial' = center-out gradient
     sampleSrc: SRC.MAIN, sampleM: null,   // current frame's sampling state (set by refreshH)
     followerSrc: null, followerM: null,   // live follower state for dual-mode blends (set by refreshH)
     sel: null, selCam: null, // selected object / selected camera name
@@ -820,6 +822,12 @@ function applyTrajFrame(rec) {
         $('btn-bmode').textContent = rec.blendMode === 'single' ? 'Single' : 'Dual';
         $('btn-bmode').classList.toggle('active', rec.blendMode === 'dual');
     }
+    if (rec.blendShape != null) {
+        S.blendShape = rec.blendShape;
+        $('btn-bshape').textContent = rec.blendShape === 'radial' ? 'Radial' : 'Flat';
+        $('btn-bshape').classList.toggle('active', rec.blendShape === 'radial');
+        matWarp.uniforms.uBlendRadial.value = rec.blendShape === 'radial' ? 1 : 0;
+    }
 
     /* Camera parameters (intrinsics / extrinsics) */
     if (rec.camParams) S.camParams = rec.camParams;
@@ -892,7 +900,7 @@ syncFpsBtn();
 /* Controls locked while a trajectory is engaged OR recording. */
 const TRAJ_LOCK_IDS = [
     'sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-blend', 'sld-clip',
-    'btn-af', 'btn-warp', 'btn-play', 'btn-bmode', 'btn-reset', 'btn-setcam',
+    'btn-af', 'btn-warp', 'btn-play', 'btn-bmode', 'btn-bshape', 'btn-reset', 'btn-setcam',
     'btn-save-scene', 'btn-load-scene', 'btn-fps', 'btn-combined',
 ];
 function lockControls(locked) {
@@ -1029,7 +1037,7 @@ const recorder = createRecorder({
     getState: () => ({
         zoom: S.zoom, depthD: S.depthD,
         prewarpScale: S.prewarpScale, prewarpScale2: S.prewarpScale2,
-        warp: S.warp, blendX: S.blendX, blendMode: S.blendMode,
+        warp: S.warp, blendX: S.blendX, blendMode: S.blendMode, blendShape: S.blendShape,
         sampleSrc: S.sampleSrc, sampleM: S.sampleM,
         followerSrc: S.followerSrc, followerM: S.followerM,
         camParams: S.camParams, isBlending: blendCtl.isBlending(),

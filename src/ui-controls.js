@@ -58,6 +58,7 @@ export const CONTROL_DEFAULTS = {
     prewarp2: 1.0,
     blendX: 20,
     blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
+    blendShape: 'flat',    // 'flat' = uniform alpha | 'radial' = center-out gradient
     /* ── Session (scene save only, not per-frame) ── */
     clipY: 2.0,
 };
@@ -93,6 +94,7 @@ export function initUiControls(d) {
         S.zoom = c.zoom; S.warp = c.warp; S.depthD = c.depthD;
         S.prewarpScale = c.prewarp1; S.prewarpScale2 = c.prewarp2;
         S.clipY = c.clipY; S.blendX = c.blendX; S.blendMode = c.blendMode;
+        S.blendShape = c.blendShape;
 
         $('sld-d').value = c.depthD; $('vd').textContent = c.depthD.toFixed(1);
         $('sld-pw').value = c.prewarp1; $('vpw').textContent = c.prewarp1.toFixed(2) + 'x';
@@ -104,8 +106,11 @@ export function initUiControls(d) {
         $('sld-blend').value = c.blendX; $('vblend').textContent = c.blendX + 'f';
         $('btn-bmode').textContent = c.blendMode === 'single' ? 'Single' : 'Dual';
         $('btn-bmode').classList.toggle('active', c.blendMode === 'dual');
+        $('btn-bshape').textContent = c.blendShape === 'radial' ? 'Radial' : 'Flat';
+        $('btn-bshape').classList.toggle('active', c.blendShape === 'radial');
         $('btn-warp').classList.toggle('active', c.warp);
         $('btn-warp').textContent = c.warp ? 'Warp ON' : 'Warp';
+        matWarp.uniforms.uBlendRadial.value = c.blendShape === 'radial' ? 1 : 0;
 
         refreshH();
     }
@@ -135,6 +140,9 @@ export function initUiControls(d) {
        camera rendered + warped with H(follower←leading, D) each blend frame. */
     $('btn-bmode').onclick = () => {
         store.set('controls', { blendMode: store.get('controls').blendMode === 'single' ? 'dual' : 'single' });
+    };
+    $('btn-bshape').onclick = () => {
+        store.set('controls', { blendShape: store.get('controls').blendShape === 'flat' ? 'radial' : 'flat' });
     };
     $('btn-warp').onclick = () => {
         store.set('controls', { warp: !store.get('controls').warp });

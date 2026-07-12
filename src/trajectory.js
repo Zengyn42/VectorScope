@@ -101,7 +101,7 @@ export function parseTrajectory(json) {
     /* Expand delta encoding into dense records */
     const frames = [];
     let prev = { blend: false, camParams: null, prewarp1: null, prewarp2: null,
-        warp: null, blendX: null, blendMode: null, sampleM: null, followerM: null };
+        warp: null, blendX: null, blendMode: null, blendShape: null, sampleM: null, followerM: null };
     json.frames.forEach((f, i) => {
         const rec = {
             lead: f.lead ?? prev.lead,
@@ -118,6 +118,7 @@ export function parseTrajectory(json) {
             warp: f.warp ?? prev.warp,
             blendX: f.blendX ?? prev.blendX,
             blendMode: f.blendMode ?? prev.blendMode,
+            blendShape: f.blendShape ?? prev.blendShape,
             sampleM: f.sampleM ?? prev.sampleM,
             followerM: f.followerM ?? prev.followerM,
         };

@@ -32,6 +32,7 @@
  * | `uPrevSrc` | int  | Previous-layer source during a transition blend (single: outgoing camera; dual: live follower) |
  * | `uPrevHi`  | mat3 | Previous-layer sampling matrix (single: frozen last frame; dual: live follower matrix) |
  * | `uBlend`   | float| Weight of the current frame (n/X); 1.0 disables blending |
+ * | `uBlendRadial` | int | 0 = flat blend (uniform alpha), 1 = radial blend (center-out) |
  *
  * Out-of-bounds pixels render as dark background `(0.06, 0.06, 0.12)`.
  *
@@ -62,6 +63,7 @@ uniform vec2 uR;
 uniform int uPrevSrc;    // outgoing camera during a transition blend
 uniform mat3 uPrevHi;    // its frozen sampling matrix (last displayed frame)
 uniform float uBlend;    // weight of the CURRENT frame: n/X; 1.0 = no blend
+uniform int uBlendRadial; // 0 = flat (uniform alpha), 1 = radial (center-out)
 varying vec2 vUv;
 
 // Warp-sample one camera texture: apply the pixel-space sampling matrix M
@@ -85,7 +87,17 @@ void main(){
     // frozen last frame to the live incoming camera over X frames.
     if(uBlend < 1.){
         vec4 prev = warpSample(uPrevSrc, uPrevHi, px);
-        col = mix(prev, col, uBlend);
+        float w = uBlend;
+        if(uBlendRadial == 1){
+            // Radial blend: center stays on the outgoing (small-FOV) image
+            // longer, edges reveal the incoming (large-FOV) image first.
+            // This avoids blank edges when going from tele → wide.
+            vec2 center = uR * 0.5;
+            float dist = length((px - center) / center); // 0 at center, ~1 at corners
+            // Bias the blend weight outward: edges reach full blend earlier
+            w = smoothstep(0.0, 1.0, uBlend + dist * (1.0 - uBlend));
+        }
+        col = mix(prev, col, w);
     }
     gl_FragColor = col;
     // RT textures hold linear values; direct-rendered panels get the
@@ -117,6 +129,7 @@ export function createWarpMaterial(THREE, texS1, texM, texS2, rtW, rtH) {
             uPrevSrc: { value: 1 },
             uPrevHi: { value: new THREE.Matrix3() },
             uBlend: { value: 1.0 },
+            uBlendRadial: { value: 0 },
         },
     });
 }

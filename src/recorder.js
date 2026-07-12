@@ -83,6 +83,7 @@ export function createRecorder({ getState, getSceneCam, getFps }) {
             warp: s.warp,
             blendX: s.blendX,
             blendMode: s.blendMode,
+            blendShape: s.blendShape,
             blend: s.isBlending || false,
             sceneCam: {
                 position: sceneCam.position.slice(),
