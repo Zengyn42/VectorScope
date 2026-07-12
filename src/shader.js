@@ -63,9 +63,8 @@ uniform vec2 uR;
 uniform int uPrevSrc;    // outgoing camera during a transition blend
 uniform mat3 uPrevHi;    // its frozen sampling matrix (last displayed frame)
 uniform float uBlend;    // weight of the CURRENT frame: n/X; 1.0 = no blend
-uniform int uBlendRadial; // 0 = flat (uniform alpha), 1 = radial (center-out)
-uniform float uCoverRadius; // fraction of frame radius where outgoing camera has valid data
-                            // e.g. main→UW: 0.5 (main covers center 50% of UW frame)
+uniform int uBlendRadial; // 0 = flat, 1 = radial-in (edges first), -1 = radial-out (center first)
+uniform float uCoverRadius; // fraction of frame radius where the LIMITED camera has valid data
 varying vec2 vUv;
 
 // Warp-sample one camera texture: apply the pixel-space sampling matrix M
@@ -90,23 +89,27 @@ void main(){
     if(uBlend < 1.){
         vec4 prev = warpSample(uPrevSrc, uPrevHi, px);
         float w = uBlend;
-        if(uBlendRadial == 1){
-            // Radial blend (outside-in): when zooming out (main→UW, tele→main),
-            // the outgoing camera only covers the center fraction of the incoming
-            // frame. Edges have no outgoing data → show incoming immediately.
-            // The coverage disk shrinks over the blend duration until the
-            // outgoing image vanishes entirely.
+        if(uBlendRadial != 0){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
-            // The inner edge shrinks from coverRadius toward 0 as uBlend → 1
-            float innerEdge = r * (1.0 - uBlend);
-            // Soft feather band (20% of coverRadius) for a smooth gradient
-            // at the boundary between the two images
             float feather = r * 0.2;
-            float radialW = smoothstep(innerEdge - feather, r + feather, dist);
-            // Ensure center still progresses (at least uBlend everywhere)
-            w = max(uBlend, radialW);
+
+            if(uBlendRadial == 1){
+                // Radial-IN (edges first): small FOV leading → large FOV incoming.
+                // Outgoing (small FOV) only covers center r fraction — edges have
+                // no outgoing data, so switch them to incoming first.
+                float innerEdge = r * (1.0 - uBlend);
+                float radialW = smoothstep(innerEdge - feather, r + feather, dist);
+                w = max(uBlend, radialW);
+            } else {
+                // Radial-OUT (center first): large FOV leading → small FOV incoming.
+                // Incoming (small FOV) only has valid data in center r fraction —
+                // switch center to incoming first, keep outgoing at edges longer.
+                float outerEdge = r * uBlend;
+                float radialW = smoothstep(outerEdge + feather, outerEdge - feather, dist);
+                w = max(uBlend, radialW);
+            }
         }
         col = mix(prev, col, w);
     }

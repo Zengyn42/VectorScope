@@ -252,22 +252,30 @@ export function createRenderLoop({
                 matWarp.uniforms.uPrevHi.value.set(...feed.prev.m);
             }
         }
-        /* Radial blend: compute coverage radius — the fraction of the frame
-           where the outgoing camera has valid data. Only matters when going
-           from a narrow FOV to a wider FOV (zoom out: main→UW, tele→main).
-           When zooming in (wider→narrower), coverRadius = 1.0 (effectively flat). */
+        /* Radial blend direction + coverage radius.
+           - Radial-IN (1): small FOV leading → large FOV incoming (edges first)
+             coverRadius = outgoing_nominal / incoming_nominal (outgoing coverage)
+           - Radial-OUT (-1): large FOV leading → small FOV incoming (center first)
+             coverRadius = incoming_nominal / outgoing_nominal (incoming coverage) */
         if (S.blendShape === 'radial' && matWarp.uniforms.uBlend.value < 1) {
             const curSrc = zsrc;
             const prevSrc = matWarp.uniforms.uPrevSrc.value;
             const curNom = SRC_NOMINAL[curSrc] || 1;
             const prevNom = SRC_NOMINAL[prevSrc] || 1;
-            // Going wider (outgoing has higher zoom = narrower FOV)?
-            // coverRadius = incoming_nominal / outgoing_nominal
-            // main(1x)→UW(0.5x): cover = 0.5/1.0 = 0.5
-            // tele(5x)→main(1x): cover = 1.0/5.0 = 0.2
-            const cover = prevNom > curNom ? curNom / prevNom : 1.0;
-            matWarp.uniforms.uCoverRadius.value = cover;
+            if (prevNom > curNom) {
+                // Outgoing narrower FOV → incoming wider: radial-IN (edges first)
+                matWarp.uniforms.uBlendRadial.value = 1;
+                matWarp.uniforms.uCoverRadius.value = curNom / prevNom;
+            } else if (prevNom < curNom) {
+                // Outgoing wider FOV → incoming narrower: radial-OUT (center first)
+                matWarp.uniforms.uBlendRadial.value = -1;
+                matWarp.uniforms.uCoverRadius.value = prevNom / curNom;
+            } else {
+                matWarp.uniforms.uBlendRadial.value = 0;
+                matWarp.uniforms.uCoverRadius.value = 1.0;
+            }
         } else {
+            matWarp.uniforms.uBlendRadial.value = S.blendShape === 'radial' ? 0 : 0;
             matWarp.uniforms.uCoverRadius.value = 1.0;
         }
 
