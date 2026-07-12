@@ -207,6 +207,7 @@ input[type="file"] { display: none; }
         <div class="ctrl-row">
           <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
           <input type="file" id="fcam" accept=".json" style="display:none">
+          <button id="btn-segments" title="Configure lead/follower camera per zoom segment">Segments</button>
           <button id="btn-save-scene">Save Scene</button>
           <button id="btn-load-scene">Load Scene</button>
           <button id="btn-reset">Reset All</button>
@@ -325,6 +326,22 @@ input[type="file"] { display: none; }
   </div>
 </div>
 
+<!-- Segment Config Dialog -->
+<div class="modal-overlay" id="seg-dialog">
+  <div class="modal" style="max-width:520px">
+    <h2>Segment Config</h2>
+    <p style="font-size:11px;color:#888;margin-bottom:10px;">
+      Configure which camera leads and follows for each zoom range.
+    </p>
+    <div id="seg-params-content"></div>
+    <div class="modal-actions">
+      <button id="seg-add">+ Add Segment</button>
+      <button id="seg-reset">Reset Defaults</button>
+      <button id="seg-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Camera Settings Dialog -->
 <div class="modal-overlay" id="cam-dialog">
   <div class="modal">
@@ -425,6 +442,8 @@ import { createConfigStore } from './src/config-store.js';
 import { parseTrajectory, CAM_TO_SRC } from './src/trajectory.js';
 import { createTransport } from './src/transport.js';
 import { createRecorder } from './src/recorder.js';
+import { createSegmentConfig } from './src/segment-config.js';
+import { bindSegmentDialog, renderSegmentDialog } from './src/segment-dialog.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -507,10 +526,15 @@ initCams(DEF_CAM);
    not re-rendered during the blend, so it holds its last frame for free. */
 const blendCtl = createBlendController({ getX: () => S.blendX });
 
+/* Segment config: configurable lead/follower camera assignment per zoom range.
+   Defaults match the hardcoded rules; users can reconfigure via the dialog. */
+const segmentConfig = createSegmentConfig();
+const getSegCfg = () => segmentConfig;
+
 /* Sampling refresh (src/sampling-hud.js): pushes the zoom pipeline's pure
    math into shader uniforms, blend inputs, follower state and the HUD. */
 const refreshH = createSamplingRefresh({
-    S, R, matWarp, rtW: RT_W, rtH: RT_H,
+    S, R, matWarp, rtW: RT_W, rtH: RT_H, getSegCfg,
     onHud: (html) => { $('hmat').innerHTML = html; },
     /* Play mode: lead/follower come from the trajectory frame, not the
        zoom rules (boss rule #2). Free mode: null → rules apply. */
@@ -576,6 +600,14 @@ store.register('cameras', {
         initCams(v.camParams);
         layoutPanels();
         camRig.updateBevAspect(P.bev);
+        refreshH();
+    },
+});
+
+store.register('segments', {
+    defaults: { segments: segmentConfig.serialize() },
+    apply: (v) => {
+        segmentConfig.restore(v.segments);
         refreshH();
     },
 });
@@ -755,6 +787,13 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') $('help-dialog').classList.remove('open');
 });
 
+/* Segment config dialog */
+const segDialog = bindSegmentDialog($('seg-dialog'), {
+    segmentConfig,
+    onApply: () => { refreshH(); loop.markDirty(); },
+});
+$('btn-segments').onclick = () => segDialog.open();
+
 /* ================================================================
    HOMOGRAPHY HUD + DEBUG HOOKS
    ================================================================ */
@@ -855,6 +894,7 @@ const loop = createRenderLoop({
     rtW: RT_W, rtH: RT_H,
     transport, onTrajFrame: applyTrajFrame,
     onPostFrame: () => onPostFrame(),
+    getSegCfg,
     ...(urlP.has('fps') ? { fps: Number(urlP.get('fps')) } : {}),
     ...(urlP.has('keepalive') ? { keepAlive: Number(urlP.get('keepalive')) } : {}),
 });

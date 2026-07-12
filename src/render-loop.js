@@ -175,6 +175,7 @@ export function createRenderLoop({
     bevInterval = 2, keepAlive = 30,
     fps = 30, now = () => performance.now(),
     transport = null, onTrajFrame = () => {}, onPostFrame = () => {},
+    getSegCfg = () => null,
 }) {
     const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
     const rtAspect = rtW / rtH;
@@ -223,7 +224,7 @@ export function createRenderLoop({
            exact blend state — a frozen outgoing frame could not. */
         const dual = rec ? true : S.blendMode === 'dual';
         const trajBlending = !!rec && rec.blendT !== null;
-        const zsrc = rec ? S.sampleSrc : zoomSource(S.zoom, !!R.sec2);
+        const zsrc = rec ? S.sampleSrc : zoomSource(S.zoom, !!R.sec2, getSegCfg());
         for (const s of sourcesToRender({
             zsrc, dual, blending: rec ? trajBlending : blendCtl.isBlending(),
             followerSrc: S.followerSrc, hasS2: !!R.sec2,

@@ -78,9 +78,11 @@ export function segName(z) {
  * Which camera sources the Combined view at a given zoom.
  * @param {number} z - zoom factor
  * @param {boolean} hasS2 - whether a second secondary camera exists
+ * @param {object} [segCfg] - optional segment config (createSegmentConfig instance)
  * @returns {number} SRC.SEC1 | SRC.MAIN | SRC.SEC2
  */
-export function zoomSource(z, hasS2) {
+export function zoomSource(z, hasS2, segCfg) {
+    if (segCfg) return segCfg.getLeadSource(z, hasS2);
     if (z < 1.0 - 1e-9) return SRC.SEC1;   // at exactly 1.0x → main leads
     if (z < 5.0 || !hasS2) return SRC.MAIN;
     return SRC.SEC2;
@@ -105,7 +107,14 @@ export function zoomSource(z, hasS2) {
  * @param {boolean} hasS2 - whether the Tele camera exists
  * @returns {number} SRC.SEC1 | SRC.MAIN | SRC.SEC2
  */
-export function followerSource(z, hasS2) {
+/**
+ * @param {number} z - zoom factor
+ * @param {boolean} hasS2 - whether the Tele camera exists
+ * @param {object} [segCfg] - optional segment config (createSegmentConfig instance)
+ * @returns {number} SRC.SEC1 | SRC.MAIN | SRC.SEC2
+ */
+export function followerSource(z, hasS2, segCfg) {
+    if (segCfg) return segCfg.getFollowerSource(z, hasS2);
     if (z < 1.0) return SRC.MAIN;
     if (z < 2.0 || !hasS2) return SRC.SEC1;
     return z < 5.0 ? SRC.SEC2 : SRC.MAIN;
@@ -131,7 +140,7 @@ export const SRC_NOMINAL = { [SRC.SEC1]: 0.5, [SRC.MAIN]: 1, [SRC.SEC2]: 5 };
 export function computeSampleMatrixExplicit(opts) {
     const hasS2 = !!opts.params.secondary_camera_2;
     const lead = (opts.leadSrc === SRC.SEC2 && !hasS2) ? SRC.MAIN : opts.leadSrc;
-    if (lead === undefined || lead === zoomSource(opts.z, hasS2)) {
+    if (lead === undefined || lead === zoomSource(opts.z, hasS2, opts.segCfg)) {
         return computeSampleMatrix(opts);
     }
     // Explicit lead contradicts zoom rules — plain center crop using prewarp
@@ -169,7 +178,7 @@ export function computeFollowerMatrix(opts) {
     const p = opts.params;
     const hasS2 = !!p.secondary_camera_2;
     const lead = computeSampleMatrixExplicit(opts);
-    let src = opts.followerSrc ?? followerSource(opts.z, hasS2);
+    let src = opts.followerSrc ?? followerSource(opts.z, hasS2, opts.segCfg);
     if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
     if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
 
@@ -209,7 +218,7 @@ export function computeFollowerMatrix(opts) {
  * @param {number}  opts.h        - render target height (px)
  * @returns {{src: number, m: number[]}} source index + 3×3 row-major sampling matrix
  */
-export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h }) {
+export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h, segCfg }) {
     const hasS2 = !!p.secondary_camera_2;
 
     if (z < 1.0) {

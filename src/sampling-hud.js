@@ -48,7 +48,7 @@ export function formatHMatrix(H, label) {
  *        the lead/follower sources (Play mode: read from the trajectory frame)
  * @returns {Function} refreshH — call after any zoom / warp / camera change
  */
-export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverride = () => null }) {
+export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverride = () => null, getSegCfg = () => null }) {
     return function refreshH() {
         if (!S.camParams) return;
         const ov = getOverride();
@@ -58,7 +58,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         const opts = {
             z: S.zoom, warp: S.warp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-            w: rtW, h: rtH,
+            w: rtW, h: rtH, segCfg: getSegCfg(),
             ...(ov ? { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc } : {}),
         };
         const { src, m: Msamp } = computeSampleMatrixExplicit(opts);
