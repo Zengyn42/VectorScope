@@ -11,23 +11,42 @@
  *   assets/
  *     bedroom.glb       — raw asset bytes (originals, NOT base64)
  *     chair.obj  chair.mtl  chair_diffuse.png  …
+ *   trajectories/
+ *     rec-abc123.json   — each trajectory as its own file
+ *     demo-sweep.json
  * ```
  * `scene.json.assets` lists each asset's file *names*; the bytes live in
  * `assets/`. URL-sourced assets (the built-in default scene) are fetched at
  * save time so a save directory is always self-contained.
  *
+ * Every module that owns persistable state exposes a standard interface:
+ * - config-store sections: `store.serialize()` / `store.applyAll()`
+ * - trajectory library: `trajLibrary.serialize()` / `trajLibrary.restore()`
+ * scene-io directly imports and coordinates them — no hooks.
+ *
  * **Load** is a full scene replacement: `clearModels()` → parse every asset
- * from the directory → `registerModel` (scene assets register children,
- * object assets register the root) → `adoptObjects` → `applyObjects`
- * (transforms + permanent drop of unlisted objects) → `store.applyAll`
- * (every config section present in the save).
+ * from the directory → `registerModel` → `adoptObjects` → `applyObjects`
+ * → `store.applyAll` → `trajLibrary.restore`.
  *
  * Browser support: Chrome/Edge. `isSupported()` gates the UI buttons.
  */
 
+import { parseTrajectory } from './trajectory.js';
+
 export const SCENE_JSON = 'scene.json';
 export const ASSETS_DIR = 'assets';
+export const TRAJ_DIR = 'trajectories';
 export const SAVE_VERSION = 1;
+
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Scene Save / Load',
+    order: 51,
+    entries: [
+        ['Save Scene', 'Pick a directory — writes scene.json (all sliders, buttons, zoom, cameras, view mode, FPS, objects) + assets/ + trajectories/'],
+        ['Load Scene', 'Pick a saved directory — fully replaces the current scene, restores every panel state, and loads all trajectories'],
+    ],
+};
 
 /**
  * @param {object} d
@@ -37,27 +56,16 @@ export const SAVE_VERSION = 1;
  * @param {object}   d.assetParser  - asset parser (parseFiles)
  * @param {object}   d.loader       - {clearModels, registerModel}
  * @param {object}   d.scene        - THREE.Scene
+ * @param {object}   d.trajLibrary  - trajectory library {serialize() → [{name, json}], restore(jsons)}
  * @param {Function} [d.onBeforeReplace] - called right before the old scene
  *        is cleared (stop animations, drop selection)
  * @param {Function} [d.onAfterLoad] - called after everything is applied
  *        (re-sync S.objs, UI refresh)
  * @param {Function} [d.log]        - status logger
  */
-/** Help section (see src/help-registry.js) */
-export const HELP = {
-    title: 'Scene Save / Load',
-    order: 51,
-    entries: [
-        ['Save Scene', 'Pick a directory — writes scene.json (all sliders, buttons, zoom, cameras, view mode, FPS, objects) + assets/ with the raw model files'],
-        ['Load Scene', 'Pick a saved directory — fully replaces the current scene and restores every panel state'],
-    ],
-};
-
-export const TRAJ_DIR = 'trajectories';
-
 export function createSceneIO({ store, assetRegistry, objectOps, assetParser, loader, scene,
-                                onBeforeReplace = () => {}, onAfterLoad = () => {}, log = () => {},
-                                getTrajectories = () => [], onTrajectoriesLoaded = () => {} }) {
+                                trajLibrary, onBeforeReplace = () => {}, onAfterLoad = () => {},
+                                log = () => {} }) {
 
     function isSupported() {
         return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
@@ -122,18 +130,17 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
         };
         await writeFile(dir, SCENE_JSON, JSON.stringify(json, null, 2));
 
-        /* Save all trajectories in the library as individual .json files
-           inside a trajectories/ subdirectory. */
-        const trajs = getTrajectories();
+        /* Trajectories: each one gets its own file in trajectories/ */
+        const trajs = trajLibrary.serialize();
         if (trajs.length > 0) {
             const trajDir = await dir.getDirectoryHandle(TRAJ_DIR, { create: true });
             for (const t of trajs) {
                 await writeFile(trajDir, `${t.name}.json`, JSON.stringify(t.json, null, 2));
             }
         }
-        const trajCount = trajs.length;
+
         log(`Scene saved: ${objects.length} object(s), ${assetMeta.length} asset(s)` +
-            (trajCount ? `, ${trajCount} trajectory(s)` : ''));
+            (trajs.length ? `, ${trajs.length} trajectory(s)` : ''));
         return true;
     }
 
@@ -195,7 +202,7 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
            keys (version/objects/assets, future sections) are ignored. */
         store.applyAll(json);
 
-        /* Load trajectories from trajectories/ subdirectory if present. */
+        /* Trajectories: parse all .json files from trajectories/ subdir */
         let trajCount = 0;
         try {
             const trajDir = await dir.getDirectoryHandle(TRAJ_DIR);
@@ -208,7 +215,7 @@ export function createSceneIO({ store, assetRegistry, objectOps, assetParser, lo
                 } catch (e) { console.warn(`Skipped trajectory ${entry.name}:`, e.message); }
             }
             if (trajJsons.length > 0) {
-                onTrajectoriesLoaded(trajJsons);
+                trajLibrary.restore(trajJsons);
                 trajCount = trajJsons.length;
             }
         } catch (_) { /* no trajectories/ dir — that's fine */ }

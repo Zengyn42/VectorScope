@@ -599,17 +599,17 @@ const objectOps = createObjectOps({
 const assetParser = createAssetParser({
     THREE, GLTFLoader, DRACOLoader, dracoPath: './lib/draco/', OBJLoader, MTLLoader,
 });
-/* Late-bound trajectory hooks for scene-io (trajLibrary defined later). */
-let getSceneTrajectories = () => [];
-let onSceneTrajectoriesLoaded = () => {};
+/* Trajectory library object — standard serialize/restore interface.
+   The actual Map and UI sync are defined later in the TRAJECTORY section;
+   scene-io uses only serialize()/restore() which are late-bound here. */
+const trajLibraryIO = { serialize: () => [], restore: () => {} };
 
 const sceneIO = createSceneIO({
     store, assetRegistry, objectOps, assetParser,
     loader: { clearModels, registerModel }, scene,
+    trajLibrary: trajLibraryIO,
     onBeforeReplace: () => { sceneAnim.clearAll(); sel(null); },
     onAfterLoad: () => { syncObjs(); },
-    getTrajectories: () => getSceneTrajectories(),
-    onTrajectoriesLoaded: (jsons) => onSceneTrajectoriesLoaded(jsons),
     log,
 });
 
@@ -854,34 +854,36 @@ function addToLibrary(traj) {
     syncTrajList();
 }
 
-/* Wire late-bound scene-io hooks now that trajLibrary exists. */
-getSceneTrajectories = () => {
+/** Delta-encode a parsed trajectory back to compact JSON for storage. */
+function trajToJson(traj) {
+    const dense = [];
+    for (let i = 0; i < traj.length; i++) dense.push(traj.frameAt(i));
+    const frames = [];
+    for (let i = 0; i < dense.length; i++) {
+        if (i === 0) { frames.push(dense[i]); continue; }
+        const delta = {};
+        for (const [k, v] of Object.entries(dense[i])) {
+            if (k === 'blendT') continue;
+            if (JSON.stringify(v) !== JSON.stringify(dense[i - 1][k])) delta[k] = v;
+        }
+        frames.push(Object.keys(delta).length > 0 ? delta : { zoom: dense[i].zoom });
+    }
+    return { version: 1, name: traj.name, fps: traj.fps, frames };
+}
+
+/* Standard serialize/restore interface — used by scene-io directly. */
+trajLibraryIO.serialize = () => {
     const out = [];
     for (const [name, traj] of trajLibrary) {
-        // Re-export dense frames → delta-encoded JSON for storage
-        const denseFrames = [];
-        for (let i = 0; i < traj.length; i++) denseFrames.push(traj.frameAt(i));
-        const outFrames = [];
-        for (let i = 0; i < denseFrames.length; i++) {
-            if (i === 0) { outFrames.push(denseFrames[i]); continue; }
-            const delta = {};
-            for (const [k, v] of Object.entries(denseFrames[i])) {
-                if (k === 'blendT') continue;
-                if (JSON.stringify(v) !== JSON.stringify(denseFrames[i - 1][k])) delta[k] = v;
-            }
-            outFrames.push(Object.keys(delta).length > 0 ? delta : { zoom: denseFrames[i].zoom });
-        }
-        out.push({ name, json: { version: 1, name: traj.name, fps: traj.fps, frames: outFrames } });
+        out.push({ name, json: trajToJson(traj) });
     }
     return out;
 };
-onSceneTrajectoriesLoaded = (jsons) => {
+trajLibraryIO.restore = (jsons) => {
     trajLibrary.clear();
     for (const j of jsons) {
-        try {
-            const traj = parseTrajectory(j);
-            trajLibrary.set(traj.name, traj);
-        } catch (e) { console.warn('Skipped trajectory:', e.message); }
+        try { trajLibrary.set(parseTrajectory(j).name, parseTrajectory(j)); }
+        catch (e) { console.warn('Skipped trajectory:', e.message); }
     }
     syncTrajList();
     transport.eject();
@@ -937,22 +939,7 @@ $('btn-traj-save').onclick = async () => {
         return;
     }
     const traj = trajLibrary.get(name);
-    // Re-export from the parsed object: reconstruct the JSON with dense frames
-    // (simpler than keeping the original sparse JSON around)
-    const denseFrames = [];
-    for (let i = 0; i < traj.length; i++) denseFrames.push(traj.frameAt(i));
-    // Delta-encode for compact file
-    const outFrames = [];
-    for (let i = 0; i < denseFrames.length; i++) {
-        if (i === 0) { outFrames.push(denseFrames[i]); continue; }
-        const delta = {};
-        for (const [k, v] of Object.entries(denseFrames[i])) {
-            if (k === 'blendT') continue;   // internal field, not stored
-            if (JSON.stringify(v) !== JSON.stringify(denseFrames[i - 1][k])) delta[k] = v;
-        }
-        outFrames.push(Object.keys(delta).length > 0 ? delta : { zoom: denseFrames[i].zoom });
-    }
-    const json = { version: 1, name: traj.name, fps: traj.fps, frames: outFrames };
+    const json = trajToJson(traj);
     const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
 
     try {
