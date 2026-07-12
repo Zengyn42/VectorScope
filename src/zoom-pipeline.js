@@ -204,7 +204,8 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
             const t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
             return { src: SRC.SEC1, m: normLerp(M.id(), Hm2s1, t) };
         }
-        return { src: SRC.SEC1, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(z, w, h)) };
+        // UW nominal = 0.5x; crop relative to its FOV = z/0.5 = 2z
+        return { src: SRC.SEC1, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(z / 0.5, w, h)) };
     }
 
     if (z <= 2.0 || !hasS2) {
