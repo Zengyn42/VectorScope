@@ -54,8 +54,8 @@ export const CONTROL_DEFAULTS = {
     zoom: 1.0,
     warp: false,
     depthD: 3.0,
-    prewarp1: 1.0,
-    prewarp2: 1.0,
+    prewarp1: 2.0,
+    prewarp2: 5.0,
     blendX: 20,
     blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
     blendShape: 'flat',    // 'flat' = uniform alpha | 'radial' = center-out gradient
