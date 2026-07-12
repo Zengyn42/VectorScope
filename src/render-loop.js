@@ -32,7 +32,7 @@
  * The gating decision is a pure function ({@link frameGate}).
  */
 
-import { SRC, zoomSource } from './zoom-pipeline.js';
+import { SRC, zoomSource, SRC_NOMINAL } from './zoom-pipeline.js';
 
 /**
  * Which source RTs must be rendered this frame.
@@ -251,6 +251,24 @@ export function createRenderLoop({
                 matWarp.uniforms.uPrevSrc.value = feed.prev.src;
                 matWarp.uniforms.uPrevHi.value.set(...feed.prev.m);
             }
+        }
+        /* Radial blend: compute coverage radius — the fraction of the frame
+           where the outgoing camera has valid data. Only matters when going
+           from a narrow FOV to a wider FOV (zoom out: main→UW, tele→main).
+           When zooming in (wider→narrower), coverRadius = 1.0 (effectively flat). */
+        if (S.blendShape === 'radial' && matWarp.uniforms.uBlend.value < 1) {
+            const curSrc = zsrc;
+            const prevSrc = matWarp.uniforms.uPrevSrc.value;
+            const curNom = SRC_NOMINAL[curSrc] || 1;
+            const prevNom = SRC_NOMINAL[prevSrc] || 1;
+            // Going wider (outgoing has higher zoom = narrower FOV)?
+            // coverRadius = incoming_nominal / outgoing_nominal
+            // main(1x)→UW(0.5x): cover = 0.5/1.0 = 0.5
+            // tele(5x)→main(1x): cover = 1.0/5.0 = 0.2
+            const cover = prevNom > curNom ? curNom / prevNom : 1.0;
+            matWarp.uniforms.uCoverRadius.value = cover;
+        } else {
+            matWarp.uniforms.uCoverRadius.value = 1.0;
         }
 
         /* Pass 3a: Bird's Eye → its own RT, rate-reduced: every

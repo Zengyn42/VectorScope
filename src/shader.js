@@ -64,6 +64,8 @@ uniform int uPrevSrc;    // outgoing camera during a transition blend
 uniform mat3 uPrevHi;    // its frozen sampling matrix (last displayed frame)
 uniform float uBlend;    // weight of the CURRENT frame: n/X; 1.0 = no blend
 uniform int uBlendRadial; // 0 = flat (uniform alpha), 1 = radial (center-out)
+uniform float uCoverRadius; // fraction of frame radius where outgoing camera has valid data
+                            // e.g. main→UW: 0.5 (main covers center 50% of UW frame)
 varying vec2 vUv;
 
 // Warp-sample one camera texture: apply the pixel-space sampling matrix M
@@ -89,13 +91,21 @@ void main(){
         vec4 prev = warpSample(uPrevSrc, uPrevHi, px);
         float w = uBlend;
         if(uBlendRadial == 1){
-            // Radial blend: center stays on the outgoing (small-FOV) image
-            // longer, edges reveal the incoming (large-FOV) image first.
-            // This avoids blank edges when going from tele → wide.
+            // Radial blend (outside-in): when zooming out (main→UW, tele→main),
+            // the outgoing camera only covers the center fraction of the incoming
+            // frame. Edges have no outgoing data → show incoming immediately.
+            // The coverage disk shrinks over the blend duration until the
+            // outgoing image vanishes entirely.
             vec2 center = uR * 0.5;
-            float dist = length((px - center) / center); // 0 at center, ~1 at corners
-            // Bias the blend weight outward: edges reach full blend earlier
-            w = smoothstep(0.0, 1.0, uBlend + dist * (1.0 - uBlend));
+            float dist = length((px - center) / center); // 0 at center, ~1 at edges
+            float r = uCoverRadius;
+            // The inner edge shrinks from coverRadius toward 0 as uBlend → 1
+            float innerEdge = r * (1.0 - uBlend);
+            // Outside coverRadius: always show incoming (outgoing has no data)
+            // Inside: gradual radial wipe from inner edge to coverRadius
+            float radialW = smoothstep(innerEdge, r, dist);
+            // Ensure center still progresses (at least uBlend everywhere)
+            w = max(uBlend, radialW);
         }
         col = mix(prev, col, w);
     }
@@ -130,6 +140,7 @@ export function createWarpMaterial(THREE, texS1, texM, texS2, rtW, rtH) {
             uPrevHi: { value: new THREE.Matrix3() },
             uBlend: { value: 1.0 },
             uBlendRadial: { value: 0 },
+            uCoverRadius: { value: 1.0 },
         },
     });
 }
