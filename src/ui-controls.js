@@ -39,15 +39,27 @@ export const HELP = {
 };
 
 /** Default values of the persistable `controls` section. */
+/**
+ * Default values for the 'controls' store section.
+ *
+ * Control groups:
+ * - **Per-frame**: recorded into trajectory every frame (defines Combined output)
+ * - **Session**: saved with the scene but NOT recorded per-frame in trajectories
+ *
+ * Per-frame fields: zoom, warp, depthD, prewarp1, prewarp2, blendX, blendMode
+ * Session fields:   clipY (BEV ghost height — display only, doesn't affect Combined)
+ */
 export const CONTROL_DEFAULTS = {
+    /* ── Per-frame (trajectory records these) ── */
     zoom: 1.0,
     warp: false,
     depthD: 3.0,
     prewarp1: 1.0,
     prewarp2: 1.0,
-    clipY: 2.0,
     blendX: 20,
     blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
+    /* ── Session (scene save only, not per-frame) ── */
+    clipY: 2.0,
 };
 
 /**

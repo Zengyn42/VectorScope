@@ -192,95 +192,118 @@ input[type="file"] { display: none; }
 
     <div id="panel-controls">
       <div class="panel-title">Controls</div>
-      <div class="ctrl-row">
-        <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
-        <input type="file" id="fcam" accept=".json" style="display:none">
-        <button id="btn-reset">Reset All</button>
-        <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
-        <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
-        <button id="btn-help" title="How to use VectorScope">Help</button>
+
+      <!-- ═══════ GROUP: Per-Frame (recorded into trajectory per frame) ═══════
+           These controls define the Combined view's output at any given frame.
+           The recorder captures them every rendered frame; playback restores them. -->
+      <div id="grp-perframe">
+        <div class="ctrl-row">
+          <label>Focus D:</label>
+          <button class="sld-btn" onclick="nudge('sld-d',-1)">&minus;</button>
+          <input type="range" id="sld-d" min="0.1" max="10" step="0.1" value="3">
+          <button class="sld-btn" onclick="nudge('sld-d',1)">+</button>
+          <span class="val" id="vd">3.0</span>
+          <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
+        </div>
+        <div class="ctrl-row">
+          <label>Prewarp1:</label>
+          <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
+          <input type="range" id="sld-pw" min="0.25" max="4.0" step="0.01" value="1.0">
+          <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
+          <span class="val" id="vpw">1.00x</span>
+        </div>
+        <div class="ctrl-row">
+          <label>Prewarp2:</label>
+          <button class="sld-btn" onclick="nudge('sld-pw2',-1)">&minus;</button>
+          <input type="range" id="sld-pw2" min="0.25" max="4.0" step="0.01" value="1.0">
+          <button class="sld-btn" onclick="nudge('sld-pw2',1)">+</button>
+          <span class="val" id="vpw2">1.00x</span>
+        </div>
+        <div class="ctrl-row">
+          <label>Zoom:</label>
+          <button class="sld-btn" onclick="nudge('sld-z',-1)">&minus;</button>
+          <!-- log10 scale: -0.30103 → 0.5x, 0 → 1x, 1 → 10x -->
+          <input type="range" id="sld-z" min="-0.30103" max="1" step="0.001" value="0">
+          <button class="sld-btn" onclick="nudge('sld-z',1)">+</button>
+          <span class="val" id="vz">1.00x</span>
+        </div>
+        <div class="ctrl-row" id="zoom-presets">
+          <label>Go:</label>
+          <button class="zp-btn" data-z="0.5">0.5x</button>
+          <button class="zp-btn" data-z="1">1.0x</button>
+          <button class="zp-btn" data-z="2">2.0x</button>
+          <button class="zp-btn" data-z="5">5.0x</button>
+          <button class="zp-btn" data-z="10">10x</button>
+        </div>
+        <div class="ctrl-row">
+          <label>Blend:</label>
+          <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
+          <!-- X = cross-fade length in frames after a camera switch; 0 = off -->
+          <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
+          <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
+          <span class="val" id="vblend">20f</span>
+          <!-- Blend mode: Single = frozen outgoing frame; Dual = live follower RT -->
+          <button id="btn-bmode" style="min-width:52px">Single</button>
+        </div>
+        <div class="ctrl-row">
+          <button id="btn-warp">Warp</button>
+          <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
+          <input type="file" id="fcam" accept=".json" style="display:none">
+        </div>
       </div>
-      <div class="ctrl-row">
-        <button onclick="document.getElementById('fadd').click()">Add</button>
-        <input type="file" id="fadd" multiple style="display:none"
-               accept=".glb,.gltf,.obj,.mtl,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tga">
-        <button id="btn-del">Delete</button>
-        <button id="btn-save-scene">Save Scene</button>
-        <button id="btn-load-scene">Load Scene</button>
+
+      <!-- ═══════ GROUP: Session (scene-level, NOT per-frame) ═══════
+           These affect display/layout but not the Combined view's pixel output.
+           Saved with the scene, but NOT recorded per-frame in trajectories. -->
+      <div id="grp-session">
+        <div class="ctrl-row">
+          <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
+          <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
+          <button id="btn-play">&#9654; Play</button>
+          <button id="btn-help" title="How to use VectorScope">Help</button>
+        </div>
       </div>
-      <div class="ctrl-row">
-        <label>Focus D:</label>
-        <button class="sld-btn" onclick="nudge('sld-d',-1)">&minus;</button>
-        <input type="range" id="sld-d" min="0.1" max="10" step="0.1" value="3">
-        <button class="sld-btn" onclick="nudge('sld-d',1)">+</button>
-        <span class="val" id="vd">3.0</span>
-        <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
+
+      <!-- ═══════ GROUP: Trigger (stateless actions, never stored) ═══════
+           One-shot operations: AF measures once, Reset restores defaults,
+           Save/Load/Add/Delete are file ops. No per-frame or session state. -->
+      <div id="grp-trigger">
+        <div class="ctrl-row">
+          <button id="btn-reset">Reset All</button>
+          <button onclick="document.getElementById('fadd').click()">Add</button>
+          <input type="file" id="fadd" multiple style="display:none"
+                 accept=".glb,.gltf,.obj,.mtl,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tga">
+          <button id="btn-del">Delete</button>
+          <button id="btn-save-scene">Save Scene</button>
+          <button id="btn-load-scene">Load Scene</button>
+        </div>
       </div>
-      <div class="ctrl-row">
-        <label>Prewarp1:</label>
-        <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
-        <input type="range" id="sld-pw" min="0.25" max="4.0" step="0.01" value="1.0">
-        <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
-        <span class="val" id="vpw">1.00x</span>
-      </div>
-      <div class="ctrl-row">
-        <label>Prewarp2:</label>
-        <button class="sld-btn" onclick="nudge('sld-pw2',-1)">&minus;</button>
-        <input type="range" id="sld-pw2" min="0.25" max="4.0" step="0.01" value="1.0">
-        <button class="sld-btn" onclick="nudge('sld-pw2',1)">+</button>
-        <span class="val" id="vpw2">1.00x</span>
-      </div>
-      <div class="ctrl-row">
-        <label>Zoom:</label>
-        <button class="sld-btn" onclick="nudge('sld-z',-1)">&minus;</button>
-        <!-- log10 scale: -0.30103 → 0.5x, 0 → 1x, 1 → 10x -->
-        <input type="range" id="sld-z" min="-0.30103" max="1" step="0.001" value="0">
-        <button class="sld-btn" onclick="nudge('sld-z',1)">+</button>
-        <span class="val" id="vz">1.00x</span>
-      </div>
-      <div class="ctrl-row" id="zoom-presets">
-        <label>Go:</label>
-        <button class="zp-btn" data-z="0.5">0.5x</button>
-        <button class="zp-btn" data-z="1">1.0x</button>
-        <button class="zp-btn" data-z="2">2.0x</button>
-        <button class="zp-btn" data-z="5">5.0x</button>
-        <button class="zp-btn" data-z="10">10x</button>
-      </div>
-      <div class="ctrl-row">
-        <label>Blend:</label>
-        <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
-        <!-- X = cross-fade length in frames after a camera switch; 0 = off -->
-        <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
-        <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
-        <span class="val" id="vblend">20f</span>
-        <!-- Blend mode: Single = frozen outgoing frame; Dual = live follower RT (docs/CAMERAS.md) -->
-        <button id="btn-bmode" style="min-width:52px">Single</button>
-      </div>
-      <div class="ctrl-row">
-        <button id="btn-warp">Warp</button>
-        <button id="btn-play">&#9654; Play</button>
-      </div>
-      <!-- Trajectory: list selector + load folder + record + transport -->
-      <div class="ctrl-row" id="traj-row">
-        <select id="sel-traj" title="Select trajectory (default = free mode)">
-          <option value="__default__" selected>default</option>
-        </select>
-        <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
-        <input type="file" id="ftraj" accept=".json" style="display:none">
-        <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
-        <button id="btn-traj-rec" title="Start/stop recording a trajectory"
-                style="min-width:36px">&#9679; Rec</button>
-      </div>
-      <div class="ctrl-row" id="traj-transport-row">
-        <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                title="Play / pause the selected trajectory">&#9654;</button>
-        <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
-        <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
-        <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
-               title="Trajectory progress — drag to seek">
-        <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
-        <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                title="Stop: back to free mode (built-in zoom rules)">&#9632;</button>
+
+      <!-- ═══════ GROUP: Trajectory (transport + record/playback) ═══════
+           The trajectory system: load/save/record files, play/pause/step/seek.
+           fps is trajectory-level metadata (not per-frame). -->
+      <div id="grp-trajectory">
+        <div class="ctrl-row" id="traj-row">
+          <select id="sel-traj" title="Select trajectory (default = free mode)">
+            <option value="__default__" selected>default</option>
+          </select>
+          <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
+          <input type="file" id="ftraj" accept=".json" style="display:none">
+          <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
+          <button id="btn-traj-rec" title="Start/stop recording a trajectory"
+                  style="min-width:36px">&#9679; Rec</button>
+        </div>
+        <div class="ctrl-row" id="traj-transport-row">
+          <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                  title="Play / pause the selected trajectory">&#9654;</button>
+          <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
+          <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
+          <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
+                 title="Trajectory progress — drag to seek">
+          <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
+          <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                  title="Stop: back to free mode (built-in zoom rules)">&#9632;</button>
+        </div>
       </div>
     </div>
 
@@ -547,6 +570,8 @@ const { P, layoutPanels, getPanel, toNDC, setMode, getMode } = createPanelManage
    camRig/layoutPanels/P. All camera edits — dialog Apply, inline panel
    edits, camera JSON file — route through store.set('cameras', …).
    ================================================================ */
+/* Group: PER-FRAME — camera intrinsics/extrinsics and rig pose are
+   recorded every frame in the trajectory (they can change per-frame). */
 store.register('cameras', {
     defaults: {
         camParams: DEF_CAM,
@@ -677,6 +702,7 @@ window.closeCamDialog = ui.closeCamDialog;
    COMBINED FOCUS MODE + HELP
    View mode is a persisted store section — scene save/load restores it.
    ================================================================ */
+/* Group: SESSION — view layout is scene-level, NOT recorded per-frame. */
 store.register('view', {
     defaults: { mode: 'full' },           // 'full' | 'combined'
     apply: (v) => {
@@ -812,6 +838,8 @@ function syncFpsBtn() {
     const f = loop.getFps();
     $('btn-fps').textContent = f > 0 ? `${f} FPS` : 'VSYNC';
 }
+/* Group: SESSION — render fps is scene-level. For trajectories, fps is
+   stored once as trajectory-level metadata (not per-frame). */
 store.register('render', {
     defaults: { fps: 30 },
     apply: (v) => { loop.setFps(v.fps); syncFpsBtn(); },

@@ -24,12 +24,31 @@ const SRC_TO_CAM = { [SRC.SEC1]: 'uw', [SRC.MAIN]: 'main', [SRC.SEC2]: 'tele' };
 /**
  * Create a recorder instance.
  *
+ * Only captures **per-frame group** state — the controls that define the
+ * Combined view's output at any given frame:
+ *
+ * | Per-frame field    | Source              |
+ * |--------------------|---------------------|
+ * | zoom               | Zoom slider         |
+ * | focusD             | Focus D slider      |
+ * | prewarp1, prewarp2 | Prewarp sliders     |
+ * | warp               | Warp button         |
+ * | blendX             | Blend slider        |
+ * | blendMode          | Blend mode button   |
+ * | lead, follower     | Derived from zoom   |
+ * | blend              | blendCtl.isBlending |
+ * | sceneCam           | Camera rig pose     |
+ * | camParams          | Camera intrinsics/extrinsics |
+ * | sampleM, followerM | Computed homography matrices |
+ *
+ * NOT recorded (session group): clipY, view mode, fps.
+ * NOT recorded (trigger group): AF, Reset, Save/Load, Add/Delete.
+ * NOT recorded (object group): object positions, animations.
+ *
  * @param {object} deps
- * @param {() => object} deps.getState - returns the current frame state snapshot:
- *   { zoom, depthD, prewarpScale, prewarpScale2, warp, blendX, blendMode,
- *     sampleSrc, sampleM, followerSrc, followerM, camParams }
+ * @param {() => object} deps.getState - returns the current per-frame state snapshot
  * @param {() => object} deps.getSceneCam - returns { position: [x,y,z], rotation_euler_deg: [rx,ry,rz] }
- * @param {() => number} deps.getFps - current render fps
+ * @param {() => number} deps.getFps - current render fps (trajectory-level metadata, not per-frame)
  * @returns {object} recorder API
  */
 export function createRecorder({ getState, getSceneCam, getFps }) {
