@@ -120,7 +120,7 @@ export function createRecorder({ getState, getSceneCam, getFps }) {
 
         return {
             version: TRAJECTORY_VERSION,
-            name: `rec-${Date.now().toString(36)}`,
+            name: `traj_${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}_${frames.length}f`,
             fps,
             frames: output,
         };

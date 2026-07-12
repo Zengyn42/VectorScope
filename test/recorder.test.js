@@ -49,7 +49,7 @@ describe('createRecorder', () => {
         assert.equal(traj.version, 1);
         assert.equal(traj.fps, 60);
         assert.equal(traj.frames.length, 10);
-        assert.ok(traj.name.startsWith('rec-'));
+        assert.ok(traj.name.startsWith('traj_'));
         // Frame 0 must be complete
         assert.ok('lead' in traj.frames[0]);
         assert.ok('follower' in traj.frames[0]);
