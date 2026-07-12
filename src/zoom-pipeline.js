@@ -81,7 +81,7 @@ export function segName(z) {
  * @returns {number} SRC.SEC1 | SRC.MAIN | SRC.SEC2
  */
 export function zoomSource(z, hasS2) {
-    if (z < 1.0) return SRC.SEC1;
+    if (z < 1.0 - 1e-9) return SRC.SEC1;   // at exactly 1.0x → main leads
     if (z < 5.0 || !hasS2) return SRC.MAIN;
     return SRC.SEC2;
 }
