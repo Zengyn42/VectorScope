@@ -36,7 +36,7 @@ function makeRig({ withS2 = true } = {}) {
 
 function sample(z, over = {}) {
     return computeSampleMatrix({
-        z, warp: true, D, params: makeRig(), prewarp1: 1, prewarp2: 1, w: W, h: H,
+        z, warp: true, D, params: makeRig(), prewarp1: 2, prewarp2: 5, w: W, h: H,
         ...over,
     });
 }
@@ -179,10 +179,11 @@ describe('computeSampleMatrix — warp OFF', () => {
         assertVecClose(m, M.mul(zoomMatrix(1.3, W, H), zoomMatrix(0.7, W, H)), 'A raw');
     });
 
-    it('segment C: prewarp2 · crop(z) on main', () => {
-        const { src, m } = sample(3, { warp: false, prewarp2: 0.8 });
+    it('segment C: plain crop(z) on main (prewarp2 not applied here)', () => {
+        const { src, m } = sample(3, { warp: false, prewarp2: 4.8 });
         assert.equal(src, SRC.MAIN);
-        assertVecClose(m, M.mul(zoomMatrix(0.8, W, H), zoomMatrix(3, W, H)), 'C raw');
+        // Segment C: Main is reference camera, just crop by z
+        assertVecClose(m, zoomMatrix(3, W, H), 'C raw');
     });
 
     it('segment B ignores both prewarps', () => {
@@ -235,7 +236,7 @@ describe('followerSource', () => {
 
 function follower(z, over = {}) {
     return computeFollowerMatrix({
-        z, warp: true, D, params: makeRig(), prewarp1: 1, prewarp2: 1, w: W, h: H,
+        z, warp: true, D, params: makeRig(), prewarp1: 2, prewarp2: 5, w: W, h: H,
         ...over,
     });
 }

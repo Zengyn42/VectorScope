@@ -134,7 +134,12 @@ export function computeSampleMatrixExplicit(opts) {
     if (lead === undefined || lead === zoomSource(opts.z, hasS2)) {
         return computeSampleMatrix(opts);
     }
-    return { src: lead, m: zoomMatrix(opts.z / SRC_NOMINAL[lead], opts.w, opts.h) };
+    // Explicit lead contradicts zoom rules — plain center crop using prewarp
+    // as the effective nominal (prewarp1 for UW, 1 for Main, prewarp2 for Tele).
+    const nominal = lead === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
+                  : lead === SRC.SEC2 ? (opts.prewarp2 || 5)
+                  : 1;
+    return { src: lead, m: zoomMatrix(opts.z / nominal, opts.w, opts.h) };
 }
 
 /**
@@ -222,11 +227,16 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
             const t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
             return { src: SRC.MAIN, m: normLerp(zoomMatrix(2, w, h), Hs2m, t) };
         }
-        return { src: SRC.MAIN, m: M.mul(zoomMatrix(prewarp2, w, h), zoomMatrix(z, w, h)) };
+        // Segment C: Main is the reference camera, just crop by z.
+        // prewarp2 doesn't apply here — it describes the Tele/Main focal
+        // length ratio, used only when sampling Tele's RT (Segment D).
+        return { src: SRC.MAIN, m: zoomMatrix(z, w, h) };
     }
 
     /* ── Segment D: sec2 direct, residual crop ── */
-    return { src: SRC.SEC2, m: zoomMatrix(z / 5, w, h) };
+    // prewarp2 = f_Tele / f_Main; replaces the hardcoded "5" nominal.
+    // At z=prewarp2: crop=1.0 (full Tele frame = matches Main's FOV/prewarp2).
+    return { src: SRC.SEC2, m: zoomMatrix(z / prewarp2, w, h) };
 }
 
 /**
