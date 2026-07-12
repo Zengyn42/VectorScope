@@ -172,10 +172,21 @@ export function computeFollowerMatrix(opts) {
     let src = opts.followerSrc ?? followerSource(opts.z, hasS2);
     if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
     if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
-    const D = opts.D;
 
-    // H(follower ← leading): computeHPair(cam1, cam2) maps cam2 px → cam1 px,
-    // so cam1 = follower, cam2 = leading.
+    if (!opts.warp) {
+        // Warp OFF: follower uses its own prewarp-based crop (no homography).
+        // Each camera's sampling matrix at zoom z (pure prewarp crop):
+        //   UW:   zoomMatrix(prewarp1 × z)
+        //   Main: zoomMatrix(z)
+        //   Tele: zoomMatrix(z / prewarp2)
+        const { w, h, prewarp1 = 1, prewarp2 = 5 } = opts;
+        if (src === SRC.SEC1) return { src, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(opts.z, w, h)) };
+        if (src === SRC.SEC2) return { src, m: zoomMatrix(opts.z / prewarp2, w, h) };
+        return { src, m: zoomMatrix(opts.z, w, h) };
+    }
+
+    // Warp ON: H(follower ← leading) × M_leading
+    const D = opts.D;
     const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
                        : s === SRC.SEC2 ? p.secondary_camera_2
                        : p.main_camera;
