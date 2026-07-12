@@ -207,7 +207,6 @@ input[type="file"] { display: none; }
         <div class="ctrl-row">
           <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
           <input type="file" id="fcam" accept=".json" style="display:none">
-          <button id="btn-segments" title="Configure lead/follower camera per zoom segment">Segments</button>
           <button id="btn-save-scene">Save Scene</button>
           <button id="btn-load-scene">Load Scene</button>
           <button id="btn-reset">Reset All</button>
@@ -245,6 +244,7 @@ input[type="file"] { display: none; }
           <input type="range" id="sld-z" min="-0.30103" max="1" step="0.01" value="0">
           <button class="sld-btn" onclick="nudgeZoom(1)">+</button>
           <span class="val" id="vz">1.00x</span>
+          <button id="btn-segments" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px" title="Configure lead/follower camera per zoom segment">Seg</button>
         </div>
         <div class="ctrl-row" id="zoom-presets">
           <label>Go:</label>
