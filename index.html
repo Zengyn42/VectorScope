@@ -163,8 +163,15 @@ input[type="file"] { display: none; }
     <canvas id="main-canvas"></canvas>
 
     <!-- Top row: DOM overlay panels (info + controls) -->
+    <!-- ═══════ Object Panel ═══════ -->
     <div id="panel-info">
-      <div class="panel-title">Selection</div>
+      <div class="panel-title">Objects</div>
+      <div class="ctrl-row">
+        <button onclick="document.getElementById('fadd').click()">Add</button>
+        <input type="file" id="fadd" multiple style="display:none"
+               accept=".glb,.gltf,.obj,.mtl,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tga">
+        <button id="btn-del">Delete</button>
+      </div>
       <div class="ctrl-row" style="margin-bottom:8px">
         <label>Ghost Y:</label>
         <button class="sld-btn" onclick="nudge('sld-clip',-1)">&minus;</button>
@@ -190,12 +197,23 @@ input[type="file"] { display: none; }
       <div id="cam-detail" style="display:none;margin-top:8px;font-family:monospace;font-size:11px;line-height:1.6;color:#ccc;"></div>
     </div>
 
+    <!-- ═══════ Main Panel ═══════ -->
     <div id="panel-controls">
       <div class="panel-title">Controls</div>
 
-      <!-- ═══════ GROUP: Per-Frame (recorded into trajectory per frame) ═══════
-           These controls define the Combined view's output at any given frame.
-           The recorder captures them every rendered frame; playback restores them. -->
+      <!-- Top row: scene-level actions -->
+      <div id="grp-actions">
+        <div class="ctrl-row">
+          <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
+          <input type="file" id="fcam" accept=".json" style="display:none">
+          <button id="btn-save-scene">Save Scene</button>
+          <button id="btn-load-scene">Load Scene</button>
+          <button id="btn-reset">Reset All</button>
+          <button id="btn-help" title="How to use VectorScope">Help</button>
+        </div>
+      </div>
+
+      <!-- Per-frame sliders (recorded into trajectory) -->
       <div id="grp-perframe">
         <div class="ctrl-row">
           <label>Focus D:</label>
@@ -222,7 +240,6 @@ input[type="file"] { display: none; }
         <div class="ctrl-row">
           <label>Zoom:</label>
           <button class="sld-btn" onclick="nudge('sld-z',-1)">&minus;</button>
-          <!-- log10 scale: -0.30103 → 0.5x, 0 → 1x, 1 → 10x -->
           <input type="range" id="sld-z" min="-0.30103" max="1" step="0.001" value="0">
           <button class="sld-btn" onclick="nudge('sld-z',1)">+</button>
           <span class="val" id="vz">1.00x</span>
@@ -235,74 +252,48 @@ input[type="file"] { display: none; }
           <button class="zp-btn" data-z="5">5.0x</button>
           <button class="zp-btn" data-z="10">10x</button>
         </div>
+        <!-- Warp / Play / FPS: below zoom slider -->
+        <div class="ctrl-row">
+          <button id="btn-warp">Warp</button>
+          <button id="btn-play">&#9654; Play</button>
+          <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
+          <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
+        </div>
         <div class="ctrl-row">
           <label>Blend:</label>
           <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
-          <!-- X = cross-fade length in frames after a camera switch; 0 = off -->
           <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
           <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
           <span class="val" id="vblend">20f</span>
-          <!-- Blend mode: Single = frozen outgoing frame; Dual = live follower RT -->
           <button id="btn-bmode" style="min-width:52px">Single</button>
         </div>
-        <div class="ctrl-row">
-          <button id="btn-warp">Warp</button>
-          <button id="btn-setcam" onclick="openCamDialog()">Set Camera</button>
-          <input type="file" id="fcam" accept=".json" style="display:none">
-        </div>
       </div>
 
-      <!-- ═══════ GROUP: Session (scene-level, NOT per-frame) ═══════
-           These affect display/layout but not the Combined view's pixel output.
-           Saved with the scene, but NOT recorded per-frame in trajectories. -->
-      <div id="grp-session">
-        <div class="ctrl-row">
-          <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
-          <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
-          <button id="btn-play">&#9654; Play</button>
-          <button id="btn-help" title="How to use VectorScope">Help</button>
-        </div>
-      </div>
-
-      <!-- ═══════ GROUP: Trigger (stateless actions, never stored) ═══════
-           One-shot operations: AF measures once, Reset restores defaults,
-           Save/Load/Add/Delete are file ops. No per-frame or session state. -->
-      <div id="grp-trigger">
-        <div class="ctrl-row">
-          <button id="btn-reset">Reset All</button>
-          <button onclick="document.getElementById('fadd').click()">Add</button>
-          <input type="file" id="fadd" multiple style="display:none"
-                 accept=".glb,.gltf,.obj,.mtl,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tga">
-          <button id="btn-del">Delete</button>
-          <button id="btn-save-scene">Save Scene</button>
-          <button id="btn-load-scene">Load Scene</button>
-        </div>
-      </div>
-
-      <!-- ═══════ GROUP: Trajectory (transport + record/playback) ═══════
-           The trajectory system: load/save/record files, play/pause/step/seek.
-           fps is trajectory-level metadata (not per-frame). -->
+      <!-- Trajectory: transport + record/playback (bottom of panel) -->
       <div id="grp-trajectory">
         <div class="ctrl-row" id="traj-row">
           <select id="sel-traj" title="Select trajectory (default = free mode)">
             <option value="__default__" selected>default</option>
           </select>
+          <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                  title="Play / pause the selected trajectory">&#9654;</button>
+          <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
+          <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
+          <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                  title="Stop: back to free mode">&#9632;</button>
+        </div>
+        <div class="ctrl-row" id="traj-transport-row">
+          <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
+                 title="Trajectory progress — drag to seek">
+          <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
+        </div>
+        <!-- Trajectory file ops: below the progress slider -->
+        <div class="ctrl-row">
           <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
           <input type="file" id="ftraj" accept=".json" style="display:none">
           <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
           <button id="btn-traj-rec" title="Start/stop recording a trajectory"
                   style="min-width:36px">&#9679; Rec</button>
-        </div>
-        <div class="ctrl-row" id="traj-transport-row">
-          <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                  title="Play / pause the selected trajectory">&#9654;</button>
-          <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
-          <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
-          <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
-                 title="Trajectory progress — drag to seek">
-          <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
-          <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                  title="Stop: back to free mode (built-in zoom rules)">&#9632;</button>
         </div>
       </div>
     </div>
