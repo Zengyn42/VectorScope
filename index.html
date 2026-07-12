@@ -114,10 +114,11 @@ input[type="file"] { display: none; }
 
 /* ── Homography Matrix HUD (top-right of Combined panel) ── */
 #hmat {
-    margin-top: 8px; padding: 6px 8px;
-    background: rgba(15,52,96,.6); border: 1px solid #533483; border-radius: 4px;
-    font-family: monospace; font-size: 10px; color: #e0e0e0;
-    white-space: pre; line-height: 1.4;
+    position: fixed; bottom: 16px; right: 16px;
+    padding: 8px 12px; background: rgba(15,52,96,.92);
+    border: 1px solid #533483; border-radius: 6px;
+    font-family: monospace; font-size: 11px; color: #e0e0e0;
+    pointer-events: none; z-index: 20; white-space: pre; line-height: 1.5;
 }
 /* ── Status HUD ── */
 #status {
@@ -194,7 +195,7 @@ input[type="file"] { display: none; }
         <span class="val" id="vos">&mdash;</span>
       </div>
       <div id="cam-detail" style="display:none;margin-top:8px;font-family:monospace;font-size:11px;line-height:1.6;color:#ccc;"></div>
-      <div id="hmat"></div>
+      <div id="status" style="margin-top:8px;font-size:11px;color:#999;">Loading&hellip;</div>
     </div>
 
     <!-- ═══════ Main Panel ═══════ -->
@@ -347,7 +348,7 @@ input[type="file"] { display: none; }
   </div>
 </div>
 
-<div id="status">Loading&hellip;</div>
+<div id="hmat"></div>
 
 <!-- WebGL Pre-flight Check (must run before module imports) -->
 <script>
