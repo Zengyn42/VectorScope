@@ -36,8 +36,9 @@ describe('shader GLSL', () => {
         assert.ok(FS.includes('uBlendRadial != 0'), 'radial entry guard');
     });
 
-    it('FS handles OOB prev pixels (no black edges)', () => {
-        assert.ok(FS.includes('prevOOB'));
+    it('FS handles OOB prev pixels with soft edge falloff (no black edges)', () => {
+        assert.ok(FS.includes('edgeWeight'), 'soft edge weight function');
+        assert.ok(FS.includes('prevEdge'), 'per-pixel edge weight for prev camera');
     });
 });
 

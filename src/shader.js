@@ -75,6 +75,15 @@ vec2 sampleUV(mat3 M, vec2 px){
 
 bool inBounds(vec2 s){ return s.x >= 0. && s.x <= 1. && s.y >= 0. && s.y <= 1.; }
 
+// Soft edge weight: 1.0 when safely inside the RT, fades to 0.0
+// near the edges. Eliminates hard black-edge artifacts during blending.
+float edgeWeight(vec2 s){
+    float margin = 0.03; // 3% soft falloff near RT boundary
+    float dx = min(s.x, 1.0 - s.x);
+    float dy = min(s.y, 1.0 - s.y);
+    return smoothstep(0.0, margin, min(dx, dy));
+}
+
 vec4 texFetch(int src, vec2 s){
     if(src == 0)      return texture2D(tS1, s);
     else if(src == 2) return texture2D(tS2, s);
@@ -97,31 +106,31 @@ void main(){
     // frozen last frame to the live incoming camera over X frames.
     if(uBlend < 1.){
         vec2 prevUV = sampleUV(uPrevHi, px);
-        bool prevOOB = !inBounds(prevUV);
-        vec4 prev = prevOOB ? col : texFetch(uPrevSrc, prevUV);
-        // If the outgoing (prev) sample is out of bounds, force full
-        // incoming — guarantees no black edges from small-FOV overshoot.
-        float w = prevOOB ? 1.0 : uBlend;
-        if(!prevOOB && uBlendRadial != 0){
+        // Soft edge weight: 1.0 inside RT, fades to 0.0 near/outside boundary.
+        // Replaces the old hard OOB check — no more visible hard edges.
+        float prevEdge = inBounds(prevUV) ? edgeWeight(prevUV) : 0.0;
+        vec4 prev = prevEdge > 0.0 ? texFetch(uPrevSrc, clamp(prevUV, 0.0, 1.0)) : col;
+        // Base blend weight: where outgoing has no valid data (prevEdge=0),
+        // force full incoming. Where it does, start from the blend progress.
+        float w = mix(1.0, uBlend, prevEdge);
+        if(prevEdge > 0.0 && uBlendRadial != 0){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
             float feather = r * 0.6;
 
             if(uBlendRadial == 1){
-                // Radial-IN (edges first): small FOV leading → large FOV incoming.
-                // Outgoing (small FOV) only covers center r fraction — edges have
-                // no outgoing data, so switch them to incoming first.
+                // Radial-IN (edges first): narrow FOV outgoing → wide FOV incoming.
+                // Edges transition to incoming first; center retains outgoing longer.
                 float innerEdge = r * (1.0 - uBlend);
                 float radialW = smoothstep(innerEdge - feather, r + feather, dist);
-                w = max(uBlend, radialW);
+                w = max(w, radialW);
             } else {
-                // Radial-OUT (center first): large FOV leading → small FOV incoming.
-                // Incoming (small FOV) only has valid data in center r fraction —
-                // switch center to incoming first, keep outgoing at edges longer.
+                // Radial-OUT (center first): wide FOV outgoing → narrow FOV incoming.
+                // Center transitions to incoming first; edges retain outgoing longer.
                 float outerEdge = r * uBlend;
                 float radialW = smoothstep(outerEdge + feather, outerEdge - feather, dist);
-                w = max(uBlend, radialW);
+                w = max(w, radialW);
             }
         }
         col = mix(prev, col, w);
