@@ -89,7 +89,13 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         S.sampleM = Msamp;
         // Live follower state for dual-mode blends (recomputed on every zoom /
         // camera-param change so the previous layer tracks the leading view).
-        const fol = computeFollowerMatrix(opts);
+        // The follower ALWAYS uses warp=true (homography alignment) regardless
+        // of the segment's warp flag — during dual blending, the outgoing
+        // camera must stay aligned with the lead via H(fol←lead) × M_lead.
+        // Using warp=false during blending would show a raw prewarp crop that
+        // doesn't match the lead's output perspective.
+        const folOpts = { ...opts, warp: S.warp };  // global warp, not per-segment
+        const fol = computeFollowerMatrix(folOpts);
         S.followerSrc = fol.src;
         S.followerM = fol.m;
 
