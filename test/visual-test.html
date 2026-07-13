@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VectorScope — Visual Integration Test</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0f1e; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; padding: 20px; }
+h1 { color: #e94560; margin-bottom: 10px; font-size: 20px; }
+h2 { color: #4fc3f7; margin: 20px 0 8px; font-size: 15px; border-bottom: 1px solid #1a2040; padding-bottom: 4px; }
+.desc { font-size: 12px; color: #888; margin-bottom: 10px; line-height: 1.5; }
+.test-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.test-card { background: #16213e; border: 1px solid #333; border-radius: 6px; padding: 10px; }
+.test-card canvas { display: block; border: 1px solid #333; border-radius: 3px; }
+.test-card .label { font-size: 11px; color: #aaa; margin-top: 4px; text-align: center; }
+.pass { border-color: #4caf50; }
+.fail { border-color: #e94560; }
+.summary { margin-top: 20px; padding: 12px; background: #16213e; border-radius: 6px; font-family: monospace; font-size: 12px; line-height: 1.8; }
+.ok { color: #4caf50; }
+.err { color: #e94560; }
+</style>
+</head>
+<body>
+<h1>VectorScope Visual Integration Test</h1>
+<p class="desc">
+    Each canvas shows a grid projected through the lead (blue) and follower (red)
+    sampling matrices at different zoom levels. At focus depth D, the grids should
+    <b>overlap perfectly</b> at the center. Off-center divergence = parallax (expected).
+</p>
+
+<h2>Test 1: Grid Alignment at Focus Plane (warp ON)</h2>
+<p class="desc">Blue = lead camera grid. Red = follower camera grid. Green dots = focus plane anchor points.
+At the image center, both grids should converge (same pixel ≈ same 3D point at depth D).</p>
+<div class="test-row" id="alignment-row"></div>
+
+<h2>Test 2: Zoom Sweep — Lead Matrix Continuity</h2>
+<p class="desc">The lead matrix H[0][2] (horizontal shift) plotted across zoom 0.5→10x. The curve should be smooth with no discontinuities at segment boundaries (1.0, 5.0).</p>
+<div class="test-row" id="sweep-row"></div>
+
+<h2>Test 3: Warp vs No-Warp Comparison</h2>
+<p class="desc">Left = warp OFF (prewarp crop only). Right = warp ON (homography correction). The warp version should show perspective-corrected alignment.</p>
+<div class="test-row" id="warp-compare-row"></div>
+
+<h2>Test 4: Blend Transition Simulation</h2>
+<p class="desc">Simulates zooming through the 1.0x boundary (UW→Main). Shows the blended output at each frame of the transition.</p>
+<div class="test-row" id="blend-row"></div>
+
+<div class="summary" id="summary"></div>
+
+<script type="module">
+import { M } from '../src/math.js';
+import { computeHPair, zoomMatrix } from '../src/homography.js';
+import {
+    SRC, computeSampleMatrix, computeSampleMatrixExplicit,
+    computeFollowerMatrix, normLerp, zoomSource,
+} from '../src/zoom-pipeline.js';
+import { createBlendController } from '../src/blend.js';
+import { cameraNominal } from '../src/camera-sampling.js';
+
+const W = 1080, H = 1920, D = 3;
+const CW = 160, CH = 284;  // canvas size (scaled 1080:1920)
+
+function makeRig() {
+    const cam = (fx, pos) => ({
+        intrinsics: { fx, fy: fx, cx: W / 2, cy: H / 2 },
+        extrinsics: { position: pos, rotation_euler_deg: [0, 0, 0] },
+        image_size: [W, H],
+    });
+    return {
+        main_camera: cam(1500, [0, 0, 0]),
+        secondary_camera: cam(750, [0.5, 0, 0]),
+        secondary_camera_2: cam(7500, [-0.5, 0, 0]),
+    };
+}
+
+function opts(z, extra = {}) {
+    return { z, warp: true, D, params: makeRig(), prewarp1: 2, prewarp2: 5, w: W, h: H, ...extra };
+}
+
+const SRC_NAME = { [SRC.SEC1]: 'UW', [SRC.MAIN]: 'Main', [SRC.SEC2]: 'Tele' };
+const SRC_COLOR = { [SRC.SEC1]: '#81c784', [SRC.MAIN]: '#4fc3f7', [SRC.SEC2]: '#fff176' };
+
+/** Transform a pixel through inv(M) for visualization. */
+function invTransform(mat, px) {
+    const inv = M.inv(mat);
+    if (!inv) return null;
+    const p = M.v(inv, [px[0], px[1], 1]);
+    return [p[0] / p[2], p[1] / p[2]];
+}
+
+/** Draw a grid transformed by a sampling matrix. */
+function drawGrid(ctx, mat, color, scale) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.8;
+    ctx.globalAlpha = 0.6;
+    const steps = 8;
+    for (let i = 0; i <= steps; i++) {
+        const u = (i / steps) * W;
+        // Vertical line
+        ctx.beginPath();
+        for (let j = 0; j <= 20; j++) {
+            const v = (j / 20) * H;
+            const p = invTransform(mat, [u, v]);
+            if (!p) continue;
+            const cx = p[0] / W * CW * scale, cy = p[1] / H * CH * scale;
+            if (j === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+    }
+    for (let j = 0; j <= steps; j++) {
+        const v = (j / steps) * H;
+        ctx.beginPath();
+        for (let i = 0; i <= 20; i++) {
+            const u = (i / 20) * W;
+            const p = invTransform(mat, [u, v]);
+            if (!p) continue;
+            const cx = p[0] / W * CW * scale, cy = p[1] / H * CH * scale;
+            if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+function makeCanvas(parent) {
+    const card = document.createElement('div');
+    card.className = 'test-card';
+    const canvas = document.createElement('canvas');
+    canvas.width = CW; canvas.height = CH;
+    card.appendChild(canvas);
+    const label = document.createElement('div');
+    label.className = 'label';
+    card.appendChild(label);
+    parent.appendChild(card);
+    return { canvas, ctx: canvas.getContext('2d'), label, card };
+}
+
+let passed = 0, failed = 0;
+function check(ok, msg, card) {
+    if (ok) { passed++; if (card) card.classList.add('pass'); }
+    else { failed++; if (card) card.classList.add('fail'); }
+}
+
+// ── Test 1: Grid Alignment ──
+const row1 = document.getElementById('alignment-row');
+for (const z of [0.7, 1.0, 1.5, 3.0, 5.0, 7.0]) {
+    const { canvas, ctx, label, card } = makeCanvas(row1);
+    ctx.fillStyle = '#0a0f1e';
+    ctx.fillRect(0, 0, CW, CH);
+
+    const o = opts(z);
+    const lead = computeSampleMatrixExplicit(o);
+    const fol = computeFollowerMatrix(o);
+
+    drawGrid(ctx, lead.m, SRC_COLOR[lead.src] || '#4fc3f7', 1);
+    drawGrid(ctx, fol.m, '#e94560', 1);
+
+    // Draw center marker
+    ctx.fillStyle = '#4caf50';
+    ctx.beginPath();
+    ctx.arc(CW / 2, CH / 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    label.textContent = `z=${z.toFixed(1)}x  L:${SRC_NAME[lead.src]} F:${SRC_NAME[fol.src]}`;
+
+    // Check both matrices are finite
+    const ok = lead.m.every(Number.isFinite) && fol.m.every(Number.isFinite);
+    check(ok, `alignment z=${z}`, card);
+}
+
+// ── Test 2: Zoom Sweep ──
+const row2 = document.getElementById('sweep-row');
+{
+    const { canvas, ctx, label, card } = makeCanvas(row2);
+    canvas.width = 400; canvas.height = 200;
+    ctx.fillStyle = '#0a0f1e';
+    ctx.fillRect(0, 0, 400, 200);
+
+    // Plot H[2] (horizontal shift element) across zoom
+    const points = [];
+    let minY = Infinity, maxY = -Infinity;
+    for (let z = 0.5; z <= 10.0; z += 0.05) {
+        const { m } = computeSampleMatrix(opts(z));
+        const n = m.map(v => v / m[8]);
+        const val = n[2];  // translation element
+        points.push({ z, val });
+        if (val < minY) minY = val;
+        if (val > maxY) maxY = val;
+    }
+
+    // Draw segment boundaries
+    ctx.strokeStyle = '#333';
+    ctx.setLineDash([4, 4]);
+    for (const bz of [1.0, 5.0]) {
+        const x = ((bz - 0.5) / 9.5) * 380 + 10;
+        ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, 190); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Draw curve
+    const range = maxY - minY || 1;
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+        const x = ((p.z - 0.5) / 9.5) * 380 + 10;
+        const y = 190 - ((p.val - minY) / range) * 180;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Color by source
+    let prevSrc = null;
+    for (const p of points) {
+        const src = zoomSource(p.z, true);
+        if (src !== prevSrc) {
+            ctx.fillStyle = SRC_COLOR[src] || '#fff';
+            prevSrc = src;
+        }
+        const x = ((p.z - 0.5) / 9.5) * 380 + 10;
+        const y = 190 - ((p.val - minY) / range) * 180;
+        ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+
+    label.textContent = 'H[0][2] (horiz shift) vs zoom — colored by source';
+    // Check no NaN/Inf
+    const ok = points.every(p => Number.isFinite(p.val));
+    check(ok, 'sweep continuity', card);
+}
+
+// ── Test 3: Warp vs No-Warp ──
+const row3 = document.getElementById('warp-compare-row');
+for (const z of [0.7, 3.0]) {
+    for (const warp of [false, true]) {
+        const { canvas, ctx, label, card } = makeCanvas(row3);
+        ctx.fillStyle = '#0a0f1e';
+        ctx.fillRect(0, 0, CW, CH);
+
+        const o = opts(z, { warp });
+        const lead = computeSampleMatrixExplicit(o);
+        const fol = computeFollowerMatrix(o);
+
+        drawGrid(ctx, lead.m, '#4fc3f7', 1);
+        drawGrid(ctx, fol.m, '#e94560', 1);
+
+        ctx.fillStyle = '#4caf50';
+        ctx.beginPath();
+        ctx.arc(CW / 2, CH / 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        label.textContent = `z=${z}x warp=${warp ? 'ON' : 'OFF'}  L:${SRC_NAME[lead.src]}`;
+        check(lead.m.every(Number.isFinite), `warp-compare z=${z} w=${warp}`, card);
+    }
+}
+
+// ── Test 4: Blend Simulation ──
+const row4 = document.getElementById('blend-row');
+{
+    const blendCtl = createBlendController({ getX: () => 6 });
+    for (let i = 0; i < 12; i++) {
+        const z = 0.85 + i * 0.04;
+        const o = opts(z);
+        const { src, m } = computeSampleMatrix(o);
+        const { t, prevSrc, prevM } = blendCtl.update(src, m);
+
+        const { canvas, ctx, label, card } = makeCanvas(row4);
+        canvas.width = 80; canvas.height = 142;
+        ctx.fillStyle = '#0a0f1e';
+        ctx.fillRect(0, 0, 80, 142);
+
+        // Draw current (incoming) with alpha = t
+        ctx.globalAlpha = t;
+        drawGrid(ctx, m, SRC_COLOR[src] || '#4fc3f7', 0.5);
+
+        // Draw previous (outgoing) with alpha = 1-t
+        if (prevM) {
+            ctx.globalAlpha = 1 - t;
+            drawGrid(ctx, prevM, '#e94560', 0.5);
+        }
+        ctx.globalAlpha = 1;
+
+        // Blend bar
+        ctx.fillStyle = '#333';
+        ctx.fillRect(5, 132, 70, 6);
+        ctx.fillStyle = '#4caf50';
+        ctx.fillRect(5, 132, 70 * t, 6);
+
+        label.textContent = `z=${z.toFixed(2)} t=${t.toFixed(2)}`;
+        check(m.every(Number.isFinite), `blend frame ${i}`, card);
+    }
+}
+
+// ── Summary ──
+const summary = document.getElementById('summary');
+summary.innerHTML = `<span class="${failed === 0 ? 'ok' : 'err'}">`
+    + `${passed + failed} visual checks: ${passed} passed, ${failed} failed</span>`;
+</script>
+</body>
+</html>
