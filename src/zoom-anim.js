@@ -28,6 +28,7 @@
  * @returns {{ animateTo, togglePlay, stopPreset, stopPlay, stopAll, isPlaying, isAnimating }}
  */
 import { easeInOutQuad } from './zoom-pipeline.js';
+import { evalCurve, DEFAULT_CURVE } from './bezier-curve.js';
 
 export function createZoomAnimator({
     getZoom, setLogZoom, onPlayState,
@@ -36,6 +37,8 @@ export function createZoomAnimator({
     raf = (fn) => requestAnimationFrame(fn),
     caf = (id) => cancelAnimationFrame(id),
     now = () => performance.now(),
+    getCurve = () => null,
+    getDuration = () => presetDur,
 } = {}) {
     let presetAnim = null;
     let playAnim = null;
@@ -59,9 +62,12 @@ export function createZoomAnimator({
         const from = Math.log10(getZoom()), to = Math.log10(target);
         if (Math.abs(to - from) < 1e-6) return;
         const t0 = now();
+        const dur = getDuration();
+        const curve = getCurve();
         function step() {
-            const t = Math.min((now() - t0) / presetDur, 1);
-            setLogZoom(from + (to - from) * easeInOutQuad(t));
+            const t = Math.min((now() - t0) / dur, 1);
+            const eased = curve ? evalCurve(t, curve) : easeInOutQuad(t);
+            setLogZoom(from + (to - from) * eased);
             presetAnim = t < 1 ? raf(step) : null;
         }
         presetAnim = raf(step);

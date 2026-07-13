@@ -87,7 +87,8 @@ export const CONTROL_DEFAULTS = {
 export function initUiControls(d) {
     const { $, store, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
             resetPositions, sel, SCENE_CAM,
-            restoreHidden = () => {} } = d;
+            restoreHidden = () => {},
+            getZoomCurve = () => null, getZoomDuration = () => 600 } = d;
 
     /* ── controls section: store → S + DOM + sampling refresh ── */
     function renderControls(c) {
@@ -158,6 +159,8 @@ export function initUiControls(d) {
             $('btn-play').classList.toggle('active', playing);
             $('btn-play').textContent = playing ? '\u25A0 Stop' : '\u25B6 Play';
         },
+        getCurve: getZoomCurve,
+        getDuration: getZoomDuration,
     });
     document.querySelectorAll('.zp-btn:not(.aspd-btn)').forEach(b => {
         if (b.dataset.z !== undefined) b.onclick = () => animator.animateTo(parseFloat(b.dataset.z));

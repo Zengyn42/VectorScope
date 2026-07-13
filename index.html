@@ -253,10 +253,12 @@ input[type="file"] { display: none; }
           <button class="zp-btn" data-z="2">2.0x</button>
           <button class="zp-btn" data-z="5">5.0x</button>
           <button class="zp-btn" data-z="10">10x</button>
+          <button id="btn-zoom-curve" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697;</button>
         </div>
         <!-- Warp / Play / FPS: below zoom slider -->
         <div class="ctrl-row">
           <button id="btn-warp">Warp</button>
+          <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697;</button>
           <button id="btn-play">&#9654; Play</button>
           <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
           <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
@@ -323,6 +325,23 @@ input[type="file"] { display: none; }
 
     <!-- AF selection rectangle overlay -->
     <div id="af-rect" style="display:none;position:absolute;border:2px solid #e94560;background:rgba(233,69,96,.15);pointer-events:none;z-index:15;"></div>
+  </div>
+</div>
+
+<!-- Curve Editor Dialog (shared by zoom curve + warp curve) -->
+<div class="modal-overlay" id="curve-dialog">
+  <div class="modal" style="max-width:320px;min-width:280px">
+    <h2 id="curve-dialog-title">Curve Editor</h2>
+    <div id="curve-editor-container" style="display:flex;flex-direction:column;align-items:center;"></div>
+    <div class="ctrl-row" style="margin-top:10px;">
+      <label id="curve-dur-label" style="font-size:11px;">Duration:</label>
+      <input type="number" id="curve-dur" min="50" max="5000" step="50" value="600" style="width:70px;">
+      <span style="font-size:11px;color:#888;">ms</span>
+    </div>
+    <div class="modal-actions">
+      <button id="curve-reset">Reset Linear</button>
+      <button id="curve-close">Close</button>
+    </div>
   </div>
 </div>
 
@@ -444,6 +463,8 @@ import { createTransport } from './src/transport.js';
 import { createRecorder } from './src/recorder.js';
 import { createSegmentConfig } from './src/segment-config.js';
 import { bindSegmentDialog } from './src/segment-dialog.js';
+import { evalCurve, DEFAULT_CURVE } from './src/bezier-curve.js';
+import { createCurveEditor } from './src/curve-editor.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -531,10 +552,22 @@ const blendCtl = createBlendController({ getX: () => S.blendX });
 const segmentConfig = createSegmentConfig();
 const getSegCfg = () => segmentConfig;
 
+/* ── Curve state for zoom transition and warp interpolation ── */
+let zoomCurve = null;     // null = easeInOutQuad fallback
+let warpCurveData = null; // null = linear (no curve applied)
+let zoomDuration = 600;   // ms
+const getZoomCurve = () => zoomCurve;
+const getZoomDuration = () => zoomDuration;
+const getWarpCurveFn = () => {
+    if (!warpCurveData) return null;
+    return (t) => evalCurve(t, warpCurveData);
+};
+
 /* Sampling refresh (src/sampling-hud.js): pushes the zoom pipeline's pure
    math into shader uniforms, blend inputs, follower state and the HUD. */
 const refreshH = createSamplingRefresh({
     S, R, matWarp, rtW: RT_W, rtH: RT_H, getSegCfg,
+    getWarpCurve: getWarpCurveFn,
     onHud: (html) => { $('hmat').innerHTML = html; },
     /* Play mode: lead/follower come from the trajectory frame, not the
        zoom rules (boss rule #2). Free mode: null → rules apply. */
@@ -718,6 +751,7 @@ const ui = initUiControls({
     $, store, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
     resetPositions, sel, SCENE_CAM,
     restoreHidden: objectOps.restoreHidden,
+    getZoomCurve, getZoomDuration,
 });
 window.nudge = ui.nudge;
 /* Zoom ± buttons: linear 0.1x steps (not log-scale nudge) */
@@ -793,6 +827,43 @@ const segDialog = bindSegmentDialog($('seg-dialog'), {
     onApply: () => { refreshH(); loop.markDirty(); },
 });
 $('btn-segments').onclick = () => segDialog.open();
+
+/* ── Curve editor dialog (shared between zoom curve and warp curve) ── */
+let curveTarget = null;  // 'zoom' | 'warp'
+let curveEditor = null;
+const curveOverlay = $('curve-dialog');
+const curveDurRow = $('curve-dur').parentElement;
+
+function openCurveDialog(target) {
+    curveTarget = target;
+    $('curve-dialog-title').textContent = target === 'zoom' ? 'Zoom Transition Curve' : 'Warp Interpolation Curve';
+    // Show duration control only for zoom curve
+    curveDurRow.style.display = target === 'zoom' ? 'flex' : 'none';
+    if (target === 'zoom') $('curve-dur').value = zoomDuration;
+
+    const container = $('curve-editor-container');
+    container.textContent = '';
+    const initCurve = target === 'zoom' ? (zoomCurve || DEFAULT_CURVE) : (warpCurveData || DEFAULT_CURVE);
+    curveEditor = createCurveEditor(container, {
+        curve: initCurve,
+        onChange: (c) => {
+            if (curveTarget === 'zoom') { zoomCurve = c; }
+            else { warpCurveData = c; refreshH(); loop.markDirty(); }
+        },
+    });
+    curveOverlay.classList.add('open');
+}
+
+$('btn-zoom-curve').onclick = () => openCurveDialog('zoom');
+$('btn-warp-curve').onclick = () => openCurveDialog('warp');
+$('curve-dur').onchange = function () { zoomDuration = Math.max(50, +this.value); };
+$('curve-reset').onclick = () => {
+    if (curveTarget === 'zoom') { zoomCurve = null; }
+    else { warpCurveData = null; refreshH(); loop.markDirty(); }
+    if (curveEditor) curveEditor.setCurve(DEFAULT_CURVE);
+};
+$('curve-close').onclick = () => curveOverlay.classList.remove('open');
+curveOverlay.addEventListener('click', (e) => { if (e.target === curveOverlay) curveOverlay.classList.remove('open'); });
 
 /* ================================================================
    HOMOGRAPHY HUD + DEBUG HOOKS

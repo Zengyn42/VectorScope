@@ -225,15 +225,20 @@ export function computeFollowerMatrix(opts) {
  * @param {number}  opts.h        - render target height (px)
  * @returns {{src: number, m: number[]}} source index + 3×3 row-major sampling matrix
  */
-export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h }) {
+/**
+ * @param {Function} [opts.warpCurve] - optional easing function (t) → t for warp
+ *        interpolation. When provided, the linear log-space t is remapped
+ *        through this function before being passed to normLerp.
+ */
+export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h, warpCurve }) {
     const hasS2 = !!p.secondary_camera_2;
 
     if (z < 1.0) {
         /* ── Segment A: sec1 → main handover ── */
         if (warp) {
-            // Endpoint @1.0x: main px → sec1 px (computeHPair(cam1, cam2) maps cam2 px → cam1 px)
             const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, D);
-            const t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
+            let t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
+            if (warpCurve) t = warpCurve(t);
             return { src: SRC.SEC1, m: normLerp(M.id(), Hm2s1, t) };
         }
         // prewarp1 = focal_length_ratio (UW vs Main); already encodes the
@@ -249,9 +254,9 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
     if (z < 5.0) {
         /* ── Segment C: main → sec2 handover ── */
         if (warp) {
-            // Start @2.0x: crop(2); endpoint @5.0x: sec2-view px → main px
             const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, D);
-            const t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
+            let t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
+            if (warpCurve) t = warpCurve(t);
             return { src: SRC.MAIN, m: normLerp(zoomMatrix(2, w, h), Hs2m, t) };
         }
         // Segment C: Main is the reference camera, just crop by z.
