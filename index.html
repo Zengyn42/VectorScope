@@ -262,6 +262,7 @@ input[type="file"] { display: none; }
           <button id="btn-play">&#9654; Play</button>
           <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
           <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
+          <button id="btn-grid" title="Show lead/follower sampling grid overlay on Combined view">Grid</button>
         </div>
         <div class="ctrl-row">
           <label>Blend:</label>
@@ -325,6 +326,9 @@ input[type="file"] { display: none; }
 
     <!-- AF selection rectangle overlay -->
     <div id="af-rect" style="display:none;position:absolute;border:2px solid #e94560;background:rgba(233,69,96,.15);pointer-events:none;z-index:15;"></div>
+
+    <!-- Grid overlay canvas (positioned over the Combined panel by JS) -->
+    <canvas id="grid-overlay" style="display:none;position:absolute;pointer-events:none;z-index:14;"></canvas>
   </div>
 </div>
 
@@ -466,6 +470,7 @@ import { bindSegmentDialog } from './src/segment-dialog.js';
 import { evalCurve, DEFAULT_CURVE } from './src/bezier-curve.js';
 import { createCurveEditor } from './src/curve-editor.js';
 import { createTrajectoryLibrary, trajToJson } from './src/trajectory-library.js';
+import { createGridOverlay } from './src/grid-overlay.js';
 import { applyTrajFrameToState, TRAJ_LOCK_IDS } from './src/traj-frame.js';
 
 /* ── Helpers ── */
@@ -530,6 +535,7 @@ const R = camRig.rig;
    assigned in the TRAJECTORY TRANSPORT UI section (needs markDirty etc.). */
 let onTransportChange = () => {};
 let onPostFrame = () => {};
+let updateGridOverlay = () => {};
 const transport = createTransport({ onChange: (ev) => onTransportChange(ev) });
 
 /* Scene animation (src/scene-anim.js): procedural presets assigned per
@@ -888,6 +894,7 @@ function onResize() {
     renderer.setSize(r.width, r.height);
     layoutPanels();
     camRig.updateBevAspect(P.bev);
+    updateGridOverlay();
 }
 window.addEventListener('resize', onResize);
 onResize();
@@ -1100,7 +1107,33 @@ const recorder = createRecorder({
     getFps: () => loop.getFps(),
 });
 
-onPostFrame = () => recorder.capture();
+/* ── Grid Overlay (src/grid-overlay.js) ── */
+const gridOverlay = createGridOverlay({
+    canvas: $('grid-overlay'), rtW: RT_W, rtH: RT_H,
+});
+$('btn-grid').onclick = () => {
+    const on = !gridOverlay.isEnabled();
+    gridOverlay.setEnabled(on);
+    $('btn-grid').classList.toggle('active', on);
+    loop.markDirty();
+};
+
+updateGridOverlay = () => {
+    if (!gridOverlay.isEnabled()) return;
+    const cont = $('viewport-container').getBoundingClientRect();
+    // P.c is in WebGL coords (origin bottom-left); convert to CSS (top-left)
+    const cssX = P.c.x;
+    const cssY = cont.height - P.c.y - P.c.h;
+    gridOverlay.update({
+        leadSrc: S.sampleSrc,
+        leadM: S.sampleM,
+        followerSrc: S.followerSrc,
+        followerM: S.followerM,
+        panelRect: { x: cssX, y: cssY, w: P.c.w, h: P.c.h },
+    });
+};
+
+onPostFrame = () => { recorder.capture(); updateGridOverlay(); };
 
 $('btn-traj-rec').onclick = () => {
     if (recorder.isRecording()) {
