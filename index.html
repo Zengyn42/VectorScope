@@ -660,7 +660,12 @@ store.register('segments', {
 const { onSelChange } = initSelectionPanel({
     THREE, S, SCENE_CAM,
     getMainCam: () => R.main, getSecCam: () => R.sec1, getSecCam2: () => R.sec2,
-    onCamEdit: () => { store.set('cameras', { camParams: S.camParams }); },
+    onCamEdit: () => {
+        store.set('cameras', {
+            camParams: S.camParams,
+            sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+        });
+    },
     getAnim: (o) => sceneAnim.get(o),
     onAnimSet: (o, mode, speed) => {
         const d = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
