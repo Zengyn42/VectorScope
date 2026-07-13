@@ -21,7 +21,7 @@
  */
 
 import { SRC } from './zoom-pipeline.js';
-import { CAM_COLORS, camDisplayName, camColor } from './camera.js';
+import { camDisplayName, camColor } from './camera.js';
 
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -40,7 +40,6 @@ export const HELP = {
 
 /** Camera name ↔ SRC index helpers (delegates to camera.js for colors/names) */
 export const CAM_NAMES = ['UW', 'Main', 'Tele'];
-export { CAM_COLORS };   // re-export from camera.js for backward compat
 export function camName(src) { return camDisplayName(src); }
 export function camIndex(name) {
     const i = CAM_NAMES.indexOf(name);

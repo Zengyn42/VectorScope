@@ -11,9 +11,10 @@
  * {@link formatHMatrix} is a pure formatter so the HUD markup is unit-testable.
  */
 
-import { computeSampleMatrixExplicit, computeFollowerMatrix, segName, SRC } from './zoom-pipeline.js';
+import { computeSampleMatrixExplicit, computeFollowerMatrix, SRC } from './zoom-pipeline.js';
 import { M } from './math.js';
 import { camDisplayName } from './camera.js';
+import { segmentLabel } from './segment-config.js';
 
 /**
  * Format a 3x3 row-major matrix as the HUD's box-drawing HTML.
@@ -107,7 +108,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         const folName = camDisplayName(fol.src);
         const header = `Lead: ${leadName}  Fol: ${folName}  `
             + `D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
-            + `${ov?.label ?? segName(S.zoom)}${S.warp ? '' : ' raw'}`;
+            + `${ov?.label ?? segmentLabel(S.zoom, getSegCfg()).text}${effectiveWarp ? '' : ' raw'}`;
 
         // Compute the prewarp-only base (warp=false) for both cameras
         const baseOpts = { ...opts, warp: false };

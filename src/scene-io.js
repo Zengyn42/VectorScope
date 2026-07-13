@@ -31,8 +31,6 @@
  * Browser support: Chrome/Edge. `isSupported()` gates the UI buttons.
  */
 
-import { parseTrajectory } from './trajectory.js';
-
 export const SCENE_JSON = 'scene.json';
 export const ASSETS_DIR = 'assets';
 export const TRAJ_DIR = 'trajectories';
