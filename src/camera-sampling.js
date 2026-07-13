@@ -22,6 +22,18 @@
  */
 
 import { SRC } from './zoom-pipeline.js';
+
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Camera Sampling',
+    order: 29,
+    entries: [
+        ['Nominal zoom', 'The zoom factor at which a camera shows its full frame: UW = 1/prewarp1, Main = 1.0, Tele = prewarp2'],
+        ['Crop factor', 'crop = zoom / nominal. At crop=1.0 the full RT is visible; crop=2.0 is 2x digital zoom'],
+        ['Prewarp1', 'Focal length ratio Main/UW (default 2.0) — determines UW nominal (0.5x) and warp-off crop alignment'],
+        ['Prewarp2', 'Focal length ratio Tele/Main (default 5.0) — determines Tele nominal (5.0x) and warp-off crop alignment'],
+    ],
+};
 import { zoomMatrix } from './homography.js';
 import { M } from './math.js';
 

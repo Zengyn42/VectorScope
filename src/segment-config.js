@@ -22,6 +22,21 @@
 
 import { SRC } from './zoom-pipeline.js';
 
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Segment Config',
+    order: 31,
+    entries: [
+        ['Segments button (Seg)', 'Opens the segment config dialog — configure which camera leads and follows for each zoom range'],
+        ['Breakpoints', 'Zoom values that divide the [0.5, 10.0] range into segments. Default: 1.0, 2.0, 5.0'],
+        ['Convention', 'Below a breakpoint: z &lt; value. At/above: z &ge; value'],
+        ['Lead camera', 'The camera displayed in the Combined view at that zoom range'],
+        ['Follower camera', 'Used only during blending transitions at segment boundaries'],
+        ['Add breakpoint', 'Splits a segment; new segment inherits the parent\'s lead/follower'],
+        ['Reset', 'Restores default breakpoints [1.0, 2.0, 5.0] and assignments'],
+    ],
+};
+
 /** Camera name ↔ SRC index helpers */
 export const CAM_NAMES = ['UW', 'Main', 'Tele'];
 export function camName(src) { return CAM_NAMES[src] || '?'; }
