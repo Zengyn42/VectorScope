@@ -465,6 +465,8 @@ import { createSegmentConfig } from './src/segment-config.js';
 import { bindSegmentDialog } from './src/segment-dialog.js';
 import { evalCurve, DEFAULT_CURVE } from './src/bezier-curve.js';
 import { createCurveEditor } from './src/curve-editor.js';
+import { createTrajectoryLibrary, trajToJson } from './src/trajectory-library.js';
+import { applyTrajFrameToState, TRAJ_LOCK_IDS } from './src/traj-frame.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -898,66 +900,26 @@ const urlP = new URLSearchParams(location.search);
    transient playback state, not user config — on Stop the store re-applies
    and everything snaps back to the persisted free-mode values. */
 function applyTrajFrame(rec) {
-    /* Zoom */
-    S.zoom = rec.zoom;
-    $('sld-z').value = Math.log10(rec.zoom);
-    $('vz').textContent = rec.zoom.toFixed(2) + 'x';
-    $('lbl-c').textContent = `\u25CE Combined \u2014 ${rec.zoom.toFixed(2)}x`;
+    /* Pure state mapping (src/traj-frame.js) */
+    const u = applyTrajFrameToState(S, rec);
 
-    /* Focus D */
-    S.depthD = rec.focusD;
-    $('sld-d').value = rec.focusD;
-    $('vd').textContent = rec.focusD.toFixed(1);
+    /* DOM sync — update widgets to reflect the new state */
+    $('sld-z').value = Math.log10(u.zoom);
+    $('vz').textContent = u.zoom.toFixed(2) + 'x';
+    $('lbl-c').textContent = `\u25CE Combined \u2014 ${u.zoom.toFixed(2)}x`;
+    $('sld-d').value = u.focusD;
+    $('vd').textContent = u.focusD.toFixed(1);
+    if ('prewarp1' in u) { $('sld-pw').value = u.prewarp1; $('vpw').textContent = u.prewarp1.toFixed(2) + 'x'; }
+    if ('prewarp2' in u) { $('sld-pw2').value = u.prewarp2; $('vpw2').textContent = u.prewarp2.toFixed(2) + 'x'; }
+    if ('warp' in u) { $('btn-warp').classList.toggle('active', u.warp); $('btn-warp').textContent = u.warp ? 'Warp ON' : 'Warp'; }
+    if ('blendX' in u) { $('sld-blend').value = u.blendX; $('vblend').textContent = u.blendX + 'f'; }
+    if ('blendMode' in u) { $('btn-bmode').textContent = u.blendMode === 'single' ? 'Single' : 'Dual'; $('btn-bmode').classList.toggle('active', u.blendMode === 'dual'); }
+    if ('blendShape' in u) { $('btn-bshape').textContent = u.blendShape === 'radial' ? 'Radial' : 'Flat'; $('btn-bshape').classList.toggle('active', u.blendShape === 'radial'); matWarp.uniforms.uBlendRadial.value = u.blendShape === 'radial' ? 1 : 0; }
 
-    /* Prewarp 1 & 2 */
-    if (rec.prewarp1 != null) {
-        S.prewarpScale = rec.prewarp1;
-        $('sld-pw').value = rec.prewarp1;
-        $('vpw').textContent = rec.prewarp1.toFixed(2) + 'x';
-    }
-    if (rec.prewarp2 != null) {
-        S.prewarpScale2 = rec.prewarp2;
-        $('sld-pw2').value = rec.prewarp2;
-        $('vpw2').textContent = rec.prewarp2.toFixed(2) + 'x';
-    }
-
-    /* Warp */
-    if (rec.warp != null) {
-        S.warp = rec.warp;
-        $('btn-warp').classList.toggle('active', rec.warp);
-        $('btn-warp').textContent = rec.warp ? 'Warp ON' : 'Warp';
-    }
-
-    /* Blend */
-    if (rec.blendX != null) {
-        S.blendX = rec.blendX;
-        $('sld-blend').value = rec.blendX;
-        $('vblend').textContent = rec.blendX + 'f';
-    }
-    if (rec.blendMode != null) {
-        S.blendMode = rec.blendMode;
-        $('btn-bmode').textContent = rec.blendMode === 'single' ? 'Single' : 'Dual';
-        $('btn-bmode').classList.toggle('active', rec.blendMode === 'dual');
-    }
-    if (rec.blendShape != null) {
-        S.blendShape = rec.blendShape;
-        $('btn-bshape').textContent = rec.blendShape === 'radial' ? 'Radial' : 'Flat';
-        $('btn-bshape').classList.toggle('active', rec.blendShape === 'radial');
-        matWarp.uniforms.uBlendRadial.value = rec.blendShape === 'radial' ? 1 : 0;
-    }
-
-    /* Camera parameters (intrinsics / extrinsics) */
-    if (rec.camParams) S.camParams = rec.camParams;
-
-    /* Scene camera pose — update the global SCENE_CAM so other systems
-       (BEV, selection, camera dialog) see the correct position. */
+    /* Scene camera pose */
     SCENE_CAM.position = rec.sceneCam.position;
     SCENE_CAM.rotation_euler_deg = rec.sceneCam.rotation_euler_deg;
-
-    /* Apply rig pose (repositions all cameras + markers) */
     camRig.applyPose(rec.camParams || S.camParams, rec.sceneCam);
-
-    /* Recompute homography matrices + update HUD */
     refreshH();
 }
 
@@ -1015,12 +977,8 @@ syncFpsBtn();
    (boss rule #5); animations run on the frame clock (boss rule #6).
    ================================================================ */
 
-/* Controls locked while a trajectory is engaged OR recording. */
-const TRAJ_LOCK_IDS = [
-    'sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-blend', 'sld-clip',
-    'btn-af', 'btn-warp', 'btn-play', 'btn-bmode', 'btn-bshape', 'btn-reset', 'btn-setcam',
-    'btn-save-scene', 'btn-load-scene', 'btn-fps', 'btn-combined',
-];
+/* Controls locked while a trajectory is engaged OR recording.
+   TRAJ_LOCK_IDS imported from src/traj-frame.js */
 function lockControls(locked) {
     for (const id of TRAJ_LOCK_IDS) { const el = $(id); if (el) el.disabled = locked; }
     for (const b of document.querySelectorAll('#zoom-presets .zp-btn')) b.disabled = locked;
@@ -1030,45 +988,18 @@ function lockControls(locked) {
     }
 }
 
-/* ── Trajectory List ── */
-const trajLibrary = new Map();   // name → parsed trajectory object
+/* ── Trajectory Library (src/trajectory-library.js) ── */
+const trajLibrary = createTrajectoryLibrary({ parseTrajectory });
 
 function addToLibrary(traj) {
-    trajLibrary.set(traj.name, traj);
+    trajLibrary.add(traj);
     syncTrajList();
 }
 
-/** Delta-encode a parsed trajectory back to compact JSON for storage. */
-function trajToJson(traj) {
-    const dense = [];
-    for (let i = 0; i < traj.length; i++) dense.push(traj.frameAt(i));
-    const frames = [];
-    for (let i = 0; i < dense.length; i++) {
-        if (i === 0) { frames.push(dense[i]); continue; }
-        const delta = {};
-        for (const [k, v] of Object.entries(dense[i])) {
-            if (k === 'blendT') continue;
-            if (JSON.stringify(v) !== JSON.stringify(dense[i - 1][k])) delta[k] = v;
-        }
-        frames.push(Object.keys(delta).length > 0 ? delta : { zoom: dense[i].zoom });
-    }
-    return { version: 1, name: traj.name, fps: traj.fps, frames };
-}
-
 /* Standard serialize/restore interface — used by scene-io directly. */
-trajLibraryIO.serialize = () => {
-    const out = [];
-    for (const [name, traj] of trajLibrary) {
-        out.push({ name, json: trajToJson(traj) });
-    }
-    return out;
-};
+trajLibraryIO.serialize = () => trajLibrary.serialize();
 trajLibraryIO.restore = (jsons) => {
-    trajLibrary.clear();
-    for (const j of jsons) {
-        try { trajLibrary.set(parseTrajectory(j).name, parseTrajectory(j)); }
-        catch (e) { console.warn('Skipped trajectory:', e.message); }
-    }
+    trajLibrary.restore(jsons);
     syncTrajList();
     transport.eject();
 };
@@ -1077,7 +1008,7 @@ function syncTrajList() {
     const sel = $('sel-traj');
     const cur = sel.value;
     sel.innerHTML = '<option value="__default__">default</option>';
-    for (const name of trajLibrary.keys()) {
+    for (const name of trajLibrary.names()) {
         const opt = document.createElement('option');
         opt.value = name; opt.textContent = name;
         sel.appendChild(opt);

@@ -33,6 +33,7 @@
  */
 
 import { SRC, zoomSource, SRC_NOMINAL } from './zoom-pipeline.js';
+import { radialBlendParams } from './radial-blend.js';
 
 /**
  * Which source RTs must be rendered this frame.
@@ -259,24 +260,13 @@ export function createRenderLoop({
            - Radial-OUT (-1): large FOV leading → small FOV incoming (center first)
              coverRadius = incoming_nominal / outgoing_nominal (incoming coverage) */
         if (S.blendShape === 'radial' && matWarp.uniforms.uBlend.value < 1) {
-            const curSrc = zsrc;
-            const prevSrc = matWarp.uniforms.uPrevSrc.value;
-            const curNom = SRC_NOMINAL[curSrc] || 1;
-            const prevNom = SRC_NOMINAL[prevSrc] || 1;
-            if (prevNom > curNom) {
-                // Outgoing narrower FOV → incoming wider: radial-IN (edges first)
-                matWarp.uniforms.uBlendRadial.value = 1;
-                matWarp.uniforms.uCoverRadius.value = curNom / prevNom;
-            } else if (prevNom < curNom) {
-                // Outgoing wider FOV → incoming narrower: radial-OUT (center first)
-                matWarp.uniforms.uBlendRadial.value = -1;
-                matWarp.uniforms.uCoverRadius.value = prevNom / curNom;
-            } else {
-                matWarp.uniforms.uBlendRadial.value = 0;
-                matWarp.uniforms.uCoverRadius.value = 1.0;
-            }
+            const curNom = SRC_NOMINAL[zsrc] || 1;
+            const prevNom = SRC_NOMINAL[matWarp.uniforms.uPrevSrc.value] || 1;
+            const { direction, coverRadius } = radialBlendParams(curNom, prevNom);
+            matWarp.uniforms.uBlendRadial.value = direction;
+            matWarp.uniforms.uCoverRadius.value = coverRadius;
         } else {
-            matWarp.uniforms.uBlendRadial.value = S.blendShape === 'radial' ? 0 : 0;
+            matWarp.uniforms.uBlendRadial.value = 0;
             matWarp.uniforms.uCoverRadius.value = 1.0;
         }
 
