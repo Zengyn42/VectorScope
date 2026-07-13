@@ -106,14 +106,15 @@ void main(){
     // frozen last frame to the live incoming camera over X frames.
     if(uBlend < 1.){
         vec2 prevUV = sampleUV(uPrevHi, px);
-        // Soft edge weight: 1.0 inside RT, fades to 0.0 near/outside boundary.
-        // Replaces the old hard OOB check — no more visible hard edges.
+        // Soft edge: 1.0 safely inside RT, fades to 0.0 at/beyond boundary.
         float prevEdge = inBounds(prevUV) ? edgeWeight(prevUV) : 0.0;
         vec4 prev = prevEdge > 0.0 ? texFetch(uPrevSrc, clamp(prevUV, 0.0, 1.0)) : col;
-        // Base blend weight: where outgoing has no valid data (prevEdge=0),
-        // force full incoming. Where it does, start from the blend progress.
-        float w = mix(1.0, uBlend, prevEdge);
-        if(prevEdge > 0.0 && uBlendRadial != 0){
+
+        // Start with the linear blend progress.
+        float w = uBlend;
+
+        // Radial effect: overrides linear blend based on distance from center.
+        if(uBlendRadial != 0){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
@@ -121,18 +122,23 @@ void main(){
 
             if(uBlendRadial == 1){
                 // Radial-IN (edges first): narrow FOV outgoing → wide FOV incoming.
-                // Edges transition to incoming first; center retains outgoing longer.
                 float innerEdge = r * (1.0 - uBlend);
                 float radialW = smoothstep(innerEdge - feather, r + feather, dist);
                 w = max(w, radialW);
             } else {
                 // Radial-OUT (center first): wide FOV outgoing → narrow FOV incoming.
-                // Center transitions to incoming first; edges retain outgoing longer.
                 float outerEdge = r * uBlend;
                 float radialW = smoothstep(outerEdge + feather, outerEdge - feather, dist);
                 w = max(w, radialW);
             }
         }
+
+        // Soft-edge safety: where outgoing data fades (near RT boundary),
+        // push w toward 1.0 (full incoming) to prevent black edges.
+        // This only affects pixels near the boundary — does NOT flatten
+        // the radial pattern in the interior.
+        w = max(w, 1.0 - prevEdge);
+
         col = mix(prev, col, w);
     }
     gl_FragColor = col;
