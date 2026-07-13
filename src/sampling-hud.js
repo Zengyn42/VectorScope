@@ -11,7 +11,8 @@
  * {@link formatHMatrix} is a pure formatter so the HUD markup is unit-testable.
  */
 
-import { computeSampleMatrixExplicit, computeFollowerMatrix, SRC } from './zoom-pipeline.js';
+import { computeSampleMatrixExplicit, computeFollowerMatrix, followerSource, SRC } from './zoom-pipeline.js';
+import { computeHPair } from './homography.js';
 import { M } from './math.js';
 import { camDisplayName } from './camera.js';
 import { segmentLabel } from './segment-config.js';
@@ -87,17 +88,28 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         // Stash the sampling state for the per-frame blend controller
         S.sampleSrc = src;
         S.sampleM = Msamp;
-        // Live follower state for dual-mode blends (recomputed on every zoom /
-        // camera-param change so the previous layer tracks the leading view).
-        // The follower ALWAYS uses warp=true (homography alignment) regardless
-        // of the segment's warp flag — during dual blending, the outgoing
-        // camera must stay aligned with the lead via H(fol←lead) × M_lead.
-        // Using warp=false during blending would show a raw prewarp crop that
-        // doesn't match the lead's output perspective.
-        const folOpts = { ...opts, warp: S.warp };  // global warp, not per-segment
-        const fol = computeFollowerMatrix(folOpts);
-        S.followerSrc = fol.src;
-        S.followerM = fol.m;
+        // Live follower state for dual-mode blends.
+        // The follower matrix must be H(fol←lead, D) × M_lead_actual, where
+        // M_lead_actual is the SAME lead matrix the shader uses (Msamp).
+        // We compute it directly here instead of calling computeFollowerMatrix
+        // (which would re-derive the lead with potentially different warp flags).
+        const folSrc = opts.followerSrc ?? followerSource(S.zoom, hasS2);
+        if (S.warp && folSrc !== src && params[
+            folSrc === SRC.SEC1 ? 'secondary_camera' :
+            folSrc === SRC.SEC2 ? 'secondary_camera_2' : 'main_camera'
+        ]) {
+            const camOf = (s) => s === SRC.SEC1 ? params.secondary_camera
+                               : s === SRC.SEC2 ? params.secondary_camera_2
+                               : params.main_camera;
+            const Hlf = computeHPair(camOf(folSrc), camOf(src), S.depthD);
+            S.followerSrc = folSrc;
+            S.followerM = M.mul(Hlf, Msamp);
+        } else {
+            // Warp OFF or degenerate: use computeFollowerMatrix with matching warp
+            const fol = computeFollowerMatrix({ ...opts, warp: effectiveWarp });
+            S.followerSrc = fol.src;
+            S.followerM = fol.m;
+        }
 
         /* HUD: show lead/follower names + their homographies (geometric
            correction component only — prewarp crop factored out).
@@ -105,7 +117,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
            In warp-off mode: M_current = M_prewarp_only → H = Identity.
            In warp-on mode: H shows the pure geometric correction. */
         const leadName = camDisplayName(src);
-        const folName = camDisplayName(fol.src);
+        const folName = camDisplayName(S.followerSrc);
         const header = `Lead: ${leadName}  Fol: ${folName}  `
             + `D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
             + `${ov?.label ?? segmentLabel(S.zoom, getSegCfg()).text}${effectiveWarp ? '' : ' raw'}`;
@@ -125,7 +137,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         }
 
         const H_lead = extractH(Msamp, leadBase.m);
-        const H_fol = extractH(fol.m, folBase.m);
+        const H_fol = extractH(S.followerM, folBase.m);
 
         let hudStr = `<span style="color:#e94560">${header}</span>\n`;
         hudStr += formatHMatrix(H_lead, `H_${leadName}`) + '\n';
