@@ -461,7 +461,7 @@ import { createConfigStore } from './src/config-store.js';
 import { parseTrajectory, CAM_TO_SRC } from './src/trajectory.js';
 import { createTransport } from './src/transport.js';
 import { createRecorder } from './src/recorder.js';
-import { createSegmentConfig } from './src/segment-config.js';
+import { createSegmentConfig, segmentLabel } from './src/segment-config.js';
 import { bindSegmentDialog } from './src/segment-dialog.js';
 import { evalCurve, DEFAULT_CURVE } from './src/bezier-curve.js';
 import { createCurveEditor } from './src/curve-editor.js';
@@ -754,6 +754,7 @@ const ui = initUiControls({
     resetPositions, sel, SCENE_CAM,
     restoreHidden: objectOps.restoreHidden,
     getZoomCurve, getZoomDuration,
+    getSegCfg, getHasS2: () => !!R.sec2,
 });
 window.nudge = ui.nudge;
 /* Zoom ± buttons: linear 0.1x steps (not log-scale nudge) */
@@ -908,7 +909,9 @@ function applyTrajFrame(rec) {
     /* DOM sync — update widgets to reflect the new state */
     $('sld-z').value = Math.log10(u.zoom);
     $('vz').textContent = u.zoom.toFixed(2) + 'x';
-    $('lbl-c').textContent = `\u25CE Combined \u2014 ${u.zoom.toFixed(2)}x`;
+    const sl = segmentLabel(u.zoom, segmentConfig, !!R.sec2);
+    $('lbl-c').textContent = `\u25CE Combined \u2014 ${sl.text} @ ${u.zoom.toFixed(2)}x`;
+    $('lbl-c').style.color = sl.color;
     $('sld-d').value = u.focusD;
     $('vd').textContent = u.focusD.toFixed(1);
     if ('prewarp1' in u) { $('sld-pw').value = u.prewarp1; $('vpw').textContent = u.prewarp1.toFixed(2) + 'x'; }

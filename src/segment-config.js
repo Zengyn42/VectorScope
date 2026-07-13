@@ -39,10 +39,44 @@ export const HELP = {
 
 /** Camera name ↔ SRC index helpers */
 export const CAM_NAMES = ['UW', 'Main', 'Tele'];
+/** Per-camera label colors (matching panel labels in index.html). */
+export const CAM_COLORS = { [SRC.SEC1]: '#81c784', [SRC.MAIN]: '#4fc3f7', [SRC.SEC2]: '#fff176' };
 export function camName(src) { return CAM_NAMES[src] || '?'; }
 export function camIndex(name) {
     const i = CAM_NAMES.indexOf(name);
     return i >= 0 ? i : SRC.MAIN;
+}
+
+/**
+ * Generate the Combined view label text and color for a given zoom.
+ *
+ * Uses segment config to determine lead/follower names. The label shows
+ * "Lead→Follower" when warp is active, or just "Lead" when not.
+ * Color matches the leading camera's panel label color.
+ *
+ * @param {number} z - current zoom factor
+ * @param {object} [segCfg] - segment config instance (null → hardcoded fallback)
+ * @param {boolean} [hasS2=true] - whether tele camera exists
+ * @returns {{text: string, color: string}}
+ */
+export function segmentLabel(z, segCfg, hasS2 = true) {
+    let leadSrc, followerSrc, warp;
+    if (segCfg) {
+        leadSrc = segCfg.getLeadSource(z, hasS2);
+        followerSrc = segCfg.getFollowerSource(z, hasS2);
+        warp = segCfg.getSegmentWarp(z);
+    } else {
+        // Hardcoded fallback matching default segments
+        if (z < 1) { leadSrc = SRC.SEC1; followerSrc = SRC.MAIN; warp = true; }
+        else if (z <= 2) { leadSrc = SRC.MAIN; followerSrc = SRC.SEC1; warp = false; }
+        else if (z < 5) { leadSrc = SRC.MAIN; followerSrc = SRC.SEC2; warp = true; }
+        else { leadSrc = SRC.SEC2; followerSrc = SRC.MAIN; warp = false; }
+    }
+    const leadName = camName(leadSrc);
+    const folName = camName(followerSrc);
+    const text = warp ? `${leadName}\u2192${folName}` : leadName;
+    const color = CAM_COLORS[leadSrc] || '#e94560';
+    return { text, color };
 }
 
 /** Fixed total range */

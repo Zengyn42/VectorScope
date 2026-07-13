@@ -20,7 +20,7 @@
 
 import { createZoomAnimator } from './zoom-anim.js';
 import { renderCamDialog, bindDialog } from './camera-dialog.js';
-import { segName } from './zoom-pipeline.js';
+import { segmentLabel } from './segment-config.js';
 
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -88,7 +88,8 @@ export function initUiControls(d) {
     const { $, store, S, THREE, R, log, refreshH, blendCtl, matWarp, sceneAnim,
             resetPositions, sel, SCENE_CAM,
             restoreHidden = () => {},
-            getZoomCurve = () => null, getZoomDuration = () => 600 } = d;
+            getZoomCurve = () => null, getZoomDuration = () => 600,
+            getSegCfg = () => null, getHasS2 = () => true } = d;
 
     /* ── controls section: store → S + DOM + sampling refresh ── */
     function renderControls(c) {
@@ -102,7 +103,9 @@ export function initUiControls(d) {
         $('sld-pw2').value = c.prewarp2; $('vpw2').textContent = c.prewarp2.toFixed(2) + 'x';
         $('sld-z').value = Math.log10(c.zoom);
         $('vz').textContent = c.zoom.toFixed(2) + 'x';
-        $('lbl-c').textContent = `\u25CE Combined \u2014 ${segName(c.zoom)} @ ${c.zoom.toFixed(2)}x`;
+        const sl = segmentLabel(c.zoom, getSegCfg(), getHasS2());
+        $('lbl-c').textContent = `\u25CE Combined \u2014 ${sl.text} @ ${c.zoom.toFixed(2)}x`;
+        $('lbl-c').style.color = sl.color;
         $('sld-clip').value = c.clipY; $('vclip').textContent = c.clipY.toFixed(1);
         $('sld-blend').value = c.blendX; $('vblend').textContent = c.blendX + 'f';
         $('btn-bmode').textContent = c.blendMode === 'single' ? 'Single' : 'Dual';
