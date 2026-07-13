@@ -17,10 +17,7 @@
  */
 
 import { M } from './math.js';
-import { SRC } from './zoom-pipeline.js';
-
-const CAM_COLORS = { [SRC.SEC1]: '#81c784', [SRC.MAIN]: '#4fc3f7', [SRC.SEC2]: '#fff176' };
-const CAM_NAMES = { [SRC.SEC1]: 'UW', [SRC.MAIN]: 'Main', [SRC.SEC2]: 'Tele' };
+import { camColor, camDisplayName } from './camera.js';
 
 /**
  * Create a grid overlay controller.
@@ -128,15 +125,14 @@ export function createGridOverlay({ canvas, rtW, rtH }) {
         const leadInv = M.inv(leadM);
         const folInv = followerM ? M.inv(followerM) : null;
 
-        // Draw follower grid first (behind)
+        // Draw follower grid first (behind) — colored by its own camera
         if (folInv) {
-            drawGrid(folInv, '#e94560', 0.4, cw, ch);
+            drawGrid(folInv, camColor(followerSrc), 0.4, cw, ch);
         }
 
-        // Draw lead grid on top
+        // Draw lead grid on top — colored by its own camera
         if (leadInv) {
-            const color = CAM_COLORS[leadSrc] || '#4fc3f7';
-            drawGrid(leadInv, color, 0.6, cw, ch);
+            drawGrid(leadInv, camColor(leadSrc), 0.6, cw, ch);
         }
 
         // Center crosshair
@@ -150,10 +146,10 @@ export function createGridOverlay({ canvas, rtW, rtH }) {
         ctx.globalAlpha = 1;
 
         // Labels (top-right to avoid overlapping the Combined panel label)
-        const leadName = CAM_NAMES[leadSrc] || '?';
-        const folName = CAM_NAMES[followerSrc] || '?';
-        const leadColor = CAM_COLORS[leadSrc] || '#4fc3f7';
-        const folColor = CAM_COLORS[followerSrc] || '#4fc3f7';
+        const leadName = camDisplayName(leadSrc);
+        const folName = camDisplayName(followerSrc);
+        const leadColor = camColor(leadSrc);
+        const folColor = camColor(followerSrc);
         ctx.textAlign = 'right';
         ctx.font = '13px monospace';
         // "Lead:" in fixed white, camera name in its own color

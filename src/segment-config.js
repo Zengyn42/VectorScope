@@ -21,6 +21,7 @@
  */
 
 import { SRC } from './zoom-pipeline.js';
+import { CAM_COLORS, camDisplayName, camColor } from './camera.js';
 
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -37,11 +38,10 @@ export const HELP = {
     ],
 };
 
-/** Camera name ↔ SRC index helpers */
+/** Camera name ↔ SRC index helpers (delegates to camera.js for colors/names) */
 export const CAM_NAMES = ['UW', 'Main', 'Tele'];
-/** Per-camera label colors (matching panel labels in index.html). */
-export const CAM_COLORS = { [SRC.SEC1]: '#81c784', [SRC.MAIN]: '#4fc3f7', [SRC.SEC2]: '#fff176' };
-export function camName(src) { return CAM_NAMES[src] || '?'; }
+export { CAM_COLORS };   // re-export from camera.js for backward compat
+export function camName(src) { return camDisplayName(src); }
 export function camIndex(name) {
     const i = CAM_NAMES.indexOf(name);
     return i >= 0 ? i : SRC.MAIN;
@@ -72,10 +72,10 @@ export function segmentLabel(z, segCfg, hasS2 = true) {
         else if (z < 5) { leadSrc = SRC.MAIN; followerSrc = SRC.SEC2; warp = true; }
         else { leadSrc = SRC.SEC2; followerSrc = SRC.MAIN; warp = false; }
     }
-    const leadName = camName(leadSrc);
-    const folName = camName(followerSrc);
+    const leadName = camDisplayName(leadSrc);
+    const folName = camDisplayName(followerSrc);
     const text = warp ? `${leadName}\u2192${folName}` : leadName;
-    const color = CAM_COLORS[leadSrc] || '#e94560';
+    const color = camColor(leadSrc);
     return { text, color };
 }
 

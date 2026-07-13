@@ -37,6 +37,8 @@ export const HELP = {
     ],
 };
 
+import { CAM_NAME_TO_SRC, camColor } from './camera.js';
+
 /**
  * @param {object} opts
  * @param {object}   opts.THREE       - Three.js namespace
@@ -215,9 +217,10 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
             rot = ext?.rotation_euler_deg || [0, 0, 0];
         }
 
-        $('selinfo').innerHTML = `Camera: <b style="color:#4fc3f7">${name}</b>`;
+        const cc = camColor(CAM_NAME_TO_SRC[name] ?? 1);
+        $('selinfo').innerHTML = `Camera: <b style="color:${cc}">${name}</b>`;
 
-        let html = `<div style="color:#4fc3f7;font-size:10px;text-transform:uppercase;margin-bottom:4px">${posLabel}</div>`;
+        let html = `<div style="color:${cc};font-size:10px;text-transform:uppercase;margin-bottom:4px">${posLabel}</div>`;
         html += `<div style="margin-bottom:3px">`;
         html += `<span class="cam-lbl">x</span>${camInp('ci-px', (+pos[0]).toFixed(2))} `;
         html += `<span class="cam-lbl">y</span>${camInp('ci-py', (+pos[1]).toFixed(2))} `;
@@ -232,7 +235,7 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
         // Intrinsics editor
         const i = S.camParams?.[key]?.intrinsics;
         if (i) {
-            html += `<div style="color:#4fc3f7;font-size:10px;text-transform:uppercase;margin-bottom:2px">Intrinsics</div>`;
+            html += `<div style="color:${cc};font-size:10px;text-transform:uppercase;margin-bottom:2px">Intrinsics</div>`;
             html += `<div style="margin-bottom:3px">`;
             html += `<span class="cam-lbl">fx</span>${camInp('ci-fx', i.fx, 10)} `;
             html += `<span class="cam-lbl">fy</span>${camInp('ci-fy', i.fy, 10)}`;

@@ -18,10 +18,15 @@
  *   This simulates a common real-world setup where the UW camera
  *   captures a wider field of view for context.
  *
+ * Also defines the **canonical camera identity constants** used across all
+ * UI modules — display names, label colors, and SRC index lookups.
+ * Every module that needs a camera name or color MUST import from here
+ * (single source of truth — never hardcode camera colors elsewhere).
+ *
  * Pure data — no DOM, no THREE.js dependency.
  *
  * @example
- * import { SCENE_CAM, DEF_CAM } from './camera.js';
+ * import { SCENE_CAM, DEF_CAM, CAM_DISPLAY, camColor } from './camera.js';
  *
  * // Access main camera intrinsics
  * const { fx, fy, cx, cy } = DEF_CAM.main_camera.intrinsics;
@@ -29,6 +34,49 @@
  * // Update scene camera position (mutable)
  * SCENE_CAM.position = [2.0, 1.0, 5.0];
  */
+
+import { SRC } from './zoom-pipeline.js';
+
+/* ═══════════════════════════════════════════════════════════════
+   CAMERA IDENTITY CONSTANTS — single source of truth
+   Every module that displays a camera name or color imports from here.
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Canonical display names for each camera.
+ * Short form used in labels, HUD, grid overlay, etc.
+ */
+export const CAM_DISPLAY = {
+    [SRC.SEC1]: 'UW',
+    [SRC.MAIN]: 'Main',
+    [SRC.SEC2]: 'Tele',
+};
+
+/**
+ * Canonical label colors for each camera.
+ * Must match the panel label colors in index.html.
+ */
+export const CAM_COLORS = {
+    [SRC.SEC1]: '#81c784',   // green  — UW Camera
+    [SRC.MAIN]: '#4fc3f7',   // blue   — Main Camera
+    [SRC.SEC2]: '#fff176',   // yellow — Tele Camera
+};
+
+/** Get display name for a SRC index. */
+export function camDisplayName(src) { return CAM_DISPLAY[src] || '?'; }
+
+/** Get label color for a SRC index. */
+export function camColor(src) { return CAM_COLORS[src] || '#e0e0e0'; }
+
+/**
+ * Camera display names indexed by human-readable panel name.
+ * Used by selection-panel.js to color camera info by name.
+ */
+export const CAM_NAME_TO_SRC = {
+    'Main Camera': SRC.MAIN,
+    'UW Camera': SRC.SEC1,
+    'Tele Camera': SRC.SEC2,
+};
 
 /**
  * Scene camera world-space pose.
