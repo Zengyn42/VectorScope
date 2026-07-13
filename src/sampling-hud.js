@@ -73,10 +73,11 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
             };
             if (S.warp) effectiveWarp = segCfg.getSegmentWarp(S.zoom);
         }
+        const segRange = segCfg ? segCfg.getSegmentRange(S.zoom) : null;
         const opts = {
             z: S.zoom, warp: effectiveWarp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-            w: rtW, h: rtH, warpCurve: getWarpCurve(),
+            w: rtW, h: rtH, warpCurve: getWarpCurve(), segRange,
             ...explicitSrcs,
         };
         const { src, m: Msamp } = computeSampleMatrixExplicit(opts);

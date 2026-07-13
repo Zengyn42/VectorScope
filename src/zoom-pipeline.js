@@ -140,16 +140,37 @@ export const SRC_NOMINAL = { [SRC.SEC1]: 0.5, [SRC.MAIN]: 1, [SRC.SEC2]: 5 };
 export function computeSampleMatrixExplicit(opts) {
     const hasS2 = !!opts.params.secondary_camera_2;
     const lead = (opts.leadSrc === SRC.SEC2 && !hasS2) ? SRC.MAIN : opts.leadSrc;
-    // Compare against HARDCODED default rules (no segCfg) — warp interpolation
-    // math only works when the lead matches the built-in segment arrangement.
-    if (lead === undefined || lead === zoomSource(opts.z, hasS2)) {
-        return computeSampleMatrix(opts);
-    }
-    // Explicit lead contradicts zoom rules — plain center crop using prewarp
-    // as the effective nominal (prewarp1 for UW, 1 for Main, prewarp2 for Tele).
+
+    // No explicit lead → use the hardcoded segment pipeline unchanged.
+    if (lead === undefined) return computeSampleMatrix(opts);
+
+    // Compute lead's nominal zoom (for crop fallback).
     const nominal = lead === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
                   : lead === SRC.SEC2 ? (opts.prewarp2 || 5)
                   : 1;
+
+    // Generic warp path: when we have a segment range and warp is ON,
+    // interpolate from the lead's crop at segFrom → H(lead←follower) at segTo.
+    // This replaces the hardcoded segment boundaries.
+    if (opts.warp && opts.segRange && opts.followerSrc !== undefined && opts.followerSrc !== lead) {
+        const [segFrom, segTo] = opts.segRange;
+        const p = opts.params;
+        const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
+                           : s === SRC.SEC2 ? p.secondary_camera_2
+                           : p.main_camera;
+        const followerCam = camOf(opts.followerSrc);
+        const leadCam = camOf(lead);
+        if (followerCam && leadCam) {
+            const Hlf = computeHPair(leadCam, followerCam, opts.D);
+            let t = Math.log(opts.z / segFrom) / Math.log(segTo / segFrom);
+            t = Math.max(0, Math.min(1, t));
+            if (opts.warpCurve) t = opts.warpCurve(t);
+            const startM = zoomMatrix(segFrom / nominal, opts.w, opts.h);
+            return { src: lead, m: normLerp(startM, Hlf, t) };
+        }
+    }
+
+    // Warp OFF or no segment range: plain center crop.
     return { src: lead, m: zoomMatrix(opts.z / nominal, opts.w, opts.h) };
 }
 

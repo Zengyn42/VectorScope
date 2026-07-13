@@ -305,6 +305,51 @@ describe('computeFollowerMatrix', () => {
     });
 });
 
+// ── generic warp with segRange ──
+
+describe('computeSampleMatrixExplicit with segRange', () => {
+    it('segRange warp interpolates from crop(segFrom) to H at segTo', () => {
+        const p = makeRig();
+        // UW leads [0.5, 1.0), follower=Main, warp ON
+        const atStart = computeSampleMatrixExplicit({
+            z: 0.5, warp: true, D, params: p, prewarp1: 2, prewarp2: 5, w: W, h: H,
+            leadSrc: SRC.SEC1, followerSrc: SRC.MAIN,
+            segRange: [0.5, 1.0],
+        });
+        // At segFrom: t=0 → startM = zoomMatrix(0.5 / 0.5) = Identity
+        assertVecClose(norm(atStart.m), M.id(), 'at segFrom ≈ identity', 1e-4);
+    });
+
+    it('custom segRange [0.5, 2.0] stretches the interpolation', () => {
+        const p = makeRig();
+        // At z=1.0 with range [0.5, 2.0]: t = log(1.0/0.5)/log(2.0/0.5) = log(2)/log(4) = 0.5
+        const mid = computeSampleMatrixExplicit({
+            z: 1.0, warp: true, D, params: p, prewarp1: 2, prewarp2: 5, w: W, h: H,
+            leadSrc: SRC.SEC1, followerSrc: SRC.MAIN,
+            segRange: [0.5, 2.0],
+        });
+        // With default range [0.5, 1.0], z=1.0 would be t=1 (full H).
+        // With range [0.5, 2.0], z=1.0 is only t=0.5 (half-interpolated).
+        // So this should NOT be identity and NOT be full H.
+        assert.ok(mid.m.every(Number.isFinite), 'finite matrix');
+        // Verify it's not identity (t>0)
+        const diff = mid.m.reduce((s, v, i) => s + Math.abs(v - M.id()[i]), 0);
+        assert.ok(diff > 0.01, 'not identity at midpoint');
+    });
+
+    it('no segRange falls back to hardcoded computeSampleMatrix', () => {
+        const p = makeRig();
+        // Without segRange, leadSrc=undefined → computeSampleMatrix
+        const result = computeSampleMatrixExplicit({
+            z: 0.7, warp: true, D, params: p, prewarp1: 2, prewarp2: 5, w: W, h: H,
+        });
+        const direct = computeSampleMatrix({
+            z: 0.7, warp: true, D, params: p, prewarp1: 2, prewarp2: 5, w: W, h: H,
+        });
+        assertVecClose(result.m, direct.m, 'matches hardcoded path');
+    });
+});
+
 // ── easeInOutQuad ──
 
 describe('easeInOutQuad', () => {
