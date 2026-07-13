@@ -149,14 +149,16 @@ export function createGridOverlay({ canvas, rtW, rtH }) {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Labels
+        // Labels (top-right to avoid overlapping the Combined panel label)
         const leadName = CAM_NAMES[leadSrc] || '?';
         const folName = CAM_NAMES[followerSrc] || '?';
         ctx.font = '11px monospace';
+        ctx.textAlign = 'right';
         ctx.fillStyle = CAM_COLORS[leadSrc] || '#4fc3f7';
-        ctx.fillText(`Lead: ${leadName}`, 6, 14);
+        ctx.fillText(`Lead: ${leadName}`, cw - 6, 14);
         ctx.fillStyle = '#e94560';
-        ctx.fillText(`Fol: ${folName}`, 6, 28);
+        ctx.fillText(`Fol: ${folName}`, cw - 6, 28);
+        ctx.textAlign = 'left';
     }
 
     function setEnabled(v) {
