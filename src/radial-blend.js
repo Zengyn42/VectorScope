@@ -23,16 +23,21 @@
  * @param {number} prevNom - outgoing (previous lead) camera's nominal zoom
  * @returns {{direction: number, coverRadius: number}}
  *   direction: 1 = radial-in, -1 = radial-out, 0 = flat
- *   coverRadius: ratio for the shader's uCoverRadius uniform
+ *   coverRadius: radius fraction for the shader's uCoverRadius uniform
  */
 export function radialBlendParams(curNom, prevNom) {
+    // Coverage radius is always 1.0 — the radial effect spans the full frame.
+    // When warp is ON, the follower matrix aligns both cameras' images to
+    // cover the full output. The shader's per-pixel OOB guard handles any
+    // actual out-of-bounds sampling (no black edges). The direction alone
+    // determines the visual effect (edges-first vs center-first).
     if (prevNom > curNom) {
         // Outgoing narrower FOV → incoming wider: radial-IN (edges first)
-        return { direction: 1, coverRadius: curNom / prevNom };
+        return { direction: 1, coverRadius: 1.0 };
     }
     if (prevNom < curNom) {
         // Outgoing wider FOV → incoming narrower: radial-OUT (center first)
-        return { direction: -1, coverRadius: prevNom / curNom };
+        return { direction: -1, coverRadius: 1.0 };
     }
     return { direction: 0, coverRadius: 1.0 };
 }
