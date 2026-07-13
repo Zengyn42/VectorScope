@@ -22,6 +22,22 @@
  * `'Main Camera'`, `'UW Camera'` (ultra wide), `'Tele Camera'` (telescope) —
  * see docs/CAMERAS.md for the naming convention.
  *
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Selection Panel',
+    order: 20,
+    entries: [
+        ['Click object', 'Select it — shows world position, depth along Main camera axis, and object controls'],
+        ['Click camera marker', 'Select camera — shows absolute pose (Main) or relative extrinsics (UW/Tele)'],
+        ['Obj Depth slider', 'Move the selected object along the Main camera look-at axis (depth control)'],
+        ['Obj Scale slider', 'Scale the selected object relative to its load-time size'],
+        ['Rotation inputs', 'Set object rotation in degrees (X, Y, Z Euler angles)'],
+        ['Animation', 'Attach spin/bob/orbit/float animation to the selected object with speed control'],
+        ['Delete button', 'Hide the selected object (restorable via Reset All)'],
+    ],
+};
+
+/**
  * @param {object} opts
  * @param {object}   opts.THREE       - Three.js namespace
  * @param {object}   opts.S           - Shared app state (reads S.sel, S.selCam, S.camParams)

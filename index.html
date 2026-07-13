@@ -787,11 +787,13 @@ $('btn-combined').onclick = () => {
    the code it documents. Collected lazily on first open via dynamic
    import() and rendered by src/help-registry.js. */
 const HELP_MODULES = [
-    './src/panels.js', './src/interaction.js', './src/camera-sampling.js',
+    './src/panels.js', './src/loader.js', './src/interaction.js',
+    './src/selection-panel.js', './src/camera-sampling.js',
     './src/zoom-pipeline.js', './src/segment-config.js',
     './src/ui-controls.js', './src/bezier-curve.js', './src/autofocus.js',
     './src/object-ops.js', './src/scene-io.js', './src/scene-anim.js',
-    './src/bev-ghost.js', './src/trajectory.js',
+    './src/bev-ghost.js', './src/trajectory.js', './src/transport.js',
+    './src/recorder.js',
 ];
 let helpBuilt = false;
 async function buildHelp() {

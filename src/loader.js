@@ -26,6 +26,23 @@
  * - `getLoaderState()` — access the internal registry (for fallback scene setup)
  *
  * Dependencies: `GLTFLoader`, `DRACOLoader` (Three.js addons) — passed via `initLoader()`.
+ */
+
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Model Loading',
+    order: 15,
+    entries: [
+        ['Drag & drop GLB/glTF', 'Drop a 3D model file onto the viewport to add it to the scene'],
+        ['Drag & drop OBJ+MTL', 'OBJ files with matching MTL textures are also supported'],
+        ['Scene replacement', 'Loading a scene file replaces all existing objects'],
+        ['Add object', 'Dropping a file while holding Shift adds to the existing scene'],
+        ['Light handling', 'Loaded scene lights are detected; default lights are dimmed to avoid over-exposure'],
+        ['Reset All', 'Restores all object positions to their load-time originals'],
+    ],
+};
+
+/**
  *
  * @example
  * import { initLoader, loadScene, getLoaderState } from './loader.js';

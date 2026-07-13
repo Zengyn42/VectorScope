@@ -26,6 +26,20 @@
  * Pure module — no DOM, no Three.js; fully unit-testable.
  */
 
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Trajectory Transport',
+    order: 51,
+    entries: [
+        ['Select dropdown', 'Choose a trajectory from the library (default = free mode)'],
+        ['Play / Pause', 'Start or pause trajectory playback at the recorded FPS'],
+        ['Stop', 'Exit playback, return to free mode (unlocks all controls)'],
+        ['Step back / forward', 'Advance one frame at a time (frame-accurate scrubbing)'],
+        ['Progress slider', 'Drag to seek to any frame in the trajectory'],
+        ['Controls locked', 'During playback, zoom/warp/blend controls are disabled — the trajectory drives everything'],
+    ],
+};
+
 /**
  * @param {object} [deps]
  * @param {() => number} [deps.now] - wall clock in ms (injectable for tests)

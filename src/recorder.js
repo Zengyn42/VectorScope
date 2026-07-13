@@ -15,6 +15,19 @@
  * Pure module — no DOM, no Three.js; fully unit-testable.
  */
 
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'Trajectory Recording',
+    order: 52,
+    entries: [
+        ['Rec button', 'Start/stop recording — captures every rendered frame into a trajectory'],
+        ['Captured per frame', 'zoom, focusD, prewarp1/2, warp, lead/follower, blendX/mode/shape, sceneCam pose, camParams, homography matrices'],
+        ['Not recorded', 'Object positions and animations — trajectories are scene-independent (rig only)'],
+        ['Default name', 'traj_{datetime}_{framecount}f — auto-generated on stop'],
+        ['After recording', 'Trajectory is added to the library and loaded into the transport for immediate playback'],
+    ],
+};
+
 import { CAM_NAMES, TRAJECTORY_VERSION } from './trajectory.js';
 import { SRC } from './zoom-pipeline.js';
 
