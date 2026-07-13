@@ -152,12 +152,23 @@ export function createGridOverlay({ canvas, rtW, rtH }) {
         // Labels (top-right to avoid overlapping the Combined panel label)
         const leadName = CAM_NAMES[leadSrc] || '?';
         const folName = CAM_NAMES[followerSrc] || '?';
-        ctx.font = '11px monospace';
+        const leadColor = CAM_COLORS[leadSrc] || '#4fc3f7';
+        const folColor = CAM_COLORS[followerSrc] || '#4fc3f7';
         ctx.textAlign = 'right';
-        ctx.fillStyle = CAM_COLORS[leadSrc] || '#4fc3f7';
-        ctx.fillText(`Lead: ${leadName}`, cw - 6, 14);
-        ctx.fillStyle = '#e94560';
-        ctx.fillText(`Fol: ${folName}`, cw - 6, 28);
+        ctx.font = '13px monospace';
+        // "Lead:" in fixed white, camera name in its own color
+        const lx = cw - 6;
+        ctx.fillStyle = '#ccc';
+        const leadW = ctx.measureText(leadName).width;
+        ctx.fillText('Lead: ', lx - leadW, 16);
+        ctx.fillStyle = leadColor;
+        ctx.fillText(leadName, lx, 16);
+        // "Fol:" in fixed white, camera name in its own color
+        ctx.fillStyle = '#ccc';
+        const folW = ctx.measureText(folName).width;
+        ctx.fillText('Fol: ', lx - folW, 32);
+        ctx.fillStyle = folColor;
+        ctx.fillText(folName, lx, 32);
         ctx.textAlign = 'left';
     }
 
