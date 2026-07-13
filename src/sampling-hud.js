@@ -61,6 +61,9 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         const segCfg = getSegCfg();
         const hasS2 = !!params.secondary_camera_2;
         let explicitSrcs = {};
+        // Effective warp = global master switch AND per-segment flag.
+        // Global warp OFF → no warp anywhere. Global ON → each segment's own flag.
+        let effectiveWarp = S.warp;
         if (ov) {
             explicitSrcs = { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc };
         } else if (segCfg) {
@@ -68,9 +71,10 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
                 leadSrc: segCfg.getLeadSource(S.zoom, hasS2),
                 followerSrc: segCfg.getFollowerSource(S.zoom, hasS2),
             };
+            if (S.warp) effectiveWarp = segCfg.getSegmentWarp(S.zoom);
         }
         const opts = {
-            z: S.zoom, warp: S.warp, D: S.depthD, params,
+            z: S.zoom, warp: effectiveWarp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
             w: rtW, h: rtH, warpCurve: getWarpCurve(),
             ...explicitSrcs,

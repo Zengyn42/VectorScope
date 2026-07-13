@@ -29,6 +29,7 @@ export function renderSegmentDialog(container, segmentConfig) {
           + '<td style="padding:2px 4px;">Range</td>'
           + '<td style="padding:2px 4px;">Lead</td>'
           + '<td style="padding:2px 4px;">Follower</td>'
+          + '<td style="padding:2px 4px;">Warp</td>'
           + '<td></td></tr>';
 
     // For N breakpoints, there are N+1 segments
@@ -36,7 +37,7 @@ export function renderSegmentDialog(container, segmentConfig) {
     for (let i = 0; i < segCount; i++) {
         const from = i === 0 ? RANGE_MIN : bps[i - 1];
         const to = i === segCount - 1 ? RANGE_MAX : bps[i];
-        const a = assigns[i] || { lead: SRC.MAIN, follower: SRC.SEC1 };
+        const a = assigns[i] || { lead: SRC.MAIN, follower: SRC.SEC1, warp: false };
 
         // Range label with convention markers
         const fromLabel = i === 0 ? `${from.toFixed(1)}x` : `\u2265${from.toFixed(1)}x`;
@@ -47,6 +48,7 @@ export function renderSegmentDialog(container, segmentConfig) {
         html += `<td style="padding:2px 4px;font-family:monospace;font-size:12px;color:#aaa;white-space:nowrap;">${rangeLabel}</td>`;
         html += `<td style="padding:2px 4px;">${makeSelect('seg-lead', a.lead, i)}</td>`;
         html += `<td style="padding:2px 4px;">${makeSelect('seg-follower', a.follower, i)}</td>`;
+        html += `<td style="padding:2px 4px;text-align:center;"><input type="checkbox" class="seg-warp" data-seg="${i}" ${a.warp ? 'checked' : ''} style="cursor:pointer;"></td>`;
         html += '<td></td>';
         html += '</tr>';
 
@@ -134,6 +136,15 @@ export function bindSegmentDialog(overlay, { segmentConfig, onApply }) {
                 const segIdx = parseInt(sel.dataset.seg, 10);
                 const assigns = segmentConfig.getAssignments();
                 segmentConfig.setAssignment(segIdx, assigns[segIdx].lead, parseInt(sel.value, 10));
+                if (onApply) onApply();
+            };
+        });
+
+        // Per-segment warp checkboxes
+        content.querySelectorAll('.seg-warp').forEach(cb => {
+            cb.onchange = () => {
+                const segIdx = parseInt(cb.dataset.seg, 10);
+                segmentConfig.setSegmentWarp(segIdx, cb.checked);
                 if (onApply) onApply();
             };
         });

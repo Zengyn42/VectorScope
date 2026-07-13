@@ -144,6 +144,49 @@ describe('segment-config', () => {
             assert.equal(cfg.getLeadSource(0.7, true), SRC.MAIN);
             assert.equal(cfg.getFollowerSource(0.7, true), SRC.SEC1);
         });
+
+        it('preserves warp flag when changing lead/follower', () => {
+            const cfg = createSegmentConfig();
+            // Segment 0 default warp=true
+            assert.equal(cfg.getSegmentWarp(0.7), true);
+            cfg.setAssignment(0, SRC.MAIN, SRC.SEC1);
+            assert.equal(cfg.getSegmentWarp(0.7), true); // still true
+        });
+    });
+
+    describe('per-segment warp', () => {
+        it('default warp flags match hardcoded segments', () => {
+            const cfg = createSegmentConfig();
+            assert.equal(cfg.getSegmentWarp(0.7), true);   // A: warp on
+            assert.equal(cfg.getSegmentWarp(1.5), false);  // B: warp off
+            assert.equal(cfg.getSegmentWarp(3.0), true);   // C: warp on
+            assert.equal(cfg.getSegmentWarp(7.0), false);  // D: warp off
+        });
+
+        it('setSegmentWarp toggles the flag', () => {
+            const cfg = createSegmentConfig();
+            cfg.setSegmentWarp(1, true);  // turn on warp for segment B
+            assert.equal(cfg.getSegmentWarp(1.5), true);
+            cfg.setSegmentWarp(1, false);
+            assert.equal(cfg.getSegmentWarp(1.5), false);
+        });
+
+        it('getSegmentRange returns correct boundaries', () => {
+            const cfg = createSegmentConfig();
+            assert.deepEqual(cfg.getSegmentRange(0.7), [0.5, 1.0]);
+            assert.deepEqual(cfg.getSegmentRange(1.5), [1.0, 2.0]);
+            assert.deepEqual(cfg.getSegmentRange(3.0), [2.0, 5.0]);
+            assert.deepEqual(cfg.getSegmentRange(7.0), [5.0, 10.0]);
+        });
+
+        it('warp flag survives serialize/restore', () => {
+            const cfg = createSegmentConfig();
+            cfg.setSegmentWarp(1, true);
+            const data = cfg.serialize();
+            const cfg2 = createSegmentConfig();
+            cfg2.restore(data);
+            assert.equal(cfg2.getSegmentWarp(1.5), true);
+        });
     });
 
     describe('serialize / restore', () => {

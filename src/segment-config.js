@@ -56,10 +56,10 @@ export const RANGE_MAX = 10.0;
  */
 export const DEFAULT_BREAKPOINTS = [1.0, 2.0, 5.0];
 export const DEFAULT_ASSIGNMENTS = [
-    { lead: SRC.SEC1, follower: SRC.MAIN },   // [0.5, 1.0)  UW leads
-    { lead: SRC.MAIN, follower: SRC.SEC1 },   // [1.0, 2.0)  Main leads, blend from UW
-    { lead: SRC.MAIN, follower: SRC.SEC2 },   // [2.0, 5.0)  Main leads, blend to Tele
-    { lead: SRC.SEC2, follower: SRC.MAIN },   // [5.0, 10.0] Tele leads
+    { lead: SRC.SEC1, follower: SRC.MAIN, warp: true },    // [0.5, 1.0)  UW→Main handover
+    { lead: SRC.MAIN, follower: SRC.SEC1, warp: false },   // [1.0, 2.0)  Main plain crop
+    { lead: SRC.MAIN, follower: SRC.SEC2, warp: true },    // [2.0, 5.0)  Main→Tele handover
+    { lead: SRC.SEC2, follower: SRC.MAIN, warp: false },   // [5.0, 10.0] Tele plain crop
 ];
 
 /**
@@ -97,7 +97,7 @@ export function createSegmentConfig(init) {
         paired.forEach(p => newAssign.push(p.assign));
         // Trim or pad to correct length
         while (newAssign.length < breakpoints.length + 1) {
-            newAssign.push({ lead: SRC.MAIN, follower: SRC.SEC1 });
+            newAssign.push({ lead: SRC.MAIN, follower: SRC.SEC1, warp: false });
         }
         assignments = newAssign.slice(0, breakpoints.length + 1);
     }
@@ -115,6 +115,20 @@ export function createSegmentConfig(init) {
             const idx = segmentIndex(z);
             const src = assignments[idx]?.follower ?? SRC.MAIN;
             return (src === SRC.SEC2 && !hasS2) ? SRC.MAIN : src;
+        },
+
+        /** Get the per-segment warp flag for a given zoom */
+        getSegmentWarp(z) {
+            const idx = segmentIndex(z);
+            return assignments[idx]?.warp ?? false;
+        },
+
+        /** Get the segment boundaries [from, to] for a given zoom */
+        getSegmentRange(z) {
+            const idx = segmentIndex(z);
+            const from = idx === 0 ? RANGE_MIN : breakpoints[idx - 1];
+            const to = idx >= breakpoints.length ? RANGE_MAX : breakpoints[idx];
+            return [from, to];
         },
 
         /** Get current breakpoints (copy) */
@@ -156,10 +170,17 @@ export function createSegmentConfig(init) {
             ensureConsistency();
         },
 
-        /** Update a segment's lead/follower */
+        /** Update a segment's lead/follower (preserves warp flag) */
         setAssignment(segIdx, lead, follower) {
             if (segIdx < 0 || segIdx >= assignments.length) return;
-            assignments[segIdx] = { lead, follower };
+            const warp = assignments[segIdx]?.warp ?? false;
+            assignments[segIdx] = { lead, follower, warp };
+        },
+
+        /** Toggle per-segment warp flag */
+        setSegmentWarp(segIdx, warp) {
+            if (segIdx < 0 || segIdx >= assignments.length) return;
+            assignments[segIdx].warp = !!warp;
         },
 
         /** Reset to defaults */
