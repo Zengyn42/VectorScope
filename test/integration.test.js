@@ -390,7 +390,7 @@ describe('Integration: blend across a camera switch', () => {
         // UW (wider) outgoing → Main (narrower) incoming
         const { direction, coverRadius } = radialBlendParams(mainNom, uwNom);
         assert.equal(direction, -1, 'radial-OUT (center first)');
-        assert.equal(coverRadius, 1.0, 'full-frame coverage');
+        assert.equal(coverRadius, 0.5, 'radial-OUT cover radius');
     });
 });
 

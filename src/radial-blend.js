@@ -37,7 +37,7 @@ export function radialBlendParams(curNom, prevNom) {
     }
     if (prevNom < curNom) {
         // Outgoing wider FOV → incoming narrower: radial-OUT (center first)
-        return { direction: -1, coverRadius: 1.0 };
+        return { direction: -1, coverRadius: 0.5 };
     }
     return { direction: 0, coverRadius: 1.0 };
 }

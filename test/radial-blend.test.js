@@ -12,7 +12,7 @@ describe('radialBlendParams', () => {
     it('wider outgoing → narrower incoming: radial-OUT (center first)', () => {
         const { direction, coverRadius } = radialBlendParams(1, 0.5);
         assert.equal(direction, -1);
-        assert.equal(coverRadius, 1.0);
+        assert.equal(coverRadius, 0.5);
     });
 
     it('same nominal: flat (no radial direction)', () => {
@@ -41,10 +41,14 @@ describe('radialBlendParams', () => {
         assert.equal(direction, 1);
     });
 
-    it('coverRadius is always 1.0 (full-frame radial effect)', () => {
-        for (const [a, b] of [[1, 5], [5, 1], [0.5, 1], [1, 0.5], [1, 1]]) {
-            assert.equal(radialBlendParams(a, b).coverRadius, 1.0,
-                `coverRadius(${a}, ${b}) = 1.0`);
-        }
+    it('radial-IN coverRadius is 1.0, radial-OUT is 0.5', () => {
+        // Radial-IN (narrow→wide): full frame
+        assert.equal(radialBlendParams(1, 5).coverRadius, 1.0);
+        assert.equal(radialBlendParams(0.5, 1).coverRadius, 1.0);
+        // Radial-OUT (wide→narrow): half frame
+        assert.equal(radialBlendParams(5, 1).coverRadius, 0.5);
+        assert.equal(radialBlendParams(1, 0.5).coverRadius, 0.5);
+        // Same: flat
+        assert.equal(radialBlendParams(1, 1).coverRadius, 1.0);
     });
 });
