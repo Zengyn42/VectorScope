@@ -387,13 +387,73 @@ describe('Integration: blend across a camera switch', () => {
     it('radial blend params are correct for UW→Main transition', () => {
         const uwNom = cameraNominal(SRC.SEC1, 2, 5);    // 0.5
         const mainNom = cameraNominal(SRC.MAIN, 2, 5);  // 1.0
-        // UW (wider) outgoing → Main (narrower) incoming
-        // UW→Main: prevNom=0.5 < curNom=1 → center first
-        // UW(wide)→Main(narrow) at z≈1.0: center first
-        // coverRadius = curNom/z = 1.0/1.0 = 1.0 (incoming Main covers full frame at z=1)
         const { direction, coverRadius } = radialBlendParams(mainNom, uwNom, 1.0);
         assert.equal(direction, -1, 'center first');
         assert.equal(coverRadius, 1.0, 'coverRadius = curNom/z = 1.0');
+    });
+
+    it('radial coverRadius is zoom-dependent for Tele→Main', () => {
+        const teleNom = cameraNominal(SRC.SEC2, 2, 5);   // 5
+        const mainNom = cameraNominal(SRC.MAIN, 2, 5);   // 1
+        // At z=3: Tele covers 3/5 of output
+        const r3 = radialBlendParams(mainNom, teleNom, 3.0);
+        assert.equal(r3.direction, 1, 'edges first');
+        assert.ok(Math.abs(r3.coverRadius - 0.6) < 1e-9, 'coverRadius=0.6 at z=3');
+        // At z=4.9: Tele nearly fills output
+        const r49 = radialBlendParams(mainNom, teleNom, 4.9);
+        assert.ok(Math.abs(r49.coverRadius - 0.98) < 1e-9, 'coverRadius=0.98 at z=4.9');
+    });
+
+    it('radial direction stays locked when blend crosses segment boundary (5x→1x)', () => {
+        // Simulate zooming from 5x to 1x — the FIRST blend starts at 5x (Tele→Main)
+        // and must NOT flip direction when crossing the 2.0x follower boundary.
+        const blendCtl = createBlendController({ getX: () => 20 });
+        const firstBlendSteps = [];
+        let firstBlendDone = false;
+        for (let i = 0; i < 25; i++) {
+            const z = 5.0 - i * 0.2;  // 5.0 → 0.2
+            if (z < 0.5) break;
+            const opts = sampleOpts(z);
+            const { src, m } = computeSampleMatrix(opts);
+            const { t, prevSrc } = blendCtl.update(src, m);
+
+            if (prevSrc !== null && !firstBlendDone) {
+                // Only track the first blend (Tele→Main)
+                if (firstBlendSteps.length > 0 && prevSrc !== SRC.SEC2) {
+                    firstBlendDone = true; // second blend started, stop tracking
+                    break;
+                }
+                const curNom = cameraNominal(src, 2, 5);
+                const origPrevNom = cameraNominal(prevSrc, 2, 5);
+                const { direction } = radialBlendParams(curNom, origPrevNom, z);
+                firstBlendSteps.push({ z: +z.toFixed(1), prevSrc, direction });
+            }
+        }
+
+        assert.ok(firstBlendSteps.length > 5, 'enough blend frames captured');
+        // The blend controller's prevSrc should be SEC2 (Tele) for all frames
+        // of the first blend — even after crossing z=2.0.
+        assert.ok(firstBlendSteps.every(s => s.prevSrc === SRC.SEC2),
+            `prevSrc stays SEC2: ${JSON.stringify(firstBlendSteps.map(s => s.prevSrc))}`);
+        // Radial direction should stay edges-first (1) throughout — no flip
+        assert.ok(firstBlendSteps.every(s => s.direction === 1),
+            `direction stays 1: ${JSON.stringify(firstBlendSteps.map(s => s.direction))}`);
+    });
+
+    it('follower matrix uses same lead as shader (no direction mismatch)', () => {
+        // At z=3.0 in segment C, the lead's warp interpolation should be
+        // reflected in both the shader's uHi and the follower's matrix.
+        // The follower = H(fol←lead) × M_lead_actual (not re-derived).
+        const opts = sampleOpts(3.0);
+        const lead = computeSampleMatrixExplicit(opts);
+        const fol = computeFollowerMatrix(opts);
+
+        // Follower matrix should be H × lead.m
+        const p = makeRig();
+        const Hlf = computeHPair(p.secondary_camera_2, p.main_camera, D);
+        const expected = M.mul(Hlf, lead.m);
+        const diff = Math.max(...fol.m.map((v, i) => Math.abs(v - expected[i])));
+        assert.ok(diff < 1e-6, `follower = H × lead (diff=${diff.toFixed(8)})`);
     });
 });
 
