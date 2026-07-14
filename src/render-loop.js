@@ -254,15 +254,13 @@ export function createRenderLoop({
                 matWarp.uniforms.uPrevHi.value.set(...feed.prev.m);
             }
         }
-        /* Radial blend direction + coverage radius.
-           - Radial-IN (1): small FOV leading → large FOV incoming (edges first)
-             coverRadius = outgoing_nominal / incoming_nominal (outgoing coverage)
-           - Radial-OUT (-1): large FOV leading → small FOV incoming (center first)
-             coverRadius = incoming_nominal / outgoing_nominal (incoming coverage) */
+        /* Radial blend direction + coverage radius (zoom-dependent).
+           coverRadius = the narrow-FOV camera's actual coverage in the output
+           at the current zoom. The blend boundary sweeps within this radius. */
         if (S.blendShape === 'radial' && matWarp.uniforms.uBlend.value < 1) {
             const curNom = SRC_NOMINAL[zsrc] || 1;
             const prevNom = SRC_NOMINAL[matWarp.uniforms.uPrevSrc.value] || 1;
-            const { direction, coverRadius } = radialBlendParams(curNom, prevNom);
+            const { direction, coverRadius } = radialBlendParams(curNom, prevNom, S.zoom);
             matWarp.uniforms.uBlendRadial.value = direction;
             matWarp.uniforms.uCoverRadius.value = coverRadius;
         } else {

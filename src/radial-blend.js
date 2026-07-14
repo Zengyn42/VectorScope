@@ -17,27 +17,33 @@
  */
 
 /**
- * Compute radial blend parameters from camera nominals.
+ * Compute radial blend parameters from camera nominals and current zoom.
  *
  * @param {number} curNom  - incoming (current lead) camera's nominal zoom
  * @param {number} prevNom - outgoing (previous lead) camera's nominal zoom
+ * @param {number} z       - current zoom factor
  * @returns {{direction: number, coverRadius: number}}
- *   direction: 1 = radial-in, -1 = radial-out, 0 = flat
- *   coverRadius: radius fraction for the shader's uCoverRadius uniform
+ *   direction: 1 = edges-first, -1 = center-first, 0 = flat
+ *   coverRadius: the narrow-FOV camera's actual coverage fraction in the
+ *                output frame at the current zoom. The radial blend boundary
+ *                starts at this radius and sweeps toward center (edges-first)
+ *                or from center toward this radius (center-first).
  */
-export function radialBlendParams(curNom, prevNom) {
-    // Coverage radius is always 1.0 — the radial effect spans the full frame.
-    // When warp is ON, the follower matrix aligns both cameras' images to
-    // cover the full output. The shader's per-pixel OOB guard handles any
-    // actual out-of-bounds sampling (no black edges). The direction alone
-    // determines the visual effect (edges-first vs center-first).
+export function radialBlendParams(curNom, prevNom, z) {
     if (prevNom > curNom) {
-        // Narrow→wide (e.g. Tele→Main): Main appears from edges, Tele shrinks to center
-        return { direction: 1, coverRadius: 1.0 };
+        // Edges-first (e.g. Tele→Main): the outgoing camera (narrow FOV)
+        // only covers a fraction of the output. At z=prevNom it covers the
+        // full frame; as z decreases, coverage shrinks.
+        // coverRadius = z / prevNom (how much of the output the outgoing fills)
+        const coverRadius = Math.min(1.0, z / prevNom);
+        return { direction: 1, coverRadius };
     }
     if (prevNom < curNom) {
-        // Wide→narrow (e.g. Main→Tele): Tele appears from center, Main retreats to edges
-        return { direction: -1, coverRadius: 0.5 };
+        // Center-first (e.g. Main→Tele): the incoming camera (narrow FOV)
+        // only has valid data in a fraction of the output. At z=curNom it
+        // covers the full frame; as z increases beyond, coverage shrinks.
+        const coverRadius = Math.min(1.0, curNom / z);
+        return { direction: -1, coverRadius };
     }
     return { direction: 0, coverRadius: 1.0 };
 }
