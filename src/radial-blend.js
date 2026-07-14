@@ -32,12 +32,12 @@ export function radialBlendParams(curNom, prevNom) {
     // actual out-of-bounds sampling (no black edges). The direction alone
     // determines the visual effect (edges-first vs center-first).
     if (prevNom > curNom) {
-        // Outgoing narrower FOV → incoming wider: radial-IN (edges first)
-        return { direction: 1, coverRadius: 1.0 };
+        // Narrow→wide (e.g. Tele→Main): Main appears from edges, Tele shrinks to center
+        return { direction: -1, coverRadius: 1.0 };
     }
     if (prevNom < curNom) {
-        // Outgoing wider FOV → incoming narrower: radial-OUT (center first)
-        return { direction: -1, coverRadius: 0.5 };
+        // Wide→narrow (e.g. Main→Tele): Tele appears from center, Main retreats to edges
+        return { direction: 1, coverRadius: 0.5 };
     }
     return { direction: 0, coverRadius: 1.0 };
 }
