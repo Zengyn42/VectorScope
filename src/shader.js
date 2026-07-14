@@ -113,22 +113,29 @@ void main(){
         // Start with the linear blend progress.
         float w = uBlend;
 
-        // Radial effect: overrides linear blend based on distance from center.
+        // Radial effect: a moving boundary sweeps across the frame.
+        // Pixels on the "incoming" side of the boundary show the new camera;
+        // pixels on the "outgoing" side keep the old camera. The boundary
+        // moves as uBlend progresses from 0 to 1.
         if(uBlendRadial != 0){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
-            float feather = r * 0.6;
+            float feather = 0.15; // sharp but smooth boundary
 
             if(uBlendRadial == 1){
-                // Radial-IN (edges first): narrow FOV outgoing → wide FOV incoming.
-                float innerEdge = r * (1.0 - uBlend);
-                float radialW = smoothstep(innerEdge - feather, r + feather, dist);
+                // Edges first (Tele→Main): boundary starts at edge (r),
+                // sweeps inward to center (0) as blend progresses.
+                // Outside boundary → incoming (Main). Inside → outgoing (Tele).
+                float boundary = r * (1.0 - uBlend);
+                float radialW = smoothstep(boundary - feather, boundary + feather, dist);
                 w = max(w, radialW);
             } else {
-                // Radial-OUT (center first): wide FOV outgoing → narrow FOV incoming.
-                float outerEdge = r * uBlend;
-                float radialW = smoothstep(outerEdge + feather, outerEdge - feather, dist);
+                // Center first (Main→Tele): boundary starts at center (0),
+                // sweeps outward to edge (r) as blend progresses.
+                // Inside boundary → incoming (Tele). Outside → outgoing (Main).
+                float boundary = r * uBlend;
+                float radialW = smoothstep(boundary + feather, boundary - feather, dist);
                 w = max(w, radialW);
             }
         }
