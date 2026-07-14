@@ -389,8 +389,9 @@ describe('Integration: blend across a camera switch', () => {
         const mainNom = cameraNominal(SRC.MAIN, 2, 5);  // 1.0
         // UW (wider) outgoing → Main (narrower) incoming
         // UW→Main: prevNom=0.5 < curNom=1 → center first
+        // UW(wide)→Main(narrow): center first
         const { direction, coverRadius } = radialBlendParams(mainNom, uwNom);
-        assert.equal(direction, 1, 'center first (wide→narrow)');
+        assert.equal(direction, -1, 'center first');
         assert.equal(coverRadius, 0.5, 'center-first cover radius');
     });
 });

@@ -33,11 +33,11 @@ export function radialBlendParams(curNom, prevNom) {
     // determines the visual effect (edges-first vs center-first).
     if (prevNom > curNom) {
         // Narrow→wide (e.g. Tele→Main): Main appears from edges, Tele shrinks to center
-        return { direction: -1, coverRadius: 1.0 };
+        return { direction: 1, coverRadius: 1.0 };
     }
     if (prevNom < curNom) {
         // Wide→narrow (e.g. Main→Tele): Tele appears from center, Main retreats to edges
-        return { direction: 1, coverRadius: 0.5 };
+        return { direction: -1, coverRadius: 0.5 };
     }
     return { direction: 0, coverRadius: 1.0 };
 }
