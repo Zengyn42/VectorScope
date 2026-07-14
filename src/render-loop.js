@@ -185,6 +185,7 @@ export function createRenderLoop({
     let skipped = 0;       // consecutive skipped rAF ticks
     let bevTick = 0;       // rendered-frame counter for BEV rate reduction
     let lastFrameT = -1e9; // time of the previous rendered frame (fps pacing)
+    let blendOrigPrevSrc = null; // original outgoing source for radial direction lock
 
     /** Request `n` rendered frames after a one-shot change (default 3). */
     function markDirty(n = 3) { dirtyFrames = Math.max(dirtyFrames, n); }
@@ -253,13 +254,20 @@ export function createRenderLoop({
                 matWarp.uniforms.uPrevSrc.value = feed.prev.src;
                 matWarp.uniforms.uPrevHi.value.set(...feed.prev.m);
             }
+            // Save the blend controller's ORIGINAL outgoing source for radial
+            // direction. In dual mode uPrevSrc = live follower (can change
+            // mid-blend when crossing segment boundaries), but the radial
+            // direction must stay locked to the original transition cameras.
+            blendOrigPrevSrc = prevSrc;
         }
         /* Radial blend direction + coverage radius (zoom-dependent).
-           coverRadius = the narrow-FOV camera's actual coverage in the output
-           at the current zoom. The blend boundary sweeps within this radius. */
+           Use the blend controller's original outgoing source (not the live
+           follower) so the radial direction doesn't flip mid-blend when
+           the follower changes at a segment boundary (e.g. 5→1 crossing 2.0x). */
         if (S.blendShape === 'radial' && matWarp.uniforms.uBlend.value < 1) {
             const curNom = SRC_NOMINAL[zsrc] || 1;
-            const prevNom = SRC_NOMINAL[matWarp.uniforms.uPrevSrc.value] || 1;
+            const radialPrevSrc = blendOrigPrevSrc ?? matWarp.uniforms.uPrevSrc.value;
+            const prevNom = SRC_NOMINAL[radialPrevSrc] || 1;
             const { direction, coverRadius } = radialBlendParams(curNom, prevNom, S.zoom);
             matWarp.uniforms.uBlendRadial.value = direction;
             matWarp.uniforms.uCoverRadius.value = coverRadius;
