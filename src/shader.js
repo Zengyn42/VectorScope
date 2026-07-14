@@ -121,7 +121,7 @@ void main(){
             vec2 center = uR * 0.5;
             float dist = length((px - center) / center); // 0 at center, ~1 at edges
             float r = uCoverRadius;
-            float feather = 0.15; // sharp but smooth boundary
+            float feather = 0.35; // wide soft boundary for gradual transition
 
             if(uBlendRadial == 1){
                 // Edges first (Tele→Main): boundary starts at edge (r),
