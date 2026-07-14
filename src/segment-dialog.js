@@ -20,7 +20,7 @@ import { CAM_NAMES, RANGE_MIN, RANGE_MAX } from './segment-config.js';
  * @param {HTMLElement} container - DOM element to fill
  * @param {object} segmentConfig - createSegmentConfig instance
  */
-export function renderSegmentDialog(container, segmentConfig) {
+function renderSegmentDialog(container, segmentConfig) {
     const bps = segmentConfig.getBreakpoints();
     const assigns = segmentConfig.getAssignments();
 

@@ -56,7 +56,7 @@ export const CAM_DISPLAY = {
  * Canonical label colors for each camera.
  * Must match the panel label colors in index.html.
  */
-export const CAM_COLORS = {
+const CAM_COLORS = {
     [SRC.SEC1]: '#81c784',   // green  — UW Camera
     [SRC.MAIN]: '#4fc3f7',   // blue   — Main Camera
     [SRC.SEC2]: '#fff176',   // yellow — Tele Camera
