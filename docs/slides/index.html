@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VectorScope — UI Button Guide</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --border: #e5e7eb;
+    --uw: #2e7d32;      /* UW green (light-theme variant) */
+    --main: #0277bd;    /* Main blue */
+    --tele: #b8860b;    /* Tele yellow */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    overflow: hidden;
+  }
+  #deck { height: 100vh; position: relative; }
+  .slide {
+    display: none;
+    height: 100vh;
+    padding: 40px 64px 72px;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .slide.current { display: flex; }
+  .slide h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }
+  .slide h2 {
+    font-size: 26px; font-weight: 700; letter-spacing: -0.3px;
+    padding-bottom: 10px; margin-bottom: 18px;
+    border-bottom: 3px solid var(--accent);
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  .slide h2 .chip {
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    background: var(--accent-soft); border-radius: 999px;
+    padding: 3px 12px; letter-spacing: 0.4px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .desc { font-size: 15px; line-height: 1.65; color: var(--muted); max-width: 1100px; margin-bottom: 18px; }
+  .desc b { color: var(--ink); }
+  .desc code {
+    font-family: "SF Mono", Consolas, monospace; font-size: 13px;
+    background: #eef1f5; border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px; color: #374151;
+  }
+  .shots { display: flex; gap: 24px; flex: 1; min-height: 0; align-items: flex-start; }
+  .shot { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .shot .tag {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 8px; color: var(--muted);
+  }
+  .shot .tag.before::before { content: "● "; color: #9ca3af; }
+  .shot .tag.after::before { content: "● "; color: var(--accent); }
+  .shot img {
+    width: 100%; border-radius: 10px; border: 1px solid var(--border);
+    box-shadow: 0 4px 18px rgba(20, 30, 60, 0.10);
+    background: #0b0f1a;
+  }
+  .shot .cap { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .single .shot { max-width: 900px; margin: 0 auto; }
+  .cam { font-weight: 700; }
+  .cam.uw { color: var(--uw); } .cam.main { color: var(--main); } .cam.tele { color: var(--tele); }
+
+  /* Title slide */
+  .title-slide { justify-content: center; align-items: center; text-align: center; }
+  .title-slide h1 { font-size: 52px; margin-bottom: 12px; }
+  .title-slide .sub { font-size: 19px; color: var(--muted); margin-bottom: 36px; }
+  .title-slide img { max-width: 72%; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 40px rgba(20,30,60,.14); }
+
+  /* Nav */
+  #nav {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 52px;
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; gap: 18px;
+    font-size: 14px; color: var(--muted); z-index: 10;
+  }
+  #nav button {
+    border: 1px solid var(--border); background: var(--card); color: var(--ink);
+    border-radius: 8px; padding: 6px 18px; font-size: 14px; cursor: pointer;
+  }
+  #nav button:hover { border-color: var(--accent); color: var(--accent); }
+  #counter { font-variant-numeric: tabular-nums; min-width: 70px; text-align: center; }
+  kbd {
+    font-family: inherit; font-size: 12px; border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; background: #fff;
+  }
+</style>
+</head>
+<body>
+<div id="deck">
+
+<!-- ══════════ 1. Title ══════════ -->
+<section class="slide title-slide current">
+  <h1>VectorScope — UI Button Guide</h1>
+  <div class="sub">Every control explained, with before / after screenshots.<br>
+  Stereo-camera homography visualizer: <span class="cam uw">UW</span> · <span class="cam main">Main</span> · <span class="cam tele">Tele</span> — continuous 0.5x–10x zoom pipeline.</div>
+  <img src="img/00_overview.webp" alt="VectorScope overview">
+</section>
+
+<!-- ══════════ 2. Layout ══════════ -->
+<section class="slide">
+  <h2>Screen Layout <span class="chip">orientation</span></h2>
+  <p class="desc">
+    Five panels: <b>Bird's Eye</b> (top-left, scene from above), <b>Main</b> / <b>UW</b> / <b>Tele</b> camera views
+    (bottom row), and the <b>Combined</b> view (bottom-right) — the simulated phone output that switches
+    cameras as you zoom. The <b>Controls</b> panel (top-right) hosts every button described in this deck.
+    Bottom-right corner shows the live 3×3 sampling matrix.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag">Full app</div><img src="img/00_overview.webp"></div>
+    <div class="shot" style="flex:0 0 30%"><div class="tag">Controls panel</div><img src="img/00_controls_panel.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 3. Set Camera ══════════ -->
+<section class="slide">
+  <h2>Set Camera <span class="chip">dialog</span></h2>
+  <p class="desc">
+    Opens the camera parameter editor: intrinsics (<code>fx fy cx cy</code>), extrinsics (position, rotation)
+    for all three cameras, plus the scene camera pose. Edits apply live — camera panels and the Combined
+    homography update immediately. A camera JSON file can also be imported.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before</div><img src="img/01_setcam_before.webp"></div>
+    <div class="shot"><div class="tag after">After click</div><img src="img/01_setcam_after.webp"><div class="cap">Camera parameter dialog opens over the viewport.</div></div>
+  </div>
+</section>
+
+<!-- ══════════ 4. Save / Load Scene + Reset ══════════ -->
+<section class="slide">
+  <h2>Save Scene · Load Scene · Reset All <span class="chip">file ops</span></h2>
+  <p class="desc">
+    <b>Save Scene</b> downloads the full state (objects, cameras, sliders, segment config, curves) as JSON.
+    <b>Load Scene</b> restores it. <b>Reset All</b> returns every control to defaults — below, zoom was at
+    4.0x with Focus D at 1.2 m; after Reset All the app is back at 1.0x / 3.0 m.
+  </p>
+  <div class="shots">
+    <div class="shot" style="flex:0 0 26%"><div class="tag">Action buttons</div><img src="img/20_file_buttons.webp"></div>
+    <div class="shot"><div class="tag before">Before reset (4.0x, D=1.2)</div><img src="img/18_reset_before.webp"></div>
+    <div class="shot"><div class="tag after">After Reset All (1.0x, D=3.0)</div><img src="img/18_reset_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 5. Help ══════════ -->
+<section class="slide">
+  <h2>Help <span class="chip">dialog</span></h2>
+  <p class="desc">
+    Opens the built-in manual: pipeline explanation, per-segment table, blending modes, radial blend behavior,
+    trajectory recording, and file formats. Rendered from the project docs — always in sync with the code.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before</div><img src="img/02_help_before.webp"></div>
+    <div class="shot"><div class="tag after">After click</div><img src="img/02_help_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 6. Focus D + AF ══════════ -->
+<section class="slide">
+  <h2>Focus D slider + AF button <span class="chip">focus plane</span></h2>
+  <p class="desc">
+    <b>Focus D</b> sets the focus-plane depth used by the plane-induced homographies — objects at this depth
+    align perfectly between cameras; objects off-plane show parallax. <b>AF</b> arms autofocus: drag a box on
+    any camera panel, and the median depth inside the box becomes the new Focus D.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">D = 3.0 m (warp off, 0.7x)</div><img src="img/15_focusd_3.webp"></div>
+    <div class="shot"><div class="tag after">D = 1.0 m — alignment shifts</div><img src="img/15_focusd_1.webp"></div>
+    <div class="shot"><div class="tag after">AF: box dragged on Main panel</div><img src="img/14_af_after.webp"><div class="cap">Red AF box; Focus D snapped to the median depth inside it.</div></div>
+  </div>
+</section>
+
+<!-- ══════════ 7. Prewarp ══════════ -->
+<section class="slide">
+  <h2>Prewarp 1 / Prewarp 2 sliders <span class="chip">warp-off path</span></h2>
+  <p class="desc">
+    When <b>Warp is OFF</b>, camera handovers use a fixed prewarp scale instead of homography interpolation.
+    <b>Prewarp 1</b> applies to the <span class="cam uw">UW</span> segment (0.5–1.0x), <b>Prewarp 2</b> to the
+    <span class="cam main">Main</span>→<span class="cam tele">Tele</span> segment (2.0–5.0x). Below at 0.7x,
+    raising Prewarp 1 from 2.0 → 4.0 visibly changes the Combined framing.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Prewarp1 = 2.0</div><img src="img/16_prewarp_before.webp"></div>
+    <div class="shot"><div class="tag after">Prewarp1 = 4.0</div><img src="img/16_prewarp_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 8. Zoom slider + presets ══════════ -->
+<section class="slide">
+  <h2>Zoom slider + Go presets <span class="chip">0.5x – 10x</span></h2>
+  <p class="desc">
+    The <b>Zoom</b> slider is log-scaled over 0.5x–10x. The <b>Go</b> presets (0.5x / 1x / 2x / 5x / 10x)
+    animate smoothly to the target using the zoom transition curve. The Combined view's lead camera follows the
+    segment config: <span class="cam uw">UW</span> below 1x → <span class="cam main">Main</span> → <span class="cam tele">Tele</span> at 5x+.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">1.0x — lead: <span class="cam main">Main</span></div><img src="img/11_zoom_1x.webp"></div>
+    <div class="shot"><div class="tag after">Go 5.0x — lead: <span class="cam tele">Tele</span></div><img src="img/11_zoom_5x.webp"></div>
+    <div class="shot"><div class="tag after">Go 0.5x — lead: <span class="cam uw">UW</span></div><img src="img/11_zoom_05x.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 9. Seg ══════════ -->
+<section class="slide">
+  <h2>Seg — Segment Config <span class="chip">dialog</span></h2>
+  <p class="desc">
+    Configures the zoom pipeline via <b>breakpoints</b> (defaults: 1.0, 2.0, 5.0) that divide 0.5x–10x into
+    segments. Each segment assigns a <b>Lead</b> camera (shown in Combined), a <b>Follower</b> (used only
+    during transition blending), and a per-segment <b>Warp</b> flag. Breakpoints auto-sort;
+    convention: below = <code>z &lt; bp</code>, at/above = <code>z ≥ bp</code>.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before</div><img src="img/03_seg_before.webp"></div>
+    <div class="shot"><div class="tag after">After click — segment table</div><img src="img/03_seg_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 10. Zoom curve ══════════ -->
+<section class="slide">
+  <h2>◑ Zoom Curve <span class="chip">bezier editor</span></h2>
+  <p class="desc">
+    Photoshop-style cubic bezier editor for the <b>zoom transition speed</b> used by the Go presets — plus the
+    transition <b>duration</b> (ms). Drag the four control points to make transitions ease-in, ease-out, or snappy.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before</div><img src="img/04_zoomcurve_before.webp"></div>
+    <div class="shot"><div class="tag after">After click — curve editor</div><img src="img/04_zoomcurve_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 11. Warp + curve ══════════ -->
+<section class="slide">
+  <h2>Warp + ◑ Warp Curve <span class="chip">homography interpolation</span></h2>
+  <p class="desc">
+    <b>Warp ON</b>: within warp-enabled segments, the sampling matrix interpolates
+    <code>lerp(I → H⁻¹)</code> on a log-zoom scale — the view morphs continuously between camera perspectives.
+    <b>Warp OFF</b>: a fixed prewarp × crop is used instead. Below at 0.7x the wall/bed geometry differs between
+    the two paths. The <b>◑ warp curve</b> button opens a bezier editor shaping the interpolation parameter <code>t</code>.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Warp ON (0.7x)</div><img src="img/06_warp_on.webp"></div>
+    <div class="shot"><div class="tag after">Warp OFF (0.7x)</div><img src="img/06_warp_off.webp"></div>
+    <div class="shot"><div class="tag after">◑ Warp curve editor</div><img src="img/05_warpcurve_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 12. Play ══════════ -->
+<section class="slide">
+  <h2>▶ Play <span class="chip">auto sweep</span></h2>
+  <p class="desc">
+    Runs an automatic zoom <b>bounce loop</b>: zoom sweeps up to 10x, reverses down to 0.5x, and repeats —
+    a hands-free demo of every camera handover, warp interpolation, and blend. Click again (■ Stop) to end.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before (1.0x, idle)</div><img src="img/10_play_before.webp"></div>
+    <div class="shot"><div class="tag after">Playing — mid-sweep</div><img src="img/10_play_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 13. FPS ══════════ -->
+<section class="slide single">
+  <h2>30 / 60 FPS <span class="chip">render rate</span></h2>
+  <p class="desc">
+    Toggles the fixed render rate between 30 and 60 FPS. Late frames are <b>dropped, never queued</b> —
+    simulating a real camera pipeline's frame pacing. The button label shows the active rate.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">30 FPS</div><img src="img/09_fps_before.webp"></div>
+    <div class="shot"><div class="tag after">60 FPS</div><img src="img/09_fps_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 14. Combined ══════════ -->
+<section class="slide">
+  <h2>Combined <span class="chip">focus mode</span></h2>
+  <p class="desc">
+    Focus mode: hides all other panels and maximizes the <b>Combined view</b> — the simulated phone output.
+    Ideal for judging handover quality and blend artifacts at full size. Click again to restore the 5-panel layout.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before — 5 panels</div><img src="img/08_combined_before.webp"></div>
+    <div class="shot"><div class="tag after">After — Combined only</div><img src="img/08_combined_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 15. Grid ══════════ -->
+<section class="slide">
+  <h2>Grid <span class="chip">sampling overlay</span></h2>
+  <p class="desc">
+    Overlays the <b>lead</b> and <b>follower</b> sampling grids on the Combined view — each grid drawn in its
+    camera's color (<span class="cam uw">UW green</span>, <span class="cam main">Main blue</span>,
+    <span class="cam tele">Tele yellow</span>). Shows exactly how the warp maps output pixels back into each
+    camera's frame. Labels appear top-right.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Before (3.0x)</div><img src="img/07_grid_before.webp"></div>
+    <div class="shot"><div class="tag after">After — grids on Combined</div><img src="img/07_grid_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 16. Blend ══════════ -->
+<section class="slide">
+  <h2>Blend slider · Single/Dual · Flat/Radial <span class="chip">camera transition</span></h2>
+  <p class="desc">
+    On a lead-camera switch, the old and new cameras cross-fade over <b>Blend</b> frames.
+    <b>Single</b> freezes the outgoing frame; <b>Dual</b> re-renders the follower live every frame (tracks motion).
+    <b>Flat</b> = uniform alpha; <b>Radial</b> = circular sweep — for <span class="cam tele">Tele</span>→<span class="cam main">Main</span>
+    the new camera appears from the <b>edges</b> and the Tele region shrinks to the center (below, mid-blend at 60 frames).
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">At 5.0x (<span class="cam tele">Tele</span>), Dual + Radial armed</div><img src="img/13_blend_at5x.webp"></div>
+    <div class="shot"><div class="tag after">Mid-blend → 1.0x — radial sweep</div><img src="img/13_blend_mid.webp"></div>
+    <div class="shot"><div class="tag after">Blend complete (<span class="cam main">Main</span>)</div><img src="img/13_blend_done.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 17. Trajectory ══════════ -->
+<section class="slide">
+  <h2>Trajectory: ● Rec · ▶ · ⏮ ⏭ · ■ · Load / Save <span class="chip">record & replay</span></h2>
+  <p class="desc">
+    <b>● Rec</b> records every per-frame state (zoom, focus, blend…) into a trajectory. Stop → it appears in the
+    dropdown; the transport row unlocks: <b>▶</b> play/pause, <b>⏮/⏭</b> frame-step, progress slider to seek,
+    <b>■</b> back to free mode. <b>Load/Save</b> exchange trajectory JSON files (see <code>docs/FILE_FORMATS.md</code>).
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Recording (zoom moves captured)</div><img src="img/19_traj_recording.webp"></div>
+    <div class="shot"><div class="tag after">Recorded — transport unlocked</div><img src="img/19_traj_recorded.webp"></div>
+    <div class="shot"><div class="tag after">Playing back</div><img src="img/19_traj_playing.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 18. Clip ══════════ -->
+<section class="slide">
+  <h2>Ghost Y slider <span class="chip">bird's eye</span></h2>
+  <p class="desc">
+    Sets the <b>ghost height</b> (world Y) for the <b>Bird's Eye</b> panel: everything <b>above</b> this height
+    renders translucent so it doesn't block the top-down view. At 2.0 m the ceiling is ghosted and you see
+    inside the room; at 6.0 m nothing is ghosted, so the solid roof hides the interior.
+  </p>
+  <div class="shots">
+    <div class="shot"><div class="tag before">Ghost Y = 2.0 — ceiling ghosted, room visible</div><img src="img/17_clip_before.webp"></div>
+    <div class="shot"><div class="tag after">Ghost Y = 6.0 — solid roof covers the view</div><img src="img/17_clip_after.webp"></div>
+  </div>
+</section>
+
+<!-- ══════════ 19. End ══════════ -->
+<section class="slide title-slide">
+  <h1>That's every button.</h1>
+  <div class="sub">
+    Docs: <code>HOMOGRAPHY_PIPELINE.md</code> · <code>RADIAL_BLENDING.md</code> · <code>MODULE_MAP.md</code> · <code>FILE_FORMATS.md</code> · <code>CAMERAS.md</code><br><br>
+    Screenshots auto-generated by <code>tools/capture-slides.js</code> (Playwright + headless Chrome).
+  </div>
+</section>
+
+</div>
+
+<div id="nav">
+  <button id="prev">← Prev</button>
+  <span id="counter">1 / 1</span>
+  <button id="next">Next →</button>
+  <span style="margin-left:18px">Keys: <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd></span>
+</div>
+
+<script>
+const slides = [...document.querySelectorAll('.slide')];
+let cur = 0;
+function show(i) {
+  cur = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach((s, k) => s.classList.toggle('current', k === cur));
+  document.getElementById('counter').textContent = (cur + 1) + ' / ' + slides.length;
+  location.hash = cur + 1;
+}
+document.getElementById('prev').onclick = () => show(cur - 1);
+document.getElementById('next').onclick = () => show(cur + 1);
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') show(cur + 1);
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(cur - 1);
+  else if (e.key === 'Home') show(0);
+  else if (e.key === 'End') show(slides.length - 1);
+});
+show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+</script>
+</body>
+</html>
