@@ -33,6 +33,10 @@ Open `http://localhost:8080` in a WebGL-capable browser (Chrome recommended).
 
 ## Controls
 
+> **Visual guide**: [docs/slides/index.html](docs/slides/index.html) — a slide deck explaining every
+> button with before/after screenshots (serve the repo over HTTP and open the path, or use
+> `tools/build-pptx.py` to export it as PowerPoint / Google Slides).
+
 | Control | Description |
 |---------|-------------|
 | **Load Scene** | Load a custom `.glb` / `.gltf` file |
