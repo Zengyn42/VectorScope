@@ -22,7 +22,7 @@
  * - `loadObject()` — add a single object to the existing scene
  * - `removeObject()` — remove an object by reference or UUID
  * - `listObjects()` — enumerate loaded objects with positions
- * - `resetPositions()` — restore all objects to their load-time positions
+ * - `resetPositions()` — restore all objects to their load-time positions + rotations
  * - `getLoaderState()` — access the internal registry (for fallback scene setup)
  *
  * Dependencies: `GLTFLoader`, `DRACOLoader` (Three.js addons) — passed via `initLoader()`.
@@ -38,7 +38,7 @@ export const HELP = {
         ['Scene replacement', 'Loading a scene file replaces all existing objects'],
         ['Add object', 'Dropping a file while holding Shift adds to the existing scene'],
         ['Light handling', 'Loaded scene lights are detected; default lights are dimmed to avoid over-exposure'],
-        ['Reset All', 'Restores all object positions to their load-time originals'],
+        ['Reset All', 'Restores all object positions and rotations to their load-time originals'],
     ],
 };
 
@@ -185,6 +185,7 @@ export function registerModel(root, { children = true } = {}) {
     for (const o of added) {
         state.objs.push(o);
         state.origPos.set(o.uuid, o.position.clone());
+        o.userData._baseRot = o.rotation.clone();
     }
 
     state.loaded = true;
@@ -226,6 +227,7 @@ export function loadObject(url, opts = {}) {
             // If traverse didn't add the root, add it
             if (!state.objs.includes(obj)) state.objs.push(obj);
             state.origPos.set(obj.uuid, obj.position.clone());
+            obj.userData._baseRot = obj.rotation.clone();
 
             if (onComplete) onComplete(obj);
         },
@@ -267,11 +269,14 @@ export function listObjects() {
 }
 
 /**
- * Reset all objects to their original positions.
+ * Reset all objects to their original positions and rotations.
+ * (Rotation snapshots live in `userData._baseRot`, mirroring the
+ * `_baseScale` pattern — set wherever `origPos` is snapshotted.)
  */
 export function resetPositions() {
     for (const obj of state.objs) {
         const orig = state.origPos.get(obj.uuid);
         if (orig) obj.position.copy(orig);
+        if (obj.userData._baseRot) obj.rotation.copy(obj.userData._baseRot);
     }
 }

@@ -58,7 +58,7 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
     /**
      * Place an object so its bounding-box center sits on the main camera's
      * optical axis at Focus D depth, then snapshot reset state (origPos +
-     * _baseScale) so Reset returns it to this add-moment pose.
+     * _baseRot + _baseScale) so Reset returns it to this add-moment pose.
      */
     function placeAtFocus(obj) {
         const cam = getMainCam();
@@ -109,6 +109,7 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
                 placeAtFocus(o);
             }
             state.origPos.set(o.uuid, o.position.clone());   // reset → add-moment pose
+            o.userData._baseRot = o.rotation.clone();
             o.userData._baseScale = o.scale.clone();         // after auto-fit: Reset keeps it
         }
         assignStableIds();
@@ -167,7 +168,7 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
      * - objects matched by `_vsid` get their saved transform + animation
      * - registered objects NOT in the list are removed permanently
      *   (they were deleted/hidden when the scene was saved)
-     * Reset state (origPos/_baseScale) is re-snapshotted to the loaded pose.
+     * Reset state (origPos/_baseRot/_baseScale) is re-snapshotted to the loaded pose.
      * @param {object[]} list - serializeObjects() output
      * @param {object} scene - THREE.Scene (for removing dropped objects)
      * @returns {{applied: number, removed: number, missing: string[]}}
@@ -195,6 +196,7 @@ export function createObjectOps({ THREE, S, getLoaderState, getMainCam, getFocus
             delete o.userData._hidden;
             o.updateMatrixWorld(true);
             state.origPos.set(o.uuid, o.position.clone());
+            o.userData._baseRot = o.rotation.clone();
             o.userData._baseScale = o.scale.clone();
             if (e.anim && e.anim.mode !== 'none') {
                 sceneAnim.setAnim(o, e.anim.mode, { speed: e.anim.speed, dir: e.anim.dir });

@@ -33,7 +33,7 @@ export const HELP = {
         ['Prewarp1/2', 'Manual prewarp scales used when Warp is off (segments 0.5–1x / 2–5x)'],
         ['Blend / Single-Dual', 'Cross-fade length (frames) at camera handover. Single: outgoing pixels frozen but re-warped live with the zoom; Dual: outgoing camera fully re-rendered each frame'],
         ['Set Camera', 'Inspect/edit intrinsics + extrinsics of all three cameras, or load a camera JSON'],
-        ['Reset All', 'Restore object positions, un-hide deleted objects, reset selection'],
+        ['Reset All', 'Restore object positions/rotations/scales, un-hide deleted objects, reset selection'],
         ['30/60 FPS', 'Fixed render rate driven by a CPU clock; frames that finish late are dropped, never queued'],
     ],
 };

@@ -45,6 +45,7 @@ export function createFallbackScene({ THREE, scene, getLoaderState, onRemove }) 
             objs.push(m);
             ls.objs.push(m);
             ls.origPos.set(m.uuid, m.position.clone());
+            m.userData._baseRot = m.rotation.clone();
         });
         ls.loaded = true;
     }
