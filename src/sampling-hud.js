@@ -93,14 +93,11 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         // M_lead_actual is the SAME lead matrix the shader uses (Msamp).
         // We compute it directly here instead of calling computeFollowerMatrix
         // (which would re-derive the lead with potentially different warp flags).
+        const paramKeyOf = (s) => s === SRC.SEC1 ? 'secondary_camera'
+                                : s === SRC.SEC2 ? 'secondary_camera_2' : 'main_camera';
+        const camOf = (s) => params[paramKeyOf(s)];
         const folSrc = opts.followerSrc ?? followerSource(S.zoom, hasS2);
-        if (S.warp && folSrc !== src && params[
-            folSrc === SRC.SEC1 ? 'secondary_camera' :
-            folSrc === SRC.SEC2 ? 'secondary_camera_2' : 'main_camera'
-        ]) {
-            const camOf = (s) => s === SRC.SEC1 ? params.secondary_camera
-                               : s === SRC.SEC2 ? params.secondary_camera_2
-                               : params.main_camera;
+        if (S.warp && folSrc !== src && params[paramKeyOf(folSrc)]) {
             const Hlf = computeHPair(camOf(folSrc), camOf(src), S.depthD);
             S.followerSrc = folSrc;
             S.followerM = M.mul(Hlf, Msamp);
@@ -109,6 +106,25 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
             const fol = computeFollowerMatrix({ ...opts, warp: effectiveWarp });
             S.followerSrc = fol.src;
             S.followerM = fol.m;
+        }
+
+        /* Live sampling matrix for EVERY available camera at the current
+           zoom (output px → that camera's RT px). Used by single-mode
+           blends: the outgoing camera's RT pixels stay frozen, but its
+           sampling matrix is looked up here each frame, so the frozen
+           frame keeps scaling/warping with the zoom during the cross-fade
+           (mirrors the dual-mode follower matrix, minus the re-render). */
+        S.liveM = {};
+        for (const s of [SRC.MAIN, SRC.SEC1, SRC.SEC2]) {
+            if (!params[paramKeyOf(s)]) continue;
+            if (s === src) { S.liveM[s] = Msamp; continue; }
+            if (S.warp) {
+                const Hs = computeHPair(camOf(s), camOf(src), S.depthD);
+                S.liveM[s] = M.mul(Hs, Msamp);
+            } else {
+                S.liveM[s] = computeFollowerMatrix(
+                    { ...opts, warp: effectiveWarp, followerSrc: s }).m;
+            }
         }
 
         /* HUD: show lead/follower names + their homographies (geometric

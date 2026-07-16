@@ -79,10 +79,13 @@ displayed(n) = prev * (1 - n/X) + current * (n/X),   n = 1..X
 ### Single mode (default)
 
 `prev` = the **frozen last frame** of the outgoing camera, sampled with the
-frozen sampling matrix from its final displayed frame. Zero-copy: the
-outgoing RT simply stops being re-rendered, so it holds its last frame.
-Cheap (one scene render per frame), but the old frame is static — any scene
-or zoom motion during the blend makes the frozen layer visibly lag.
+**live sampling matrix for that camera** (`S.liveM[prevSrc]`, recomputed on
+every zoom change as `H(prev ← leading, D) ∘ M_leading`). Zero-copy: the
+outgoing RT simply stops being re-rendered, so its *pixels* hold the last
+frame — but because the matrix stays live, the frozen frame keeps scaling
+and warping with the zoom during the cross-fade. Cheap (one scene render
+per frame); only *scene motion* lags in the frozen layer — zoom motion
+does not.
 
 ### Dual mode
 

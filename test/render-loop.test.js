@@ -47,6 +47,7 @@ describe('sourcesToRender', () => {
 describe('blendFeed', () => {
     const mA = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     const mB = [2, 0, 0, 0, 2, 0, 0, 0, 1];
+    const mLive = [3, 0, 0, 0, 3, 0, 0, 0, 1];
 
     it('passes t through and yields no prev layer when the controller is idle', () => {
         assert.deepEqual(
@@ -54,14 +55,40 @@ describe('blendFeed', () => {
             { uBlend: 1, prev: null });
     });
 
-    it('single mode feeds the frozen outgoing state from the controller', () => {
-        const feed = blendFeed({ t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: false, followerSrc: SRC.MAIN, followerM: mB });
+    it('single mode samples the frozen pixels through the LIVE matrix for that source', () => {
+        const feed = blendFeed({
+            t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: false,
+            followerSrc: SRC.MAIN, followerM: mB,
+            liveM: { [SRC.SEC1]: mLive },
+        });
         assert.equal(feed.uBlend, 0.4);
-        assert.deepEqual(feed.prev, { src: SRC.SEC1, m: mA });
+        assert.deepEqual(feed.prev, { src: SRC.SEC1, m: mLive });
     });
 
-    it('dual mode feeds the live follower state instead', () => {
-        const feed = blendFeed({ t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: true, followerSrc: SRC.MAIN, followerM: mB });
+    it('single mode tracks liveM updates mid-blend (zoom motion during cross-fade)', () => {
+        const liveM = { [SRC.SEC1]: mLive };
+        const args = { t: 0.2, prevSrc: SRC.SEC1, prevM: mA, dual: false, followerSrc: SRC.MAIN, followerM: mB, liveM };
+        assert.deepEqual(blendFeed(args).prev.m, mLive);
+        const mLive2 = [4, 0, 0, 0, 4, 0, 0, 0, 1];
+        liveM[SRC.SEC1] = mLive2;   // refreshH ran again at a new zoom
+        assert.deepEqual(blendFeed({ ...args, t: 0.6 }).prev.m, mLive2);
+    });
+
+    it('single mode falls back to the frozen matrix when liveM is missing', () => {
+        const noMap = blendFeed({ t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: false, followerSrc: SRC.MAIN, followerM: mB });
+        assert.deepEqual(noMap.prev, { src: SRC.SEC1, m: mA });
+        const noEntry = blendFeed({
+            t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: false,
+            followerSrc: SRC.MAIN, followerM: mB, liveM: { [SRC.MAIN]: mLive },
+        });
+        assert.deepEqual(noEntry.prev, { src: SRC.SEC1, m: mA });
+    });
+
+    it('dual mode feeds the live follower state and ignores liveM', () => {
+        const feed = blendFeed({
+            t: 0.4, prevSrc: SRC.SEC1, prevM: mA, dual: true,
+            followerSrc: SRC.MAIN, followerM: mB, liveM: { [SRC.SEC1]: mLive },
+        });
         assert.equal(feed.uBlend, 0.4);
         assert.deepEqual(feed.prev, { src: SRC.MAIN, m: mB });
     });

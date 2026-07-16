@@ -16,10 +16,13 @@
  *
  * The render loop only renders the RT of the *active* source each frame,
  * so the outgoing camera's render target naturally freezes at its last
- * frame — no pixel copy is needed. This controller freezes the two pieces
- * of *sampling* state instead: the outgoing source index and the sampling
- * matrix that was in effect on its final displayed frame (`prevM`), so the
- * old frame keeps being sampled exactly as it was last shown.
+ * frame — no pixel copy is needed. This controller freezes the outgoing
+ * source index and its final sampling matrix (`prevM`). NOTE: since the
+ * live-matrix change, `prevM` is only a *fallback* — the render loop
+ * samples the frozen pixels through the LIVE matrix for that source
+ * (S.liveM, recomputed every zoom change), so the frozen frame keeps
+ * scaling/warping with the zoom during the cross-fade (blendFeed in
+ * src/render-loop.js).
  *
  * Pure state machine — no Three.js, no DOM. Call `update(src, m)` exactly
  * once per displayed frame.

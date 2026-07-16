@@ -31,7 +31,7 @@ export const HELP = {
         ['Focus D', 'Depth of the homography focus plane — objects at this depth align perfectly across cameras'],
         ['Warp', 'Toggle homography correction; off shows the naive prewarp/crop behavior'],
         ['Prewarp1/2', 'Manual prewarp scales used when Warp is off (segments 0.5–1x / 2–5x)'],
-        ['Blend / Single-Dual', 'Cross-fade length (frames) at camera handover; Dual blends two live cameras'],
+        ['Blend / Single-Dual', 'Cross-fade length (frames) at camera handover. Single: outgoing pixels frozen but re-warped live with the zoom; Dual: outgoing camera fully re-rendered each frame'],
         ['Set Camera', 'Inspect/edit intrinsics + extrinsics of all three cameras, or load a camera JSON'],
         ['Reset All', 'Restore object positions, un-hide deleted objects, reset selection'],
         ['30/60 FPS', 'Fixed render rate driven by a CPU clock; frames that finish late are dropped, never queued'],
@@ -57,7 +57,7 @@ export const CONTROL_DEFAULTS = {
     prewarp1: 2.0,
     prewarp2: 5.0,
     blendX: 20,
-    blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
+    blendMode: 'single',   // 'single' = frozen pixels, live matrix | 'dual' = live follower RT
     blendShape: 'flat',    // 'flat' = uniform alpha | 'radial' = center-out gradient
     /* ── Session (scene save only, not per-frame) ── */
     clipY: 2.0,
@@ -140,8 +140,10 @@ export function initUiControls(d) {
     $('sld-clip').oninput = function () { store.set('controls', { clipY: +this.value }); };
     $('sld-blend').oninput = function () { store.set('controls', { blendX: Math.round(+this.value) }); };
 
-    /* Blend mode toggle — Single: frozen outgoing frame; Dual: live follower
-       camera rendered + warped with H(follower←leading, D) each blend frame. */
+    /* Blend mode toggle — Single: outgoing RT pixels frozen, but sampled
+       through the live matrix (S.liveM) so the frame tracks zoom; Dual: live
+       follower camera rendered + warped with H(follower←leading, D) each
+       blend frame. */
     $('btn-bmode').onclick = () => {
         store.set('controls', { blendMode: store.get('controls').blendMode === 'single' ? 'dual' : 'single' });
     };

@@ -63,24 +63,29 @@ export function sourcesToRender({ zsrc, dual, blending, followerSrc, hasS2 }) {
 /**
  * What to feed the warp shader's blend uniforms this frame.
  *
- * Single mode: the controller's frozen outgoing-camera state.
- * Dual mode: the live follower state (kept fresh by the sampling refresh).
+ * Single mode: the outgoing camera's RT *pixels* are frozen (its RT is not
+ * re-rendered), but its *sampling matrix* stays live — looked up per frame
+ * from `liveM` (recomputed by the sampling refresh at the current zoom) —
+ * so the frozen frame keeps scaling/warping with the zoom during the
+ * cross-fade. The controller's frozen matrix (`prevM`) is only a fallback
+ * for callers that don't provide the live map.
+ * Dual mode: the live follower state (matrix AND re-rendered pixels).
  *
  * @param {object} opts
  * @param {number}      opts.t        - current-frame weight from the blend controller
  * @param {number|null} opts.prevSrc  - controller's outgoing source (null = not blending)
- * @param {number[]|null} opts.prevM  - controller's frozen sampling matrix
+ * @param {number[]|null} opts.prevM  - controller's frozen sampling matrix (fallback)
  * @param {boolean}     opts.dual     - blend mode is 'dual'
  * @param {number|null} opts.followerSrc - live follower source
  * @param {number[]|null} opts.followerM - live follower sampling matrix
+ * @param {Object<number, number[]>} [opts.liveM] - live sampling matrix per
+ *        source index at the current zoom (from the sampling refresh)
  * @returns {{uBlend: number, prev: {src: number, m: number[]}|null}}
  */
-export function blendFeed({ t, prevSrc, prevM, dual, followerSrc, followerM }) {
+export function blendFeed({ t, prevSrc, prevM, dual, followerSrc, followerM, liveM = null }) {
     if (prevSrc === null) return { uBlend: t, prev: null };
-    return {
-        uBlend: t,
-        prev: dual ? { src: followerSrc, m: followerM } : { src: prevSrc, m: prevM },
-    };
+    if (dual) return { uBlend: t, prev: { src: followerSrc, m: followerM } };
+    return { uBlend: t, prev: { src: prevSrc, m: liveM?.[prevSrc] ?? prevM } };
 }
 
 /**
@@ -248,6 +253,7 @@ export function createRenderLoop({
             const feed = blendFeed({
                 t, prevSrc, prevM, dual,
                 followerSrc: S.followerSrc, followerM: S.followerM,
+                liveM: S.liveM,
             });
             matWarp.uniforms.uBlend.value = feed.uBlend;
             if (feed.prev) {

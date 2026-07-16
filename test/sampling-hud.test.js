@@ -89,4 +89,47 @@ describe('createSamplingRefresh', () => {
         refreshH();
         assert.ok(getHud().includes(' 1.0000 \u2518'));   // bottom-right corner
     });
+
+    describe('S.liveM (per-source live sampling matrices)', () => {
+        it('populates one entry per available camera; lead entry === sampleM', () => {
+            const { S, refreshH } = mk({ zoom: 1.5 });
+            refreshH();
+            const keys = Object.keys(S.liveM).map(Number).sort();
+            assert.deepEqual(keys, [SRC.SEC1, SRC.MAIN, SRC.SEC2].sort());
+            assert.equal(S.liveM[S.sampleSrc], S.sampleM);
+        });
+
+        it('omits the Tele entry when the rig has no Tele camera', () => {
+            const { S, refreshH } = mk({ zoom: 1.5, __sec2: null });
+            refreshH();
+            assert.ok(!(SRC.SEC2 in S.liveM));
+            assert.ok(SRC.SEC1 in S.liveM);
+            assert.ok(SRC.MAIN in S.liveM);
+        });
+
+        it('warp ON: the follower entry equals the dual-mode follower matrix', () => {
+            const { S, refreshH } = mk({ zoom: 1.5, warp: true });
+            refreshH();
+            assert.deepEqual(S.liveM[S.followerSrc], S.followerM);
+        });
+
+        it('warp OFF: non-lead entries match computeFollowerMatrix for that source', () => {
+            const { S, refreshH } = mk({ zoom: 1.5 });
+            refreshH();
+            const opts = { z: 1.5, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1080, h: 1920 };
+            for (const s of [SRC.SEC1, SRC.SEC2]) {
+                const exp = computeFollowerMatrix({ ...opts, followerSrc: s });
+                assert.deepEqual(S.liveM[s], exp.m);
+            }
+        });
+
+        it('recomputes with zoom — the frozen frame keeps scaling during a blend', () => {
+            const { S, refreshH } = mk({ zoom: 1.2, warp: true });
+            refreshH();
+            const before = S.liveM[SRC.SEC1].slice();
+            S.zoom = 1.8;
+            refreshH();
+            assert.notDeepEqual(S.liveM[SRC.SEC1], before);
+        });
+    });
 });

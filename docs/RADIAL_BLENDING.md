@@ -13,7 +13,8 @@ zooming past 5.0x switches from Tele to Main). The blend lasts X
 frames (configurable via the Blend slider, default 20).
 
 Two blend modes:
-- **Single**: outgoing RT frozen at last frame (zero cost, but static)
+- **Single**: outgoing RT pixels frozen at last frame (zero cost), but sampled
+  through the LIVE matrix for that camera — the frozen frame still tracks zoom
 - **Dual**: outgoing = live follower camera, re-rendered every frame
   via `H(follower ← lead, D) × M_lead` (tracks zoom/motion)
 

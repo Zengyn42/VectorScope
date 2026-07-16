@@ -30,7 +30,7 @@
  * | `uHi`  | mat3    | Pixel-space sampling matrix (output px → source px) |
  * | `uR`   | vec2    | Render target resolution [width, height] |
  * | `uPrevSrc` | int  | Previous-layer source during a transition blend (single: outgoing camera; dual: live follower) |
- * | `uPrevHi`  | mat3 | Previous-layer sampling matrix (single: frozen last frame; dual: live follower matrix) |
+ * | `uPrevHi`  | mat3 | Previous-layer sampling matrix (always live at the current zoom; single mode only freezes the RT pixels) |
  * | `uBlend`   | float| Weight of the current frame (n/X); 1.0 disables blending |
  * | `uBlendRadial` | int | 0 = flat blend (uniform alpha), 1 = radial blend (center-out) |
  *
@@ -61,7 +61,7 @@ uniform int uSrc;
 uniform mat3 uHi;
 uniform vec2 uR;
 uniform int uPrevSrc;    // outgoing camera during a transition blend
-uniform mat3 uPrevHi;    // its frozen sampling matrix (last displayed frame)
+uniform mat3 uPrevHi;    // its sampling matrix (live at current zoom)
 uniform float uBlend;    // weight of the CURRENT frame: n/X; 1.0 = no blend
 uniform int uBlendRadial; // 0 = flat, 1 = radial-in (edges first), -1 = radial-out (center first)
 uniform float uCoverRadius; // fraction of frame radius where the LIMITED camera has valid data
