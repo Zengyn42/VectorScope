@@ -35,7 +35,6 @@ export const HELP = {
     ],
 };
 import { zoomMatrix } from './homography.js';
-import { M } from './math.js';
 
 /**
  * Compute the nominal zoom for a camera source.

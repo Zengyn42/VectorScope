@@ -28,7 +28,7 @@
  * @returns {{ animateTo, togglePlay, stopPreset, stopPlay, stopAll, isPlaying, isAnimating }}
  */
 import { easeInOutQuad } from './zoom-pipeline.js';
-import { evalCurve, DEFAULT_CURVE } from './bezier-curve.js';
+import { evalCurve } from './bezier-curve.js';
 
 export function createZoomAnimator({
     getZoom, setLogZoom, onPlayState,

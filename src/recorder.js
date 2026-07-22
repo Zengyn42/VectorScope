@@ -28,7 +28,7 @@ export const HELP = {
     ],
 };
 
-import { CAM_NAMES, TRAJECTORY_VERSION } from './trajectory.js';
+import { TRAJECTORY_VERSION } from './trajectory.js';
 import { SRC } from './zoom-pipeline.js';
 
 /** SRC index → camera name string */

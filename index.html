@@ -508,6 +508,7 @@ import { createTrajectoryLibrary, trajToJson } from './src/trajectory-library.js
 import { createGridOverlay } from './src/grid-overlay.js';
 import { applyTrajFrameToState, TRAJ_LOCK_IDS } from './src/traj-frame.js';
 import { createUndoManager } from './src/undo.js';
+import { captureState, restoreState as restoreUndoState } from './src/undo-state.js';
 import { createBevAxes } from './src/bev-axes.js';
 
 /* ── Helpers ── */
@@ -955,42 +956,18 @@ window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegi
    getState / restoreState live here where store, S, sceneAnim are all
    in scope.
    ================================================================ */
+const _undoDeps = { store, S, sceneAnim };
 const undoManager = createUndoManager({
     maxDepth: 50,
-    getState() {
-        return {
-            controls: store.get('controls'),
-            cameras:  store.get('cameras'),
-            objects: S.objs.map(o => ({
-                uuid:     o.uuid,
-                position: [o.position.x, o.position.y, o.position.z],
-                rotation: [o.rotation.x, o.rotation.y, o.rotation.z],
-                scale:    [o.scale.x,    o.scale.y,    o.scale.z],
-                visible:  o.visible,
-                hidden:   !!o.userData._hidden,
-            })),
-            animStates: sceneAnim.serializeAll(),
-        };
-    },
-    restoreState(snap) {
-        store.set('controls', snap.controls);
-        if (snap.cameras) store.set('cameras', snap.cameras);
-        for (const os of snap.objects) {
-            const obj = S.objs.find(o => o.uuid === os.uuid);
-            if (!obj) continue;
-            obj.position.set(...os.position);
-            obj.rotation.set(...os.rotation);
-            obj.scale.set(...os.scale);
-            obj.visible = os.visible;
-            if (os.hidden) { obj.userData._hidden = true; obj.visible = false; }
-            else            { delete obj.userData._hidden; obj.visible = true; }
-        }
-        sceneAnim.restoreAll(snap.animStates, S.objs);
-        /* Reset object sliders — no object selected after undo */
-        $('sld-od').value = 0; $('vod').textContent = '\u2014';
-        $('sld-os').value = 1; $('vos').textContent = '\u2014';
-        loop.markDirty(3);
-    },
+    getState:    () => captureState(_undoDeps),
+    restoreState: (snap) => restoreUndoState(snap, {
+        ..._undoDeps,
+        onDone() {
+            $('sld-od').value = 0; $('vod').textContent = '\u2014';
+            $('sld-os').value = 1; $('vos').textContent = '\u2014';
+            loop.markDirty(3);
+        },
+    }),
 });
 
 /* Undo/Redo button state sync */
