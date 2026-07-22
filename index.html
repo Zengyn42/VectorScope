@@ -301,34 +301,32 @@ input[type="file"] { display: none; }
             <button id="btn-zoom-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697; Zoom</button>
             <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697; Warp</button>
           </div>
-        </div>
-      </div>
-
-      <!-- Trajectory: transport + record/playback (bottom of panel) -->
-      <div id="grp-trajectory">
-        <div class="ctrl-row" id="traj-row">
-          <select id="sel-traj" title="Select trajectory (default = free mode)">
-            <option value="__default__" selected>default</option>
-          </select>
-          <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                  title="Play / pause the selected trajectory">&#9654;</button>
-          <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
-          <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
-          <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
-                  title="Stop: back to free mode">&#9632;</button>
-        </div>
-        <div class="ctrl-row" id="traj-transport-row">
-          <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
-                 title="Trajectory progress — drag to seek">
-          <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
-        </div>
-        <!-- Trajectory file ops: below the progress slider -->
-        <div class="ctrl-row">
-          <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
-          <input type="file" id="ftraj" accept=".json" style="display:none">
-          <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
-          <button id="btn-traj-rec" title="Start/stop recording a trajectory"
-                  style="min-width:36px">&#9679; Rec</button>
+          <!-- Trajectory: transport + record/playback -->
+          <div id="grp-trajectory">
+            <div class="ctrl-row" id="traj-row">
+              <select id="sel-traj" title="Select trajectory (default = free mode)">
+                <option value="__default__" selected>default</option>
+              </select>
+              <button id="btn-traj-play" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                      title="Play / pause the selected trajectory">&#9654;</button>
+              <button id="btn-traj-back" class="sld-btn" disabled title="Step one frame back">&#9198;</button>
+              <button id="btn-traj-fwd" class="sld-btn" disabled title="Step one frame forward">&#9197;</button>
+              <button id="btn-traj-stop" class="sld-btn" style="width:auto;padding:0 8px" disabled
+                      title="Stop: back to free mode">&#9632;</button>
+            </div>
+            <div class="ctrl-row" id="traj-transport-row">
+              <input type="range" id="sld-traj" min="0" max="0" step="1" value="0" disabled
+                     title="Trajectory progress — drag to seek">
+              <span class="val" id="vtraj" style="min-width:56px">&ndash;/&ndash;</span>
+            </div>
+            <div class="ctrl-row">
+              <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
+              <input type="file" id="ftraj" accept=".json" style="display:none">
+              <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
+              <button id="btn-traj-rec" title="Start/stop recording a trajectory"
+                      style="min-width:36px">&#9679; Rec</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
