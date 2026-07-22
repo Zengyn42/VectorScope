@@ -48,21 +48,34 @@ export function createUndoManager({ getState, restoreState, maxDepth = 50 }) {
     }
 
     /**
-     * Undo the last action (requires at least 2 snapshots on the undo stack —
-     * the current state snapshot + the previous one to restore).
+     * Undo the last action.
+     *
+     * Captures the **current live state** (the result of the action being
+     * undone) and pushes it to the redo stack, then restores the previous
+     * checkpoint. This way redo replays the actual outcome, not the
+     * pre-action snapshot.
      */
     function undo() {
         if (undoStack.length <= 1) return;
-        redoStack.push(undoStack.pop());
+        // Save the current live state for redo (this is the "after" state)
+        redoStack.push({ label: 'undo', state: getState() });
+        undoStack.pop();   // discard the pre-action checkpoint
         restoreState(undoStack[undoStack.length - 1].state);
         notify();
     }
 
-    /** Redo the most recently undone action. */
+    /**
+     * Redo the most recently undone action.
+     *
+     * Saves the current state to the undo stack (so a subsequent undo
+     * returns here), then restores the redo snapshot (the live state
+     * captured at undo time).
+     */
     function redo() {
         if (!redoStack.length) return;
+        // Save current state so undo can come back here
+        undoStack.push({ label: 'redo', state: getState() });
         const next = redoStack.pop();
-        undoStack.push(next);
         restoreState(next.state);
         notify();
     }

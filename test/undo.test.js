@@ -96,6 +96,17 @@ describe('createUndoManager', () => {
         assert.equal(state.value, 99);
     });
 
+    it('redo captures the live state, not the pre-action checkpoint (drag scenario)', () => {
+        // Simulates: checkpoint before drag → drag changes state → undo → redo
+        um.checkpoint('init');         // value=0
+        um.checkpoint('drag-start');   // value=0 (checkpoint BEFORE drag)
+        state.value = 50;              // drag happens (no checkpoint after)
+        um.undo();                     // should go back to value=0
+        assert.equal(state.value, 0);
+        um.redo();                     // should restore to value=50 (the live state at undo time)
+        assert.equal(state.value, 50);
+    });
+
     it('onChange listeners are called on checkpoint/undo/redo', () => {
         let calls = 0;
         um.onChange(() => calls++);

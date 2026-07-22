@@ -228,9 +228,11 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
             const worldPerPxY = (bevCam.top - bevCam.bottom) / pr.h;
             const dpx = e.clientX - S._bevPanLastX;
             const dpy = e.clientY - S._bevPanLastY;
-            /* Drag right → view pans left (camera moves right) → positive world X.
-               Drag down  → view pans up   (camera moves +Z in BEV top-down). */
-            onBevPan(-dpx * worldPerPxX, dpy * worldPerPxY);
+            /* "Grab and drag" feel: content follows the cursor.
+               Drag right → camera moves left (−X) → content shifts right.
+               Drag down  → camera moves −Z    → content shifts down.
+               Screen down = world +Z, so negate dpy. */
+            onBevPan(-dpx * worldPerPxX, -dpy * worldPerPxY);
             S._bevPanLastX = e.clientX;
             S._bevPanLastY = e.clientY;
             return;
