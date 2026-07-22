@@ -93,14 +93,36 @@ export function animPose(mode, t, { speed = 1, dir = [0, 0, -1], amp } = {}) {
 /**
  * Create the scene animator.
  * @param {object} [deps]
- * @param {() => number} [deps.now] - clock in ms (injectable for tests)
+ * @param {() => number} [deps.now]   - clock in ms (injectable for tests)
+ * @param {object}       [deps.THREE] - Three.js namespace; enables bbox-center
+ *        pivoting for spin mode when provided. Optional — pass null in tests.
  */
-export function createSceneAnimator({ now = () => performance.now() } = {}) {
-    /** @type {Map<object, {mode, speed, dir, t0, base: number[], baseRotY: number, last: {offset: number[], spinY: number}}>} */
+export function createSceneAnimator({ now = () => performance.now(), THREE = null } = {}) {
+    /** @type {Map<object, {mode, speed, dir, t0, base: number[], baseRotY: number,
+     *          last: {offset: number[], spinY: number}, pivotOffset: number[]|null}>} */
     const anims = new Map();
 
+    /**
+     * Apply a computed pose to an object.
+     * For spin mode with a non-null `pivotOffset`, the object orbits around
+     * its bounding-box center rather than its local origin, so the silhouette
+     * appears to rotate in place (centre stays fixed in world space).
+     *
+     * Maths: pivot P = base + pivotOffset. Object origin relative to P is
+     * (-px, 0, -pz). Rotating that offset by spinY around world-Y (Three.js
+     * matrix: x'=x·cos+z·sin, z'=−x·sin+z·cos) and adding back to P gives:
+     *   new_x = base_x + px·(1−cos) − pz·sin
+     *   new_z = base_z + pz·(1−cos) + px·sin
+     */
     function applyPose(obj, e, pose) {
-        obj.position.set(e.base[0] + pose.offset[0], e.base[1] + pose.offset[1], e.base[2] + pose.offset[2]);
+        let ox = pose.offset[0], oy = pose.offset[1], oz = pose.offset[2];
+        if (e.pivotOffset && pose.spinY !== 0) {
+            const px = e.pivotOffset[0], pz = e.pivotOffset[2];
+            const cos = Math.cos(pose.spinY), sin = Math.sin(pose.spinY);
+            ox += px * (1 - cos) - pz * sin;
+            oz += pz * (1 - cos) + px * sin;
+        }
+        obj.position.set(e.base[0] + ox, e.base[1] + oy, e.base[2] + oz);
         obj.rotation.y = e.baseRotY + pose.spinY;
         e.last = pose;
     }
@@ -119,15 +141,35 @@ export function createSceneAnimator({ now = () => performance.now() } = {}) {
      * The object's *current* pose becomes the animation's base pose; if it
      * was already animating, it is first restored so switching modes does
      * not accumulate drift.
+     *
+     * For `spin` mode, when THREE is available the bounding-box centre is
+     * computed and stored as `pivotOffset` so the object orbits its own
+     * centre of mass instead of its local origin.
      */
     function setAnim(obj, mode, { speed = 1, dir = [0, 0, -1] } = {}) {
         clear(obj);                            // restore base if re-assigning
         if (mode === 'none' || !ANIM_MODES.includes(mode)) return;
+
+        // Compute bbox-centre pivot offset for spin mode
+        let pivotOffset = null;
+        if (mode === 'spin' && THREE) {
+            try {
+                const bbox   = new THREE.Box3().setFromObject(obj);
+                const center = bbox.getCenter(new THREE.Vector3());
+                pivotOffset  = [
+                    center.x - obj.position.x,
+                    0,
+                    center.z - obj.position.z,
+                ];
+            } catch (_) { /* ignore if obj lacks geometry */ }
+        }
+
         anims.set(obj, {
             mode, speed, dir: dir.slice(), t0: now(),
             base: [obj.position.x, obj.position.y, obj.position.z],
             baseRotY: obj.rotation.y,
             last: { offset: [0, 0, 0], spinY: 0 },
+            pivotOffset,
         });
     }
 
@@ -198,5 +240,57 @@ export function createSceneAnimator({ now = () => performance.now() } = {}) {
         for (const obj of [...anims.keys()]) clear(obj);
     }
 
-    return { setAnim, get, getState, update, resyncClock, clear, clearAll, count: () => anims.size };
+    /**
+     * Serialize all active animations for undo/save snapshots.
+     * Returns an array of `{ uuid, mode, speed, dir, base, baseRotY }`.
+     * The `uuid` field lets `restoreAll` locate the matching scene object.
+     * @returns {Array<object>}
+     */
+    function serializeAll() {
+        const out = [];
+        for (const [obj, e] of anims) {
+            out.push({
+                uuid:     obj.uuid,
+                mode:     e.mode,
+                speed:    e.speed,
+                dir:      e.dir.slice(),
+                base:     e.base.slice(),
+                baseRotY: e.baseRotY,
+            });
+        }
+        return out;
+    }
+
+    /**
+     * Restore animations from a `serializeAll()` snapshot.
+     * Clears all current animations first, then re-applies each entry by
+     * matching `uuid` against the supplied objects array.
+     *
+     * @param {Array<object>} states  - output of serializeAll()
+     * @param {Array<object>} objs    - scene object list (each must have .uuid)
+     */
+    function restoreAll(states, objs) {
+        clearAll();
+        if (!states || !Array.isArray(states) || !objs) return;
+        for (const s of states) {
+            const obj = objs.find(o => o.uuid === s.uuid);
+            if (!obj) continue;
+            // Restore the base pose so the animator oscillates around it
+            obj.position.set(s.base[0], s.base[1], s.base[2]);
+            obj.rotation.y = s.baseRotY;
+            anims.set(obj, {
+                mode:        s.mode,
+                speed:       s.speed,
+                dir:         s.dir.slice(),
+                t0:          now(),
+                base:        s.base.slice(),
+                baseRotY:    s.baseRotY,
+                last:        { offset: [0, 0, 0], spinY: 0 },
+                pivotOffset: null,   // recomputed on next setAnim if needed
+            });
+        }
+    }
+
+    return { setAnim, get, getState, update, resyncClock, clear, clearAll,
+             serializeAll, restoreAll, count: () => anims.size };
 }

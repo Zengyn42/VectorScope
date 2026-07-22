@@ -37,7 +37,10 @@ export const HELP = {
     ],
 };
 
-export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $ }) {
+export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $,
+    /** Optional callback fired just before drag starts (object = dragged obj).
+     *  Use for undo checkpoints: `onDragStart: (obj) => undoManager.checkpoint('drag')` */
+    onDragStart = null }) {
     const rc = new THREE.Raycaster();
     const hitPt = new THREE.Vector3();
     const selBox = new THREE.Box3();
@@ -169,6 +172,7 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         }
 
         if (best) {
+            if (onDragStart) onDragStart(best);
             sel(best);
             S._selCam = cam;
             S._selPanel = panelRect;

@@ -1,0 +1,123 @@
+/**
+ * @module bev-axes
+ * @description
+ * 2D canvas overlay that draws a small coordinate-axis compass in the
+ * bottom-left corner of the BEV panel, showing the world XZ orientation.
+ *
+ * BEV looks straight down (-Y), so the ground plane maps to screen space:
+ *   screen right  →  world  +X
+ *   screen down   →  world  +Z  (Three.js right-hand Y-up: looking down -Y
+ *                                 means -Z is away from viewer, +Z is toward)
+ *
+ * The overlay canvas is absolutely positioned over the BEV panel.
+ * It must be updated each frame (or on resize) via `update(bevPanel)`.
+ */
+
+/** Help section (see src/help-registry.js) */
+export const HELP = {
+    title: 'BEV Axes',
+    order: 15,
+    text: 'Small coordinate compass shown in the bottom-left of the Bird\'s Eye view.',
+    entries: [
+        ['+X (red)', 'World +X axis — screen right'],
+        ['+Z (blue)', 'World +Z axis — screen down'],
+    ],
+};
+
+/**
+ * Create the BEV axes overlay.
+ * @returns {{ update: Function, remove: Function }}
+ */
+export function createBevAxes() {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'bev-axes';
+    canvas.style.cssText = 'position:absolute;pointer-events:none;z-index:5;';
+    document.body.appendChild(canvas);
+
+    const SIZE = 50;   // px — bounding box of the axis indicator
+    const MARGIN = 8;  // px — gap from BEV panel edge
+    const LEN = 30;    // arrow length in canvas pixels
+    const CX = 12;     // origin dot X in canvas coords
+    const CY = SIZE - 12; // origin dot Y in canvas coords (near bottom)
+
+    /**
+     * Update the overlay position and redraw axes.
+     * @param {object|null} bevPanel - P.bev rect in WebGL coords
+     *        { x, y, w, h } where y is from the bottom of the viewport
+     */
+    function update(bevPanel) {
+        if (!bevPanel || bevPanel.w <= 0) {
+            canvas.style.display = 'none';
+            return;
+        }
+        canvas.style.display = '';
+
+        // Convert WebGL coords (Y from bottom) to CSS coords (Y from top)
+        const htmlTop = window.innerHeight - (bevPanel.y + bevPanel.h);
+
+        canvas.width  = SIZE;
+        canvas.height = SIZE;
+        canvas.style.left   = (bevPanel.x + MARGIN) + 'px';
+        canvas.style.top    = (htmlTop + bevPanel.h - SIZE - MARGIN) + 'px';
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, SIZE, SIZE);
+
+        // ── +X axis (red) → screen right ──
+        ctx.save();
+        ctx.strokeStyle = '#e94560';
+        ctx.fillStyle   = '#e94560';
+        ctx.lineWidth   = 2;
+        ctx.beginPath();
+        ctx.moveTo(CX, CY);
+        ctx.lineTo(CX + LEN, CY);
+        ctx.stroke();
+        // Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(CX + LEN, CY);
+        ctx.lineTo(CX + LEN - 5, CY - 4);
+        ctx.lineTo(CX + LEN - 5, CY + 4);
+        ctx.closePath();
+        ctx.fill();
+        // Label
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText('+X', CX + LEN - 6, CY - 7);
+        ctx.restore();
+
+        // ── +Z axis (blue) → screen down ──
+        ctx.save();
+        ctx.strokeStyle = '#4ea8de';
+        ctx.fillStyle   = '#4ea8de';
+        ctx.lineWidth   = 2;
+        ctx.beginPath();
+        ctx.moveTo(CX, CY);
+        ctx.lineTo(CX, CY + LEN);
+        ctx.stroke();
+        // Arrowhead (pointing down)
+        ctx.beginPath();
+        ctx.moveTo(CX, CY + LEN);
+        ctx.lineTo(CX - 4, CY + LEN - 5);
+        ctx.lineTo(CX + 4, CY + LEN - 5);
+        ctx.closePath();
+        ctx.fill();
+        // Label — place to the right of the arrow
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText('+Z', CX + 5, CY + LEN);
+        ctx.restore();
+
+        // ── Origin dot (white) ──
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(CX, CY, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    /** Remove the canvas from the DOM. */
+    function remove() {
+        canvas.remove();
+    }
+
+    return { update, remove };
+}

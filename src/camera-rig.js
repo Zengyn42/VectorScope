@@ -21,7 +21,8 @@
  * @param {number} [opts.bevSize=6] - BEV ortho half-extent (m)
  * @returns {{ rig, init, updateBevAspect, syncMarkers }}
  */
-export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize = 6 }) {
+export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit = 6 }) {
+    let bevSize = bevSizeInit;
     const rig = {
         main: null, sec1: null, sec2: null, bev: null,
         markers: [],                 // Group objects for BEV camera indicators
@@ -189,5 +190,15 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize = 6 }) {
         }
     }
 
-    return { rig, init, applyPose, updateBevAspect, syncMarkers };
+    /**
+     * Set the BEV orthographic half-extent (metres).
+     * Clamps to [1, 30]. Call `updateBevAspect(P.bev)` after to refresh.
+     * @param {number} s
+     */
+    function setBevSize(s) { bevSize = Math.max(1, Math.min(30, s)); }
+
+    /** Return the current BEV half-extent. */
+    function getBevSize() { return bevSize; }
+
+    return { rig, init, applyPose, updateBevAspect, syncMarkers, setBevSize, getBevSize };
 }

@@ -128,3 +128,22 @@ test('syncMarkers copies camera poses onto markers', () => {
     near(rig.markers[0].position.z, 9);
     near(rig.markers[1].position.x, rig.sec1.position.x);
 });
+
+test('setBevSize / getBevSize — mutate BEV ortho half-extent', () => {
+    const { rig, init, setBevSize, getBevSize, updateBevAspect } = makeRig();
+    init(PARAMS);
+    assert.equal(getBevSize(), 6);         // default
+    setBevSize(3);
+    assert.equal(getBevSize(), 3);
+    updateBevAspect({ w: 200, h: 100 });
+    near(rig.bev.left, -6);                // 3 * aspect(2) = 6
+    near(rig.bev.right, 6);
+});
+
+test('setBevSize clamps to [1, 30]', () => {
+    const { setBevSize, getBevSize } = makeRig();
+    setBevSize(0.5);
+    assert.equal(getBevSize(), 1);
+    setBevSize(50);
+    assert.equal(getBevSize(), 30);
+});

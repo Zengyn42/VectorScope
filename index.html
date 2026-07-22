@@ -155,6 +155,23 @@ input[type="file"] { display: none; }
 .modal input[type="number"]:focus { outline: none; border-color: #e94560; }
 .cam-field { display: inline-flex; align-items: center; gap: 4px; }
 .cam-field label { color: #888; font-size: 11px; min-width: 14px; }
+
+/* ── BEV zoom overlay buttons ── */
+.bev-btn {
+    padding: 0; width: 22px; height: 22px;
+    background: rgba(15,52,96,0.82); color: #e0e0e0;
+    border: 1px solid #533483; border-radius: 3px; cursor: pointer;
+    font-size: 14px; line-height: 1; font-weight: bold;
+}
+.bev-btn:hover { background: #533483; }
+
+/* ── Advanced panel toggle ── */
+#btn-advanced {
+    padding: 2px 8px; font-size: 11px; margin-bottom: 4px;
+    background: #0a0f1e; border-color: #333;
+}
+#btn-advanced:hover { background: #0f3460; }
+#grp-advanced { margin-bottom: 2px; }
 </style>
 </head>
 <body>
@@ -212,6 +229,10 @@ input[type="file"] { display: none; }
           <button id="btn-reset">Reset All</button>
           <button id="btn-help" title="How to use VectorScope">Help</button>
         </div>
+        <div class="ctrl-row">
+          <button id="btn-undo" title="Undo (Ctrl+Z)" disabled>&#8630; Undo</button>
+          <button id="btn-redo" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
+        </div>
       </div>
 
       <!-- Per-frame sliders (recorded into trajectory) -->
@@ -223,20 +244,6 @@ input[type="file"] { display: none; }
           <button class="sld-btn" onclick="nudge('sld-d',1)">+</button>
           <span class="val" id="vd">3.0</span>
           <button id="btn-af" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px">AF</button>
-        </div>
-        <div class="ctrl-row">
-          <label>Prewarp1:</label>
-          <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
-          <input type="range" id="sld-pw" min="0.25" max="8.0" step="0.01" value="2.0">
-          <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
-          <span class="val" id="vpw">1.00x</span>
-        </div>
-        <div class="ctrl-row">
-          <label>Prewarp2:</label>
-          <button class="sld-btn" onclick="nudge('sld-pw2',-1)">&minus;</button>
-          <input type="range" id="sld-pw2" min="0.25" max="8.0" step="0.01" value="5.0">
-          <button class="sld-btn" onclick="nudge('sld-pw2',1)">+</button>
-          <span class="val" id="vpw2">1.00x</span>
         </div>
         <div class="ctrl-row">
           <label>Zoom:</label>
@@ -253,12 +260,10 @@ input[type="file"] { display: none; }
           <button class="zp-btn" data-z="2">2.0x</button>
           <button class="zp-btn" data-z="5">5.0x</button>
           <button class="zp-btn" data-z="10">10x</button>
-          <button id="btn-zoom-curve" class="sld-btn" style="margin-left:4px;width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697;</button>
         </div>
-        <!-- Warp / Play / FPS: below zoom slider -->
+        <!-- Warp / Play / FPS -->
         <div class="ctrl-row">
           <button id="btn-warp">Warp</button>
-          <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697;</button>
           <button id="btn-play">&#9654; Play</button>
           <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
           <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
@@ -271,7 +276,29 @@ input[type="file"] { display: none; }
           <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
           <span class="val" id="vblend">20f</span>
           <button id="btn-bmode" style="min-width:52px">Single</button>
-          <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Flat</button>
+        </div>
+        <!-- Advanced collapsible section -->
+        <button id="btn-advanced">Advanced &#9656;</button>
+        <div id="grp-advanced" style="display:none">
+          <div class="ctrl-row">
+            <label>Prewarp1:</label>
+            <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
+            <input type="range" id="sld-pw" min="0.25" max="8.0" step="0.01" value="2.0">
+            <button class="sld-btn" onclick="nudge('sld-pw',1)">+</button>
+            <span class="val" id="vpw">1.00x</span>
+          </div>
+          <div class="ctrl-row">
+            <label>Prewarp2:</label>
+            <button class="sld-btn" onclick="nudge('sld-pw2',-1)">&minus;</button>
+            <input type="range" id="sld-pw2" min="0.25" max="8.0" step="0.01" value="5.0">
+            <button class="sld-btn" onclick="nudge('sld-pw2',1)">+</button>
+            <span class="val" id="vpw2">1.00x</span>
+          </div>
+          <div class="ctrl-row">
+            <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Flat</button>
+            <button id="btn-zoom-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697; Zoom</button>
+            <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697; Warp</button>
+          </div>
         </div>
       </div>
 
@@ -329,6 +356,12 @@ input[type="file"] { display: none; }
 
     <!-- Grid overlay canvas (positioned over the Combined panel by JS) -->
     <canvas id="grid-overlay" style="display:none;position:absolute;pointer-events:none;z-index:14;"></canvas>
+
+    <!-- BEV zoom overlay buttons (positioned by JS over the BEV panel) -->
+    <div id="bev-zoom" style="position:absolute;display:none;flex-direction:column;gap:2px;z-index:10">
+      <button id="bev-zin"  class="bev-btn" title="Zoom in BEV (+)">+</button>
+      <button id="bev-zout" class="bev-btn" title="Zoom out BEV (&minus;)">&minus;</button>
+    </div>
   </div>
 </div>
 
@@ -472,6 +505,8 @@ import { createCurveEditor } from './src/curve-editor.js';
 import { createTrajectoryLibrary, trajToJson } from './src/trajectory-library.js';
 import { createGridOverlay } from './src/grid-overlay.js';
 import { applyTrajFrameToState, TRAJ_LOCK_IDS } from './src/traj-frame.js';
+import { createUndoManager } from './src/undo.js';
+import { createBevAxes } from './src/bev-axes.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -545,7 +580,7 @@ const transport = createTransport({ onChange: (ev) => onTransportChange(ev) });
    Clock = the transport's master clock: wall time in free mode, exact frame
    time while a trajectory is engaged — so pause/step/seek reposition
    animated objects deterministically (boss rule #6). */
-const sceneAnim = createSceneAnimator({ now: () => transport.timeMs() });
+const sceneAnim = createSceneAnimator({ now: () => transport.timeMs(), THREE });
 function initCams(p) { camRig.init(p); S.camParams = p; }
 initCams(DEF_CAM);
 
@@ -681,6 +716,7 @@ const { sel, syncDepthSlider } = initInteraction({
     getCamMarkers: () => R.markerMap,
     onSelChange,
     getPanel, toNDC, $,
+    onDragStart: () => undoManager.checkpoint('drag'),
 });
 
 /* ================================================================
@@ -727,6 +763,7 @@ $('fadd').onchange = async function () {
     } catch (e) { log(`Add failed: ${e.message}`); console.error(e); }
 };
 $('btn-del').onclick = () => {
+    undoManager.checkpoint('delete');
     if (!objectOps.deleteSelected()) log('Delete: no object selected');
 };
 $('btn-save-scene').onclick = () =>
@@ -768,6 +805,15 @@ const ui = initUiControls({
     getSegCfg, getHasS2: () => !!R.sec2,
 });
 window.nudge = ui.nudge;
+
+/* ── Advanced panel toggle (Feature 3) ── */
+$('btn-advanced').onclick = () => {
+    const g = $('grp-advanced');
+    const show = g.style.display === 'none';
+    g.style.display = show ? '' : 'none';
+    $('btn-advanced').textContent = show ? 'Advanced \u25BE' : 'Advanced \u25B6';
+};
+
 /* Zoom ± buttons: linear 0.1x steps (not log-scale nudge) */
 window.nudgeZoom = (dir) => {
     const z = store.get('controls').zoom;
@@ -836,6 +882,8 @@ $('help-dialog').addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') $('help-dialog').classList.remove('open');
+    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoManager.undo(); }
+    if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); undoManager.redo(); }
 });
 
 /* Segment config dialog */
@@ -892,6 +940,107 @@ refreshH();
 window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegistry, assetParser, sceneIO, syncObjs, registerModel, R, P, setMode, getMode };
 
 /* ================================================================
+   UNDO MANAGER (Feature 1 — src/undo.js)
+   Captures full-state snapshots (controls + object poses + anim state).
+   getState / restoreState live here where store, S, sceneAnim are all
+   in scope.
+   ================================================================ */
+const undoManager = createUndoManager({
+    maxDepth: 50,
+    getState() {
+        return {
+            controls: store.get('controls'),
+            cameras:  store.get('cameras'),
+            objects: S.objs.map(o => ({
+                uuid:     o.uuid,
+                position: [o.position.x, o.position.y, o.position.z],
+                rotation: [o.rotation.x, o.rotation.y, o.rotation.z],
+                scale:    [o.scale.x,    o.scale.y,    o.scale.z],
+                visible:  o.visible,
+                hidden:   !!o.userData._hidden,
+            })),
+            animStates: sceneAnim.serializeAll(),
+        };
+    },
+    restoreState(snap) {
+        store.set('controls', snap.controls);
+        if (snap.cameras) store.set('cameras', snap.cameras);
+        for (const os of snap.objects) {
+            const obj = S.objs.find(o => o.uuid === os.uuid);
+            if (!obj) continue;
+            obj.position.set(...os.position);
+            obj.rotation.set(...os.rotation);
+            obj.scale.set(...os.scale);
+            obj.visible = os.visible;
+            if (os.hidden) { obj.userData._hidden = true; obj.visible = false; }
+            else            { delete obj.userData._hidden; obj.visible = true; }
+        }
+        sceneAnim.restoreAll(snap.animStates, S.objs);
+        /* Reset object sliders — no object selected after undo */
+        $('sld-od').value = 0; $('vod').textContent = '\u2014';
+        $('sld-os').value = 1; $('vos').textContent = '\u2014';
+        loop.markDirty(3);
+    },
+});
+
+/* Undo/Redo button state sync */
+undoManager.onChange(() => {
+    $('btn-undo').disabled = !undoManager.canUndo();
+    $('btn-redo').disabled = !undoManager.canRedo();
+});
+$('btn-undo').onclick = () => undoManager.undo();
+$('btn-redo').onclick = () => undoManager.redo();
+
+/* Capture an initial baseline snapshot so first undo returns to start */
+undoManager.checkpoint('init');
+
+/* Slider pointerdown: checkpoint BEFORE the drag changes any value */
+for (const id of ['sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-clip', 'sld-blend', 'sld-od', 'sld-os']) {
+    const el = $(id);
+    if (el) el.addEventListener('pointerdown', () => undoManager.checkpoint('slider:' + id));
+}
+/* Button toggle pointerdown: checkpoint before state flip */
+for (const id of ['btn-warp', 'btn-bmode', 'btn-bshape']) {
+    const el = $(id);
+    if (el) el.addEventListener('pointerdown', () => undoManager.checkpoint('toggle:' + id));
+}
+/* Reset button: checkpoint so Reset itself is undoable */
+$('btn-reset').addEventListener('pointerdown', () => undoManager.checkpoint('reset'));
+
+/* ================================================================
+   BEV AXES (Feature 5 — src/bev-axes.js)
+   ================================================================ */
+const bevAxes = createBevAxes();
+let updateBevAxes = () => bevAxes.update(P.bev);
+
+/* ================================================================
+   BEV ZOOM BUTTONS (Feature 2)
+   Positioned via JS after each layout. setBevSize / getBevSize come
+   from the camera-rig module (exported with the rig controller).
+   ================================================================ */
+function updateBevZoomButtons() {
+    const btn = $('bev-zoom');
+    if (!btn) return;
+    if (P.bev.w <= 0) { btn.style.display = 'none'; return; }
+    const cont = $('viewport-container').getBoundingClientRect();
+    /* P.bev.y is WebGL Y (from bottom). CSS top = containerH - bevTop. */
+    const cssTop = cont.height - (P.bev.y + P.bev.h);
+    btn.style.display = 'flex';
+    btn.style.left = (P.bev.x + P.bev.w - 28) + 'px';
+    btn.style.top  = (cssTop + 4) + 'px';
+}
+$('bev-zin').onclick = () => {
+    camRig.setBevSize(camRig.getBevSize() * 0.8);
+    camRig.updateBevAspect(P.bev);
+    loop.markDirty(3);
+};
+$('bev-zout').onclick = () => {
+    camRig.setBevSize(camRig.getBevSize() * 1.25);
+    camRig.updateBevAspect(P.bev);
+    loop.markDirty(3);
+};
+
+/* ================================================================
    RESIZE + RENDER LOOP (src/render-loop.js)
    ================================================================ */
 function onResize() {
@@ -900,6 +1049,8 @@ function onResize() {
     layoutPanels();
     camRig.updateBevAspect(P.bev);
     updateGridOverlay();
+    updateBevAxes();
+    updateBevZoomButtons();
 }
 window.addEventListener('resize', onResize);
 onResize();
@@ -1138,7 +1289,7 @@ updateGridOverlay = () => {
     });
 };
 
-onPostFrame = () => { recorder.capture(); updateGridOverlay(); };
+onPostFrame = () => { recorder.capture(); updateGridOverlay(); updateBevAxes(); };
 
 $('btn-traj-rec').onclick = () => {
     if (recorder.isRecording()) {
