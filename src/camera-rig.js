@@ -127,11 +127,21 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         rig.bev.lookAt(cx, 0, cz);
     }
 
-    /** Shift the BEV view by a world-space delta (XZ). */
-    function panBev(dx, dz) { bevPan.x += dx; bevPan.z += dz; }
+    /** Shift the BEV view by a world-space delta (XZ) and immediately
+     *  update the camera position (recenterBev is only called during
+     *  trajectory playback, so we must move the camera here). */
+    function panBev(dx, dz) {
+        bevPan.x += dx;
+        bevPan.z += dz;
+        if (rig.bev) {
+            rig.bev.position.x += dx;
+            rig.bev.position.z += dz;
+            rig.bev.lookAt(rig.bev.position.x, 0, rig.bev.position.z);
+        }
+    }
 
-    /** Reset BEV pan offset to zero. */
-    function resetBevPan() { bevPan.x = 0; bevPan.z = 0; }
+    /** Reset BEV pan offset to zero and re-center. */
+    function resetBevPan() { bevPan.x = 0; bevPan.z = 0; recenterBev(); }
 
     /** (Re)build all cameras + BEV camera + markers from camera params. */
     function init(p) {
