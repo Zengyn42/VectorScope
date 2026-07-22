@@ -698,6 +698,7 @@ const { onSelChange } = initSelectionPanel({
     THREE, S, SCENE_CAM,
     getMainCam: () => R.main, getSecCam: () => R.sec1, getSecCam2: () => R.sec2,
     onCamEdit: () => {
+        undoManager.checkpoint('cam-edit');
         store.set('cameras', {
             camParams: S.camParams,
             sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
@@ -705,6 +706,7 @@ const { onSelChange } = initSelectionPanel({
     },
     getAnim: (o) => sceneAnim.get(o),
     onAnimSet: (o, mode, speed) => {
+        undoManager.checkpoint('anim-set');
         const d = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
         sceneAnim.setAnim(o, mode, { speed, dir: [d.x, d.y, d.z] });
     },
@@ -822,7 +824,7 @@ window.nudgeZoom = (dir) => {
     const next = Math.max(0.5, Math.min(10, +(z + dir * 0.1).toFixed(1)));
     store.set('controls', { zoom: next });
 };
-window.openCamDialog = ui.openCamDialog;
+window.openCamDialog = () => { undoManager.checkpoint('cam-dialog'); ui.openCamDialog(); };
 window.closeCamDialog = ui.closeCamDialog;
 
 /* ================================================================
@@ -891,7 +893,7 @@ document.addEventListener('keydown', (e) => {
 /* Segment config dialog */
 const segDialog = bindSegmentDialog($('seg-dialog'), {
     segmentConfig,
-    onApply: () => { refreshH(); loop.markDirty(); },
+    onApply: () => { undoManager.checkpoint('segment-apply'); refreshH(); loop.markDirty(); },
 });
 $('btn-segments').onclick = () => segDialog.open();
 
@@ -921,8 +923,8 @@ function openCurveDialog(target) {
     curveOverlay.classList.add('open');
 }
 
-$('btn-zoom-curve').onclick = () => openCurveDialog('zoom');
-$('btn-warp-curve').onclick = () => openCurveDialog('warp');
+$('btn-zoom-curve').onclick = () => { undoManager.checkpoint('curve-edit'); openCurveDialog('zoom'); };
+$('btn-warp-curve').onclick = () => { undoManager.checkpoint('curve-edit'); openCurveDialog('warp'); };
 $('curve-dur').onchange = function () { zoomDuration = Math.max(50, +this.value); };
 $('curve-reset').onclick = () => {
     if (curveTarget === 'zoom') { zoomCurve = null; }
@@ -1001,13 +1003,16 @@ for (const id of ['sld-d', 'sld-pw', 'sld-pw2', 'sld-z', 'sld-clip', 'sld-blend'
     const el = $(id);
     if (el) el.addEventListener('pointerdown', () => undoManager.checkpoint('slider:' + id));
 }
-/* Button toggle pointerdown: checkpoint before state flip */
-for (const id of ['btn-warp', 'btn-bmode', 'btn-bshape']) {
+/* Button toggle/click: checkpoint before state flip */
+for (const id of ['btn-warp', 'btn-bmode', 'btn-bshape', 'btn-fps',
+                   'btn-combined', 'btn-grid', 'btn-play', 'btn-reset']) {
     const el = $(id);
-    if (el) el.addEventListener('pointerdown', () => undoManager.checkpoint('toggle:' + id));
+    if (el) el.addEventListener('pointerdown', () => undoManager.checkpoint('button:' + id));
 }
-/* Reset button: checkpoint so Reset itself is undoable */
-$('btn-reset').addEventListener('pointerdown', () => undoManager.checkpoint('reset'));
+/* Go-preset buttons: checkpoint before zoom animation */
+for (const b of document.querySelectorAll('.zp-btn')) {
+    b.addEventListener('pointerdown', () => undoManager.checkpoint('go-preset'));
+}
 
 /* ================================================================
    BEV AXES (Feature 5 — src/bev-axes.js)
