@@ -353,7 +353,8 @@ export function createRenderLoop({
     function tick() {
         const playing = !!transport?.isPlaying();
         const continuous = playing
-            || sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging;
+            || sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging
+            || S._bevPanning;
         const gate = frameGate({ continuous, dirtyFrames, skipped, keepAlive });
         if (!gate.render) { skipped++; return; }
         /* Pacing defers the frame without consuming dirtyFrames or
