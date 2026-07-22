@@ -37,8 +37,8 @@ export function createBevAxes() {
     const SIZE = 80;   // px — bounding box of the axis indicator
     const MARGIN = 8;  // px — gap from BEV panel edge
     const LEN = 48;    // arrow length in canvas pixels
-    const CX = 16;     // origin dot X in canvas coords
-    const CY = SIZE - 16; // origin dot Y in canvas coords (near bottom)
+    const CX = 16;     // origin dot X in canvas coords (near left)
+    const CY = 16;     // origin dot Y in canvas coords (near top)
 
     /**
      * Update the overlay position and redraw axes.
@@ -58,7 +58,7 @@ export function createBevAxes() {
         canvas.width  = SIZE;
         canvas.height = SIZE;
         canvas.style.left   = (bevPanel.x + MARGIN) + 'px';
-        canvas.style.top    = (htmlTop + bevPanel.h - SIZE - MARGIN) + 'px';
+        canvas.style.top    = (htmlTop + MARGIN) + 'px';
 
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, SIZE, SIZE);
@@ -79,9 +79,9 @@ export function createBevAxes() {
         ctx.lineTo(CX + LEN - 8, CY + 5);
         ctx.closePath();
         ctx.fill();
-        // Label
+        // Label — below the arrow tip
         ctx.font = 'bold 13px monospace';
-        ctx.fillText('+X', CX + LEN - 8, CY - 9);
+        ctx.fillText('+X', CX + LEN - 10, CY + 18);
         ctx.restore();
 
         // ── +Z axis (blue) → screen down ──
@@ -100,9 +100,9 @@ export function createBevAxes() {
         ctx.lineTo(CX + 5, CY + LEN - 8);
         ctx.closePath();
         ctx.fill();
-        // Label — place to the right of the arrow
+        // Label — to the right of the arrow tip
         ctx.font = 'bold 13px monospace';
-        ctx.fillText('+Z', CX + 7, CY + LEN);
+        ctx.fillText('+Z', CX + 7, CY + LEN + 4);
         ctx.restore();
 
         // ── Origin dot (white) ──
