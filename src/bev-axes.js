@@ -58,7 +58,7 @@ export function createBevAxes() {
         canvas.width  = SIZE;
         canvas.height = SIZE;
         canvas.style.left   = (bevPanel.x + MARGIN) + 'px';
-        canvas.style.top    = (htmlTop + MARGIN) + 'px';
+        canvas.style.top    = (htmlTop + bevPanel.h - SIZE - MARGIN) + 'px';
 
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, SIZE, SIZE);
