@@ -171,12 +171,14 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         if (rig.sec2) addMarker(0xfff176, 'Tele Camera', p.secondary_camera_2);
     }
 
-    /** Update BEV camera aspect to match its panel rect ({w, h}). */
+    /** Update BEV camera bounds from current bevSize + panel aspect ({w, h}). */
     function updateBevAspect(bevPanel) {
         if (!rig.bev || !bevPanel || !bevPanel.w) return;
         const aspect = bevPanel.w / bevPanel.h;
-        rig.bev.left = -bevSize * aspect;
-        rig.bev.right = bevSize * aspect;
+        rig.bev.left   = -bevSize * aspect;
+        rig.bev.right  =  bevSize * aspect;
+        rig.bev.top    =  bevSize;
+        rig.bev.bottom = -bevSize;
         rig.bev.updateProjectionMatrix();
     }
 

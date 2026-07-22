@@ -261,25 +261,28 @@ input[type="file"] { display: none; }
           <button class="zp-btn" data-z="5">5.0x</button>
           <button class="zp-btn" data-z="10">10x</button>
         </div>
-        <!-- Warp / Play / FPS -->
+        <!-- Warp / Play -->
         <div class="ctrl-row">
           <button id="btn-warp">Warp</button>
           <button id="btn-play">&#9654; Play</button>
-          <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
           <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
           <button id="btn-grid" title="Show lead/follower sampling grid overlay on Combined view">Grid</button>
-        </div>
-        <div class="ctrl-row">
-          <label>Blend:</label>
-          <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
-          <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
-          <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
-          <span class="val" id="vblend">20f</span>
-          <button id="btn-bmode" style="min-width:52px">Single</button>
         </div>
         <!-- Advanced collapsible section -->
         <button id="btn-advanced">Advanced &#9656;</button>
         <div id="grp-advanced" style="display:none">
+          <div class="ctrl-row">
+            <button id="btn-fps" title="Fixed render rate; late frames are dropped, never queued">30 FPS</button>
+          </div>
+          <div class="ctrl-row">
+            <label>Blend:</label>
+            <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
+            <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
+            <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
+            <span class="val" id="vblend">20f</span>
+            <button id="btn-bmode" style="min-width:52px">Single</button>
+            <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Flat</button>
+          </div>
           <div class="ctrl-row">
             <label>Prewarp1:</label>
             <button class="sld-btn" onclick="nudge('sld-pw',-1)">&minus;</button>
@@ -295,7 +298,6 @@ input[type="file"] { display: none; }
             <span class="val" id="vpw2">1.00x</span>
           </div>
           <div class="ctrl-row">
-            <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Flat</button>
             <button id="btn-zoom-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697; Zoom</button>
             <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697; Warp</button>
           </div>

@@ -34,11 +34,11 @@ export function createBevAxes() {
     canvas.style.cssText = 'position:absolute;pointer-events:none;z-index:5;';
     document.body.appendChild(canvas);
 
-    const SIZE = 50;   // px — bounding box of the axis indicator
+    const SIZE = 80;   // px — bounding box of the axis indicator
     const MARGIN = 8;  // px — gap from BEV panel edge
-    const LEN = 30;    // arrow length in canvas pixels
-    const CX = 12;     // origin dot X in canvas coords
-    const CY = SIZE - 12; // origin dot Y in canvas coords (near bottom)
+    const LEN = 48;    // arrow length in canvas pixels
+    const CX = 16;     // origin dot X in canvas coords
+    const CY = SIZE - 16; // origin dot Y in canvas coords (near bottom)
 
     /**
      * Update the overlay position and redraw axes.
@@ -67,7 +67,7 @@ export function createBevAxes() {
         ctx.save();
         ctx.strokeStyle = '#e94560';
         ctx.fillStyle   = '#e94560';
-        ctx.lineWidth   = 2;
+        ctx.lineWidth   = 2.5;
         ctx.beginPath();
         ctx.moveTo(CX, CY);
         ctx.lineTo(CX + LEN, CY);
@@ -75,20 +75,20 @@ export function createBevAxes() {
         // Arrowhead
         ctx.beginPath();
         ctx.moveTo(CX + LEN, CY);
-        ctx.lineTo(CX + LEN - 5, CY - 4);
-        ctx.lineTo(CX + LEN - 5, CY + 4);
+        ctx.lineTo(CX + LEN - 8, CY - 5);
+        ctx.lineTo(CX + LEN - 8, CY + 5);
         ctx.closePath();
         ctx.fill();
         // Label
-        ctx.font = 'bold 9px monospace';
-        ctx.fillText('+X', CX + LEN - 6, CY - 7);
+        ctx.font = 'bold 13px monospace';
+        ctx.fillText('+X', CX + LEN - 8, CY - 9);
         ctx.restore();
 
         // ── +Z axis (blue) → screen down ──
         ctx.save();
         ctx.strokeStyle = '#4ea8de';
         ctx.fillStyle   = '#4ea8de';
-        ctx.lineWidth   = 2;
+        ctx.lineWidth   = 2.5;
         ctx.beginPath();
         ctx.moveTo(CX, CY);
         ctx.lineTo(CX, CY + LEN);
@@ -96,20 +96,20 @@ export function createBevAxes() {
         // Arrowhead (pointing down)
         ctx.beginPath();
         ctx.moveTo(CX, CY + LEN);
-        ctx.lineTo(CX - 4, CY + LEN - 5);
-        ctx.lineTo(CX + 4, CY + LEN - 5);
+        ctx.lineTo(CX - 5, CY + LEN - 8);
+        ctx.lineTo(CX + 5, CY + LEN - 8);
         ctx.closePath();
         ctx.fill();
         // Label — place to the right of the arrow
-        ctx.font = 'bold 9px monospace';
-        ctx.fillText('+Z', CX + 5, CY + LEN);
+        ctx.font = 'bold 13px monospace';
+        ctx.fillText('+Z', CX + 7, CY + LEN);
         ctx.restore();
 
         // ── Origin dot (white) ──
         ctx.save();
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(CX, CY, 2.5, 0, Math.PI * 2);
+        ctx.arc(CX, CY, 3.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     }
