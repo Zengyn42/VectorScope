@@ -33,6 +33,7 @@ export const HELP = {
         ['Click object', 'Select (works in any camera panel or Bird\'s Eye)'],
         ['Drag object', 'Camera panels: move on the camera-facing plane; Bird\'s Eye: move on the ground (XZ)'],
         ['Click camera marker', '(Bird\'s Eye) select a camera to inspect its parameters'],
+        ['Drag empty space (BEV)', 'Pan the Bird\'s Eye view (resets on BEV zoom change)'],
         ['Click empty space', 'Deselect'],
     ],
 };
@@ -40,7 +41,9 @@ export const HELP = {
 export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $,
     /** Optional callback fired just before drag starts (object = dragged obj).
      *  Use for undo checkpoints: `onDragStart: (obj) => undoManager.checkpoint('drag')` */
-    onDragStart = null }) {
+    onDragStart = null,
+    /** Optional BEV pan callback: panBev(dx, dz) shifts the BEV camera. */
+    onBevPan = null }) {
     const rc = new THREE.Raycaster();
     const hitPt = new THREE.Vector3();
     const selBox = new THREE.Box3();
@@ -194,12 +197,46 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
             S.dragOff.copy(best.position).sub(hitPt);
             S.dragging = true;
             canvas.style.cursor = 'grabbing';
+        } else if (panel === 'bev' && onBevPan) {
+            /* Empty BEV click → start pan drag.
+               Record the world-space hit point on the Y=0 ground plane
+               as the pan anchor. Subsequent pointermove will compute delta. */
+            sel(null);
+            const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+            const anchor = new THREE.Vector3();
+            if (rc.ray.intersectPlane(groundPlane, anchor)) {
+                S._bevPanning = true;
+                S._bevPanAnchor = anchor.clone();
+                S._bevPanCam = cam;
+                S._bevPanRect = panelRect;
+                canvas.style.cursor = 'grab';
+            }
         } else {
             sel(null);
         }
     });
 
     canvas.addEventListener('pointermove', e => {
+        /* ── BEV pan drag ── */
+        if (S._bevPanning && onBevPan) {
+            const ndc = toNDC(e.clientX, e.clientY, S._bevPanRect);
+            rc.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), S._bevPanCam);
+            const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+            const cur = new THREE.Vector3();
+            if (rc.ray.intersectPlane(groundPlane, cur)) {
+                const dx = S._bevPanAnchor.x - cur.x;
+                const dz = S._bevPanAnchor.z - cur.z;
+                onBevPan(dx, dz);
+                // Update anchor to the new intersected position (post-pan the
+                // camera moved, so re-intersect to keep the feel smooth)
+                S._bevPanAnchor.copy(cur);
+                S._bevPanAnchor.x += dx;
+                S._bevPanAnchor.z += dz;
+            }
+            return;
+        }
+
+        /* ── Object drag ── */
         if (!S.dragging || !S.sel) return;
         const cam = S._selCam || getMainCam();
         const panel = S._selPanel || P.m;
@@ -221,6 +258,7 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
 
     canvas.addEventListener('pointerup', () => {
         S.dragging = false;
+        S._bevPanning = false;
         canvas.style.cursor = '';
     });
 

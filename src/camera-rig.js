@@ -108,19 +108,30 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         recenterBev();
     }
 
+    /** User-applied BEV pan offset (world XZ). Reset when setBevSize is called
+     *  or explicitly via resetBevPan(). */
+    const bevPan = { x: 0, z: 0 };
+
     /** Center BEV slightly ahead of the main camera (along its forward
-     *  direction on XZ), so the rig sits in the lower part of the window. */
+     *  direction on XZ), so the rig sits in the lower part of the window.
+     *  Adds the user pan offset on top. */
     function recenterBev() {
         if (!rig.bev) return;
         const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.main.quaternion);
         fwd.y = 0;
         if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
         fwd.normalize();
-        const cx = rig.main.position.x + fwd.x * bevSize * 0.4;
-        const cz = rig.main.position.z + fwd.z * bevSize * 0.4;
+        const cx = rig.main.position.x + fwd.x * bevSize * 0.4 + bevPan.x;
+        const cz = rig.main.position.z + fwd.z * bevSize * 0.4 + bevPan.z;
         rig.bev.position.set(cx, 20, cz);
         rig.bev.lookAt(cx, 0, cz);
     }
+
+    /** Shift the BEV view by a world-space delta (XZ). */
+    function panBev(dx, dz) { bevPan.x += dx; bevPan.z += dz; }
+
+    /** Reset BEV pan offset to zero. */
+    function resetBevPan() { bevPan.x = 0; bevPan.z = 0; }
 
     /** (Re)build all cameras + BEV camera + markers from camera params. */
     function init(p) {
@@ -202,5 +213,5 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
     /** Return the current BEV half-extent. */
     function getBevSize() { return bevSize; }
 
-    return { rig, init, applyPose, updateBevAspect, syncMarkers, setBevSize, getBevSize };
+    return { rig, init, applyPose, updateBevAspect, syncMarkers, setBevSize, getBevSize, panBev, resetBevPan };
 }

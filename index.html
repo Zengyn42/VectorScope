@@ -721,6 +721,7 @@ const { sel, syncDepthSlider } = initInteraction({
     onSelChange,
     getPanel, toNDC, $,
     onDragStart: () => undoManager.checkpoint('drag'),
+    onBevPan: (dx, dz) => { camRig.panBev(dx, dz); loop.markDirty(2); },
 });
 
 /* ================================================================
