@@ -743,6 +743,7 @@ store.register('cameras', {
         SCENE_CAM.position = v.sceneCam.position;
         SCENE_CAM.rotation_euler_deg = v.sceneCam.rotation_euler_deg;
         initCams(v.camParams);
+        camRig.applyPose(v.camParams);   // applies view offsets + positions
         layoutPanels();
         camRig.updateBevAspect(P.bev);
         refreshH();

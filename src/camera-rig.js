@@ -96,9 +96,21 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
             const off = new THREE.Vector3(...(cp.extrinsics?.position || [0, 0, 0]));
             cam.position.copy(off.applyQuaternion(refQuat).add(refPos));
             cam.quaternion.copy(refQuat).multiply(eulerQuat(cp.extrinsics?.rotation_euler_deg || [0, 0, 0]));
-            const { fy } = cp.intrinsics;
-            const fov = 2 * Math.atan(cp.image_size[1] / (2 * fy)) * 180 / Math.PI;
-            if (Math.abs(cam.fov - fov) > 1e-9) { cam.fov = fov; cam.updateProjectionMatrix(); }
+            const { fx, fy, cx, cy } = cp.intrinsics;
+            const [imgW, imgH] = cp.image_size;
+            const fov = 2 * Math.atan(imgH / (2 * fy)) * 180 / Math.PI;
+            if (Math.abs(cam.fov - fov) > 1e-9) { cam.fov = fov; }
+            /* Apply optical-center offset as an asymmetric frustum.
+               setViewOffset shifts the rendered sub-region of the full
+               sensor: offset = (cx - imgW/2, cy - imgH/2). */
+            const ox = cx - imgW / 2;
+            const oy = cy - imgH / 2;
+            if (Math.abs(ox) > 0.5 || Math.abs(oy) > 0.5) {
+                cam.setViewOffset(imgW, imgH, ox, oy, imgW, imgH);
+            } else {
+                cam.clearViewOffset();
+            }
+            cam.updateProjectionMatrix();
         };
         setCam(rig.main, p.main_camera, baseQuat, basePos);
         setCam(rig.sec1, p.secondary_camera, rig.main.quaternion, rig.main.position);
