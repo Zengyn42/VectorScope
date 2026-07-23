@@ -39,6 +39,9 @@ export const HELP = {
         ['A / D', 'Move camera left / right (0.1 m per press)'],
         ['W / S', 'Move camera forward / backward (0.1 m per press)'],
         ['Q / E', 'Move camera down / up (0.1 m per press)'],
+        ['Shift+A / D', 'Yaw camera left / right (2° per press)'],
+        ['Shift+W / S', 'Pitch camera up / down (2° per press)'],
+        ['Shift+Q / E', 'Roll camera CCW / CW (2° per press)'],
     ],
 };
 
