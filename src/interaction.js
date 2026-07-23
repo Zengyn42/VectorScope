@@ -31,11 +31,14 @@ export const HELP = {
     order: 20,
     entries: [
         ['Click object', 'Select (works in any camera panel or Bird\'s Eye)'],
-        ['Drag object', 'Camera panels: move on the camera-facing plane; Bird\'s Eye: move on the ground (XZ)'],
+        ['Double-click + drag', 'Move selected object: Camera panels move on the camera-facing plane; Bird\'s Eye moves on the ground (XZ)'],
         ['Click camera marker', '(Bird\'s Eye) select a camera to inspect its parameters'],
         ['Drag empty space (BEV)', 'Pan the Bird\'s Eye view'],
         ['Scroll wheel (BEV)', 'Zoom the Bird\'s Eye view in/out'],
         ['Click empty space', 'Deselect'],
+        ['A / D', 'Move camera left / right (0.1 m per press)'],
+        ['W / S', 'Move camera forward / backward (0.1 m per press)'],
+        ['Q / E', 'Move camera down / up (0.1 m per press)'],
     ],
 };
 
@@ -50,6 +53,12 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
     const rc = new THREE.Raycaster();
     const hitPt = new THREE.Vector3();
     const selBox = new THREE.Box3();
+
+    /* Double-click detection for drag initiation.
+       Single click = select; double-click on object = start drag. */
+    const DBLCLICK_MS = 400;  // max interval between clicks
+    let lastClickTime = 0;
+    let lastClickObj = null;
 
     function sel(obj) {
         // De-highlight previous selection
@@ -178,28 +187,36 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         }
 
         if (best) {
-            if (onDragStart) onDragStart(best);
-            sel(best);
-            S._selCam = cam;
-            S._selPanel = panelRect;
-            S._selIsBev = (panel === 'bev');
+            const now = performance.now();
+            const isDoubleClick = (best === lastClickObj && now - lastClickTime < DBLCLICK_MS);
+            lastClickTime = now;
+            lastClickObj = best;
 
-            if (panel === 'bev') {
-                /* BEV drag: XZ plane at the object's Y height */
-                const c = new THREE.Vector3();
-                new THREE.Box3().setFromObject(best).getCenter(c);
-                S.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), c);
-            } else {
-                /* Perspective panel drag: plane perpendicular to camera look-at */
-                const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-                const c = new THREE.Vector3();
-                new THREE.Box3().setFromObject(best).getCenter(c);
-                S.dragPlane.setFromNormalAndCoplanarPoint(dir, c);
+            /* First click: select only. Double-click: start drag. */
+            sel(best);
+            if (isDoubleClick) {
+                if (onDragStart) onDragStart(best);
+                S._selCam = cam;
+                S._selPanel = panelRect;
+                S._selIsBev = (panel === 'bev');
+
+                if (panel === 'bev') {
+                    /* BEV drag: XZ plane at the object's Y height */
+                    const c = new THREE.Vector3();
+                    new THREE.Box3().setFromObject(best).getCenter(c);
+                    S.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), c);
+                } else {
+                    /* Perspective panel drag: plane perpendicular to camera look-at */
+                    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+                    const c = new THREE.Vector3();
+                    new THREE.Box3().setFromObject(best).getCenter(c);
+                    S.dragPlane.setFromNormalAndCoplanarPoint(dir, c);
+                }
+                rc.ray.intersectPlane(S.dragPlane, hitPt);
+                S.dragOff.copy(best.position).sub(hitPt);
+                S.dragging = true;
+                canvas.style.cursor = 'grabbing';
             }
-            rc.ray.intersectPlane(S.dragPlane, hitPt);
-            S.dragOff.copy(best.position).sub(hitPt);
-            S.dragging = true;
-            canvas.style.cursor = 'grabbing';
         } else if (panel === 'bev' && onBevPan) {
             /* Empty BEV click → start pan drag.
                Use pixel coordinates directly — for an orthographic camera the

@@ -896,6 +896,28 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') $('help-dialog').classList.remove('open');
     if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoManager.undo(); }
     if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); undoManager.redo(); }
+
+    /* ── WASDQE camera movement (0.1m per press) ── */
+    // Skip if typing in an input/select field
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    const STEP = 0.1;
+    const k = e.key.toLowerCase();
+    if ('adwsqe'.includes(k) && k.length === 1) {
+        e.preventDefault();
+        const p = SCENE_CAM.position;
+        // Camera-relative directions via the main camera quaternion
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(R.main.quaternion);
+        if (k === 'a') { p[0] -= right.x * STEP; p[1] -= right.y * STEP; p[2] -= right.z * STEP; }
+        if (k === 'd') { p[0] += right.x * STEP; p[1] += right.y * STEP; p[2] += right.z * STEP; }
+        if (k === 'w') { p[0] += fwd.x * STEP; p[1] += fwd.y * STEP; p[2] += fwd.z * STEP; }
+        if (k === 's') { p[0] -= fwd.x * STEP; p[1] -= fwd.y * STEP; p[2] -= fwd.z * STEP; }
+        if (k === 'q') { p[1] -= STEP; }
+        if (k === 'e') { p[1] += STEP; }
+        camRig.applyPose(S.camParams);
+        refreshH();
+        loop.markDirty(3);
+    }
 });
 
 /* Segment config dialog */
