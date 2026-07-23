@@ -165,6 +165,23 @@ input[type="file"] { display: none; }
 }
 .bev-btn:hover { background: #533483; }
 
+/* ── Viewport shift arrows ── */
+.vshift {
+    position: absolute; pointer-events: none; z-index: 9;
+}
+.vs-btn {
+    position: absolute; pointer-events: auto;
+    width: 18px; height: 18px; padding: 0; line-height: 1;
+    font-size: 10px; background: rgba(15,52,96,0.7); color: #ccc;
+    border: 1px solid #533483; border-radius: 3px; cursor: pointer;
+    opacity: 0.6; transition: opacity .15s;
+}
+.vs-btn:hover { opacity: 1; background: #533483; }
+.vs-u { left: 50%; top: 2px; transform: translateX(-50%); }
+.vs-d { left: 50%; bottom: 2px; transform: translateX(-50%); }
+.vs-l { left: 2px; top: 50%; transform: translateY(-50%); }
+.vs-r { right: 2px; top: 50%; transform: translateY(-50%); }
+
 /* ── Advanced panel toggle ── */
 #btn-advanced {
     padding: 2px 8px; font-size: 11px; margin-bottom: 4px;
@@ -272,6 +289,12 @@ input[type="file"] { display: none; }
           <button id="btn-orient" title="Toggle portrait / landscape orientation">Portrait</button>
           <button id="btn-ratio" title="Toggle 16:9 / 4:3 aspect ratio">16:9</button>
         </div>
+        <div class="ctrl-row">
+          <button id="btn-macro" title="Macro Mode: force UW camera when Focus D is below threshold">Macro</button>
+          <input type="range" id="sld-macro" min="0.1" max="3.0" step="0.05" value="0.5"
+                 style="width:80px;display:none" title="Macro distance threshold (metres)">
+          <span class="val" id="vmacro" style="display:none">0.5m</span>
+        </div>
         <!-- Advanced collapsible section -->
         <button id="btn-advanced">Advanced &#9656;</button>
         <div id="grp-advanced" style="display:none">
@@ -342,6 +365,26 @@ input[type="file"] { display: none; }
     <div class="plbl" id="lbl-s1" style="color:#81c784">&#9678; UW Camera</div>
     <div class="plbl" id="lbl-s2" style="color:#fff176">&#9678; Tele Camera</div>
     <div class="plbl" id="lbl-c" style="color:#e94560">&#9678; Combined &mdash; 1.00x</div>
+
+    <!-- Viewport shift arrows (positioned over camera panels by JS) -->
+    <div class="vshift" id="vshift-m" style="display:none">
+      <button class="vs-btn vs-u" data-cam="main" data-dir="u" title="Shift view up">&#9650;</button>
+      <button class="vs-btn vs-d" data-cam="main" data-dir="d" title="Shift view down">&#9660;</button>
+      <button class="vs-btn vs-l" data-cam="main" data-dir="l" title="Shift view left">&#9664;</button>
+      <button class="vs-btn vs-r" data-cam="main" data-dir="r" title="Shift view right">&#9654;</button>
+    </div>
+    <div class="vshift" id="vshift-s1" style="display:none">
+      <button class="vs-btn vs-u" data-cam="uw" data-dir="u" title="Shift view up">&#9650;</button>
+      <button class="vs-btn vs-d" data-cam="uw" data-dir="d" title="Shift view down">&#9660;</button>
+      <button class="vs-btn vs-l" data-cam="uw" data-dir="l" title="Shift view left">&#9664;</button>
+      <button class="vs-btn vs-r" data-cam="uw" data-dir="r" title="Shift view right">&#9654;</button>
+    </div>
+    <div class="vshift" id="vshift-s2" style="display:none">
+      <button class="vs-btn vs-u" data-cam="tele" data-dir="u" title="Shift view up">&#9650;</button>
+      <button class="vs-btn vs-d" data-cam="tele" data-dir="d" title="Shift view down">&#9660;</button>
+      <button class="vs-btn vs-l" data-cam="tele" data-dir="l" title="Shift view left">&#9664;</button>
+      <button class="vs-btn vs-r" data-cam="tele" data-dir="r" title="Shift view right">&#9654;</button>
+    </div>
 
     <!-- Separators -->
     <div class="panel-sep-h" id="sep-h"></div>
@@ -477,8 +520,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from './lib/GLTFLoader.js?v=30';
 import { DRACOLoader } from './lib/DRACOLoader.js?v=30';
 import { SCENE_CAM, DEF_CAM } from './src/camera.js';
-import { SRC } from './src/zoom-pipeline.js';
+import { SRC, zoomSource } from './src/zoom-pipeline.js';
 import { createBlendController } from './src/blend.js';
+import { createMacroMode } from './src/macro-mode.js';
 import { createSceneAnimator } from './src/scene-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
 import { createBevGhost } from './src/bev-ghost.js';
@@ -597,6 +641,10 @@ initCams(DEF_CAM);
    to the live incoming camera over S.blendX frames. The outgoing RT is
    not re-rendered during the blend, so it holds its last frame for free. */
 const blendCtl = createBlendController({ getX: () => S.blendX });
+const macroMode = createMacroMode({
+    SRC, zoomSource,
+    isBlending: () => blendCtl.isBlending(),
+});
 
 /* Segment config: configurable lead/follower camera assignment per zoom range.
    Defaults match the hardcoded rules; users can reconfigure via the dialog. */
@@ -623,17 +671,24 @@ const refreshH = createSamplingRefresh({
         let warnings = '';
         if (!S.warp) warnings += '<div style="color:#ff6b6b;margin-top:4px">⚠ ContiZoom OFF</div>';
         if (!S._continuousAF) warnings += '<div style="color:#ff6b6b;margin-top:2px">⚠ AF OFF</div>';
+        if (macroMode.isOverriding()) warnings += '<div style="color:#4ea8de;margin-top:2px">🔬 Macro → UW</div>';
         $('hmat').innerHTML = html + warnings;
     },
     /* Play mode: lead/follower come from the trajectory frame, not the
-       zoom rules (boss rule #2). Free mode: null → rules apply. */
+       zoom rules (boss rule #2). Macro mode: force UW when close.
+       Free mode: null → rules apply. */
     getOverride: () => {
         const rec = transport.current();
-        return rec ? {
+        if (rec) return {
             leadSrc: CAM_TO_SRC[rec.lead],
             followerSrc: CAM_TO_SRC[rec.follower],
             label: `TRAJ f${transport.getFrame()} ${rec.lead}\u2192${rec.follower}`,
-        } : null;
+        };
+        /* Macro mode: tick + apply override */
+        const hasS2 = !!R.sec2;
+        const mmo = macroMode.tick(S.depthD, S.zoom, hasS2);
+        if (mmo.overrideSrc !== null) return { leadSrc: mmo.overrideSrc };
+        return null;
     },
 });
 
@@ -1083,6 +1138,7 @@ function onResize() {
     updateGridOverlay();
     updateBevAxes();
     updateBevZoomButtons();
+    positionVShift();
 }
 window.addEventListener('resize', onResize);
 onResize();
@@ -1195,6 +1251,66 @@ $('btn-ratio').onclick = () => {
     rtRatio = rtRatio === '16:9' ? '4:3' : '16:9';
     applyAspect();
 };
+/* ── Viewport shift arrows: position over camera panels ── */
+function positionVShift() {
+    const cont = $('viewport-container').getBoundingClientRect();
+    const H = cont.height;
+    for (const [panelKey, elId] of [['m', 'vshift-m'], ['s1', 'vshift-s1'], ['s2', 'vshift-s2']]) {
+        const el = $(elId);
+        const p = P[panelKey];
+        if (!el || !p || p.w <= 0) { if (el) el.style.display = 'none'; continue; }
+        const cssTop = H - p.y - p.h;
+        el.style.display = '';
+        el.style.left = p.x + 'px';
+        el.style.top = cssTop + 'px';
+        el.style.width = p.w + 'px';
+        el.style.height = p.h + 'px';
+    }
+}
+/* Viewport shift click handler — adjusts cx/cy (optical center) */
+const VSHIFT_PX = 20;  // pixels of optical center shift per click
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.vs-btn');
+    if (!btn) return;
+    const cam = btn.dataset.cam;
+    const dir = btn.dataset.dir;
+    const key = cam === 'uw' ? 'secondary_camera' : cam === 'tele' ? 'secondary_camera_2' : 'main_camera';
+    const cp = S.camParams[key];
+    if (!cp) return;
+    undoManager.checkpoint('vshift');
+    const intr = cp.intrinsics;
+    if (dir === 'l') intr.cx -= VSHIFT_PX;
+    if (dir === 'r') intr.cx += VSHIFT_PX;
+    if (dir === 'u') intr.cy -= VSHIFT_PX;
+    if (dir === 'd') intr.cy += VSHIFT_PX;
+    store.set('cameras', {
+        camParams: S.camParams,
+        sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+    });
+});
+
+/* ── Macro Mode UI ── */
+$('btn-macro').onclick = () => {
+    if (macroMode.isActive()) {
+        macroMode.disable();
+        $('btn-macro').classList.remove('active');
+        $('sld-macro').style.display = 'none';
+        $('vmacro').style.display = 'none';
+        log('Macro mode OFF');
+    } else {
+        macroMode.enable(+$('sld-macro').value);
+        $('btn-macro').classList.add('active');
+        $('sld-macro').style.display = '';
+        $('vmacro').style.display = '';
+        log(`Macro mode ON (threshold ${macroMode.getThreshold().toFixed(2)}m)`);
+    }
+    loop.markDirty(3);
+};
+$('sld-macro').oninput = function () {
+    macroMode.setThreshold(+this.value);
+    $('vmacro').textContent = (+this.value).toFixed(2) + 'm';
+};
+
 onSceneChanged = markDirty;                                // async loads via log()
 for (const name of store.names()) store.subscribe(name, markDirty);  // all config writes
 document.addEventListener('input', markDirty, true);       // sliders, dialog edits
