@@ -298,6 +298,7 @@ input[type="file"] { display: none; }
             <span class="val" id="vpw2">1.00x</span>
           </div>
           <div class="ctrl-row">
+            <button id="btn-af-sel" class="sld-btn" style="width:auto;padding:0 6px" title="AF Select: drag a rectangle on Main panel to set Focus D">AF Select</button>
             <button id="btn-zoom-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697; Zoom</button>
             <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697; Warp</button>
           </div>
@@ -788,16 +789,11 @@ if (!sceneIO.isSupported()) {
 /* ================================================================
    AUTOFOCUS
    ================================================================ */
-initAutofocus({
-    $, canvas, renderer, scene, depthMat, rtDepth, P, RT_W, RT_H,
+const af = initAutofocus({
+    $, canvas, renderer, scene, depthMat, rtDepth, P, S, RT_W, RT_H,
     getMainCam: () => R.main,
     onFocus: (focusD) => {
-        if (!isFinite(focusD)) {
-            /* No object in the AF region: show "inf", keep Focus D unchanged. */
-            $('vd').textContent = 'inf';
-            log('AF: no object in region — distance inf');
-            return;
-        }
+        if (!isFinite(focusD)) return;   // no object — keep Focus D unchanged
         store.set('controls', { depthD: focusD });
     },
 });
@@ -1277,7 +1273,7 @@ updateGridOverlay = () => {
     });
 };
 
-onPostFrame = () => { recorder.capture(); updateGridOverlay(); updateBevAxes(); };
+onPostFrame = () => { recorder.capture(); updateGridOverlay(); updateBevAxes(); af.tickContinuousAF(); };
 
 $('btn-traj-rec').onclick = () => {
     if (recorder.isRecording()) {

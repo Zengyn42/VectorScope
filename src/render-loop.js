@@ -354,7 +354,7 @@ export function createRenderLoop({
         const playing = !!transport?.isPlaying();
         const continuous = playing
             || sceneAnim.count() > 0 || blendCtl.isBlending() || S.dragging
-            || S._bevPanning;
+            || S._bevPanning || S._continuousAF;
         const gate = frameGate({ continuous, dirtyFrames, skipped, keepAlive });
         if (!gate.render) { skipped++; return; }
         /* Pacing defers the frame without consuming dirtyFrames or

@@ -59,6 +59,7 @@
  * @param {object}   opts.depthMat   - `MeshDepthMaterial` with `RGBADepthPacking`
  * @param {object}   opts.rtDepth    - `WebGLRenderTarget` for the depth pass
  * @param {object}   opts.P          - Panel rects from `createPanelManager`: `{ m, s, c }`
+ * @param {object}   [opts.S]        - Shared app state; sets `S._continuousAF` for render loop
  * @param {number}   opts.RT_W       - Render target width (pixels, typically 1920)
  * @param {number}   opts.RT_H       - Render target height (pixels, typically 1080)
  * @param {Function} opts.getMainCam - Returns the current main `PerspectiveCamera`
@@ -70,13 +71,16 @@ export const HELP = {
     title: 'Autofocus',
     order: 41,
     entries: [
-        ['AF button', 'Click AF, then drag a rectangle on the Main panel — Focus D is set to the median depth inside it (tap-to-focus)'],
-        ['AF on empty space', 'If the rectangle contains no object, the distance reads "inf" and Focus D is left unchanged'],
+        ['AF (continuous)', 'Toggle continuous auto-focus: samples the center 10% of the Main camera each frame and updates Focus D'],
+        ['AF Select (Advanced)', 'Click AF Select, then drag a rectangle on the Main panel — Focus D is set to the median depth inside it'],
+        ['AF on empty space', 'If the sampled region contains no object, Focus D is left unchanged'],
     ],
 };
 
-export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P, RT_W, RT_H, getMainCam, onFocus }) {
+export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P, S, RT_W, RT_H, getMainCam, onFocus }) {
     const afState = { active: false, dragging: false, x0: 0, y0: 0 };
+    /** Continuous AF state */
+    const contAF = { active: false };
     const afRect = $('af-rect');
 
     function runAF(screenRect) {
@@ -150,18 +154,42 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
         onFocus(focusD);
     }
 
-    // Toggle AF mode
+    // ── Continuous AF (btn-af): toggle per-frame center-10% sampling ──
     $('btn-af').onclick = () => {
-        afState.active = !afState.active;
-        $('btn-af').classList.toggle('active', afState.active);
-        if (!afState.active) {
+        contAF.active = !contAF.active;
+        if (S) S._continuousAF = contAF.active;
+        $('btn-af').classList.toggle('active', contAF.active);
+        // Exit manual AF select if it was active
+        if (contAF.active && afState.active) {
+            afState.active = false;
             afRect.style.display = 'none';
-            afState.dragging = false;
             canvas.style.cursor = '';
-        } else {
-            canvas.style.cursor = 'crosshair';
+            const selBtn = $('btn-af-sel');
+            if (selBtn) selBtn.classList.remove('active');
         }
     };
+
+    // ── AF Select (btn-af-sel, in Advanced): manual rectangle selection ──
+    const afSelBtn = $('btn-af-sel');
+    if (afSelBtn) {
+        afSelBtn.onclick = () => {
+            // Turn off continuous AF if active
+            if (contAF.active) {
+                contAF.active = false;
+                if (S) S._continuousAF = false;
+                $('btn-af').classList.remove('active');
+            }
+            afState.active = !afState.active;
+            afSelBtn.classList.toggle('active', afState.active);
+            if (!afState.active) {
+                afRect.style.display = 'none';
+                afState.dragging = false;
+                canvas.style.cursor = '';
+            } else {
+                canvas.style.cursor = 'crosshair';
+            }
+        };
+    }
 
     // Capture-phase handlers to intercept before interaction handlers
     canvas.addEventListener('pointerdown', (e) => {
@@ -209,12 +237,37 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
 
         runAF({ x, y, w, h });
 
-        // Exit AF mode — keep rect visible until next AF activation
+        // Exit AF select mode — keep rect visible until next activation
         afState.active = false;
-        $('btn-af').classList.remove('active');
+        const selBtn2 = $('btn-af-sel');
+        if (selBtn2) selBtn2.classList.remove('active');
         canvas.style.cursor = '';
 
         e.preventDefault();
         e.stopPropagation();
     }, true);
+
+    /**
+     * Run one continuous-AF sample: center 10% of the Main panel.
+     * Call this every rendered frame when contAF is active.
+     * Uses CSS coordinates relative to the viewport container.
+     */
+    function tickContinuousAF() {
+        if (!contAF.active) return;
+        if (!P.m || P.m.w <= 0) return;
+        const cont = $('viewport-container').getBoundingClientRect();
+        // BEV/panel coords use WebGL Y-from-bottom; convert to CSS Y-from-top
+        const cssTop = cont.height - P.m.y - P.m.h;
+        // Center 10% width × 10% height
+        const cw = P.m.w * 0.1;
+        const ch = P.m.h * 0.1;
+        const cx = P.m.x + (P.m.w - cw) / 2;
+        const cy = cssTop + (P.m.h - ch) / 2;
+        runAF({ x: cx, y: cy, w: cw, h: ch });
+    }
+
+    /** @returns {boolean} whether continuous AF is currently active */
+    function isContinuousAF() { return contAF.active; }
+
+    return { tickContinuousAF, isContinuousAF };
 }
