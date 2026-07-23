@@ -255,15 +255,17 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
      */
     function tickContinuousAF() {
         if (!contAF.active) return;
-        if (!P.m || P.m.w <= 0) return;
+        /* Use Main panel when visible; fall back to Combined panel in
+           combined mode (P.m has zero width when collapsed). */
+        const panel = (P.m && P.m.w > 0) ? P.m : (P.c && P.c.w > 0) ? P.c : null;
+        if (!panel) return;
         const cont = $('viewport-container').getBoundingClientRect();
-        // BEV/panel coords use WebGL Y-from-bottom; convert to CSS Y-from-top
-        const cssTop = cont.height - P.m.y - P.m.h;
+        const cssTop = cont.height - panel.y - panel.h;
         // Center 10% width × 10% height
-        const cw = P.m.w * 0.1;
-        const ch = P.m.h * 0.1;
-        const cx = P.m.x + (P.m.w - cw) / 2;
-        const cy = cssTop + (P.m.h - ch) / 2;
+        const cw = panel.w * 0.1;
+        const ch = panel.h * 0.1;
+        const cx = panel.x + (panel.w - cw) / 2;
+        const cy = cssTop + (panel.h - ch) / 2;
         runAF({ x: cx, y: cy, w: cw, h: ch });
     }
 

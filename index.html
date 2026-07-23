@@ -1328,21 +1328,27 @@ for (const btn of document.querySelectorAll('.vs-btn')) {
 }
 
 /* ── Macro Mode UI ── */
+let macroToggleTimer = 0;
 $('btn-macro').onclick = () => {
-    if (macroMode.isActive()) {
-        macroMode.disable();
-        $('btn-macro').classList.remove('active');
-        $('sld-macro').style.display = 'none';
-        $('vmacro').style.display = 'none';
-        log('Macro mode OFF');
-    } else {
-        macroMode.enable(+$('sld-macro').value);
-        $('btn-macro').classList.add('active');
-        $('sld-macro').style.display = '';
-        $('vmacro').style.display = '';
-        log(`Macro mode ON (threshold ${macroMode.getThreshold().toFixed(2)}m)`);
-    }
-    loop.markDirty(3);
+    /* Debounce to prevent WebGL crash from rapid toggle */
+    clearTimeout(macroToggleTimer);
+    macroToggleTimer = setTimeout(() => {
+        if (macroMode.isActive()) {
+            macroMode.disable();
+            $('btn-macro').classList.remove('active');
+            $('sld-macro').style.display = 'none';
+            $('vmacro').style.display = 'none';
+            log('Macro mode OFF');
+        } else {
+            macroMode.enable(+$('sld-macro').value);
+            $('btn-macro').classList.add('active');
+            $('sld-macro').style.display = '';
+            $('vmacro').style.display = '';
+            log(`Macro mode ON (threshold ${macroMode.getThreshold().toFixed(2)}m)`);
+        }
+        refreshH();
+        loop.markDirty(5);
+    }, 200);
 };
 $('sld-macro').oninput = function () {
     macroMode.setThreshold(+this.value);
