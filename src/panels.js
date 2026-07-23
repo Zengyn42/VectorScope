@@ -206,23 +206,22 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
         setLabel('lbl-c', P.c, H);
         setBorder('bd-c', P.c, H);
 
-        /* In combined mode, dock the HUDs below the controls panel on the
-           right edge — avoids overlapping the combined view. */
+        /* In combined mode, dock the HUDs inside the controls panel area
+           at the bottom — avoids overlapping the combined view. */
         const hmat = $('hmat'), status = $('status');
         if (hmat) {
             hmat.style.position = 'absolute';
-            hmat.style.right = '0px';
-            hmat.style.bottom = 'auto';
-            hmat.style.top = (H - 80) + 'px';   // above bottom edge
-            hmat.style.left = (W - ctrlW) + 'px';
+            hmat.style.left = (W - ctrlW + 4) + 'px';
             hmat.style.right = '4px';
+            hmat.style.bottom = '40px';
+            hmat.style.top = 'auto';
         }
         if (status) {
             status.style.position = 'absolute';
-            status.style.right = '4px';
-            status.style.bottom = 'auto';
-            status.style.top = (H - 30) + 'px';
             status.style.left = '';
+            status.style.right = '4px';
+            status.style.bottom = '8px';
+            status.style.top = 'auto';
         }
 
         if (onCameraAspect) onCameraAspect(RT_W / RT_H);

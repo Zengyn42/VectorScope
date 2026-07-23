@@ -1292,13 +1292,13 @@ function positionVShift() {
 }
 /* Viewport shift click handler — adjusts cx/cy (optical center) */
 const VSHIFT_PX = 20;  // pixels of optical center shift per click
+let vshiftSyncTimer = 0;
 function vshift(camKey, dir) {
     const cp = S.camParams[camKey];
     if (!cp) return;
     undoManager.checkpoint('vshift');
     const intr = cp.intrinsics;
     if (dir === 'c') {
-        // Reset to image center
         intr.cx = cp.image_size[0] / 2;
         intr.cy = cp.image_size[1] / 2;
     } else {
@@ -1307,10 +1307,18 @@ function vshift(camKey, dir) {
         if (dir === 'u') intr.cy -= VSHIFT_PX;
         if (dir === 'd') intr.cy += VSHIFT_PX;
     }
-    store.set('cameras', {
-        camParams: S.camParams,
-        sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
-    });
+    /* Lightweight update — no camera re-creation */
+    camRig.applyPose(S.camParams);
+    refreshH();
+    loop.markDirty(3);
+    /* Debounce store sync to avoid re-init storm on rapid clicks */
+    clearTimeout(vshiftSyncTimer);
+    vshiftSyncTimer = setTimeout(() => {
+        store.set('cameras', {
+            camParams: S.camParams,
+            sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+        });
+    }, 300);
 }
 for (const btn of document.querySelectorAll('.vs-btn')) {
     const cam = btn.dataset.cam;
