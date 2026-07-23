@@ -306,11 +306,11 @@ input[type="file"] { display: none; }
           <div class="ctrl-row">
             <label>Blend:</label>
             <button class="sld-btn" onclick="nudge('sld-blend',-10)">&minus;</button>
-            <input type="range" id="sld-blend" min="0" max="60" step="1" value="20">
+            <input type="range" id="sld-blend" min="0" max="60" step="1" value="10">
             <button class="sld-btn" onclick="nudge('sld-blend',10)">+</button>
-            <span class="val" id="vblend">20f</span>
+            <span class="val" id="vblend">10f</span>
             <button id="btn-bmode" style="min-width:52px">Single</button>
-            <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Flat</button>
+            <button id="btn-bshape" style="min-width:44px" title="Flat = uniform alpha; Radial = center-out (hides blank edges on FOV change)">Radial</button>
           </div>
           <div class="ctrl-row">
             <label>Prewarp1:</label>
@@ -913,6 +913,9 @@ store.register('view', {
         setMode(v.mode);                  // re-layouts panels + DOM decorations
         camRig.updateBevAspect(P.bev);    // no-op when BEV is collapsed
         $('btn-combined').classList.toggle('active', v.mode === 'combined');
+        updateBevZoomButtons();
+        positionVShift();
+        updateBevAxes();
     },
 });
 $('btn-combined').onclick = () => {
@@ -1246,6 +1249,10 @@ function applyAspect() {
     $('btn-ratio').textContent = rtRatio;
     $('btn-ratio').classList.toggle('active', rtRatio === '4:3');
     log(`${rtOrientation} ${rtRatio} (${RT_W}×${RT_H})`);
+    // Reposition overlay buttons to follow new panel rects
+    updateBevZoomButtons();
+    positionVShift();
+    updateBevAxes();
 }
 $('btn-orient').onclick = () => {
     undoManager.checkpoint('orient');

@@ -147,10 +147,18 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
         /* Vertical separators are replaced by per-panel red borders — hide them */
         hide(['sep-v1', 'sep-v2', 'sep-v3']);
 
-        /* Restore the fixed HUDs to the right edge */
+        /* Restore the fixed HUDs to the default bottom-right position */
         const hmat = $('hmat'), status = $('status');
-        if (hmat) hmat.style.right = '16px';
-        if (status) status.style.right = '16px';
+        if (hmat) {
+            hmat.style.position = 'fixed';
+            hmat.style.bottom = '16px'; hmat.style.right = '16px';
+            hmat.style.top = 'auto'; hmat.style.left = '';
+        }
+        if (status) {
+            status.style.position = 'fixed';
+            status.style.bottom = '100px'; status.style.right = '16px';
+            status.style.top = 'auto'; status.style.left = '';
+        }
 
         /* Sync camera aspect to bottom panel shape (9:16) */
         if (onCameraAspect) onCameraAspect(pw / ph);
@@ -198,11 +206,24 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
         setLabel('lbl-c', P.c, H);
         setBorder('bd-c', P.c, H);
 
-        /* The fixed-position HUDs sit at the right edge — shift them left of
-           the docked controls panel so they stay readable */
+        /* In combined mode, dock the HUDs below the controls panel on the
+           right edge — avoids overlapping the combined view. */
         const hmat = $('hmat'), status = $('status');
-        if (hmat) hmat.style.right = (ctrlW + 16) + 'px';
-        if (status) status.style.right = (ctrlW + 16) + 'px';
+        if (hmat) {
+            hmat.style.position = 'absolute';
+            hmat.style.right = '0px';
+            hmat.style.bottom = 'auto';
+            hmat.style.top = (H - 80) + 'px';   // above bottom edge
+            hmat.style.left = (W - ctrlW) + 'px';
+            hmat.style.right = '4px';
+        }
+        if (status) {
+            status.style.position = 'absolute';
+            status.style.right = '4px';
+            status.style.bottom = 'auto';
+            status.style.top = (H - 30) + 'px';
+            status.style.left = '';
+        }
 
         if (onCameraAspect) onCameraAspect(RT_W / RT_H);
     }

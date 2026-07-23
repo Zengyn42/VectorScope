@@ -57,9 +57,9 @@ export const CONTROL_DEFAULTS = {
     depthD: 3.0,
     prewarp1: 2.0,
     prewarp2: 5.0,
-    blendX: 20,
+    blendX: 10,
     blendMode: 'single',   // 'single' = frozen pixels, live matrix | 'dual' = live follower RT
-    blendShape: 'flat',    // 'flat' = uniform alpha | 'radial' = center-out gradient
+    blendShape: 'radial',  // 'flat' = uniform alpha | 'radial' = center-out gradient
     /* ── Session (scene save only, not per-frame) ── */
     clipY: 2.0,
 };
