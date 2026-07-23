@@ -182,6 +182,7 @@ input[type="file"] { display: none; }
 .vs-d { left: 18px; bottom: 0; }
 .vs-l { left: 0; top: 18px; }
 .vs-r { right: 0; top: 18px; }
+.vs-c { left: 18px; top: 18px; font-size: 8px; background: rgba(233,69,96,0.5); }
 
 /* ── Advanced panel toggle ── */
 #btn-advanced {
@@ -373,18 +374,21 @@ input[type="file"] { display: none; }
       <button class="vs-btn vs-d" data-cam="main" data-dir="d" title="Shift view down">&#9660;</button>
       <button class="vs-btn vs-l" data-cam="main" data-dir="l" title="Shift view left">&#9664;</button>
       <button class="vs-btn vs-r" data-cam="main" data-dir="r" title="Shift view right">&#9654;</button>
+      <button class="vs-btn vs-c" data-cam="main" data-dir="c" title="Reset viewport to center">&#9679;</button>
     </div>
     <div class="vshift" id="vshift-s1" style="display:none">
       <button class="vs-btn vs-u" data-cam="uw" data-dir="u" title="Shift view up">&#9650;</button>
       <button class="vs-btn vs-d" data-cam="uw" data-dir="d" title="Shift view down">&#9660;</button>
       <button class="vs-btn vs-l" data-cam="uw" data-dir="l" title="Shift view left">&#9664;</button>
       <button class="vs-btn vs-r" data-cam="uw" data-dir="r" title="Shift view right">&#9654;</button>
+      <button class="vs-btn vs-c" data-cam="uw" data-dir="c" title="Reset viewport to center">&#9679;</button>
     </div>
     <div class="vshift" id="vshift-s2" style="display:none">
       <button class="vs-btn vs-u" data-cam="tele" data-dir="u" title="Shift view up">&#9650;</button>
       <button class="vs-btn vs-d" data-cam="tele" data-dir="d" title="Shift view down">&#9660;</button>
       <button class="vs-btn vs-l" data-cam="tele" data-dir="l" title="Shift view left">&#9664;</button>
       <button class="vs-btn vs-r" data-cam="tele" data-dir="r" title="Shift view right">&#9654;</button>
+      <button class="vs-btn vs-c" data-cam="tele" data-dir="c" title="Reset viewport to center">&#9679;</button>
     </div>
 
     <!-- Separators -->
@@ -1274,10 +1278,16 @@ function vshift(camKey, dir) {
     if (!cp) return;
     undoManager.checkpoint('vshift');
     const intr = cp.intrinsics;
-    if (dir === 'l') intr.cx -= VSHIFT_PX;
-    if (dir === 'r') intr.cx += VSHIFT_PX;
-    if (dir === 'u') intr.cy -= VSHIFT_PX;
-    if (dir === 'd') intr.cy += VSHIFT_PX;
+    if (dir === 'c') {
+        // Reset to image center
+        intr.cx = cp.image_size[0] / 2;
+        intr.cy = cp.image_size[1] / 2;
+    } else {
+        if (dir === 'l') intr.cx -= VSHIFT_PX;
+        if (dir === 'r') intr.cx += VSHIFT_PX;
+        if (dir === 'u') intr.cy -= VSHIFT_PX;
+        if (dir === 'd') intr.cy += VSHIFT_PX;
+    }
     store.set('cameras', {
         camParams: S.camParams,
         sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
