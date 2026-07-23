@@ -1273,7 +1273,7 @@ updateGridOverlay = () => {
     });
 };
 
-onPostFrame = () => { recorder.capture(); updateGridOverlay(); updateBevAxes(); af.tickContinuousAF(); };
+onPostFrame = () => { recorder.capture(); updateGridOverlay(); updateBevAxes(); af?.tickContinuousAF(); };
 
 $('btn-traj-rec').onclick = () => {
     if (recorder.isRecording()) {
