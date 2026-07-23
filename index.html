@@ -962,35 +962,32 @@ $('btn-help').onclick = () => {
 $('help-dialog').addEventListener('click', (e) => {
     if (e.target === $('help-dialog')) $('help-dialog').classList.remove('open');
 });
-let wasdSyncTimer = 0;
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') $('help-dialog').classList.remove('open');
     if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoManager.undo(); }
     if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); undoManager.redo(); }
 
-    /* ── WASDQE: move/rotate main camera extrinsics ── */
-    // Skip if typing in an input/select field
+    /* ── WASDQE: move/rotate SCENE_CAM (rig base pose) ──
+       Modifies the rig base so ALL cameras move together. Inter-camera
+       relative extrinsics stay unchanged → homography is unaffected.
+       The camera panel shows absolute pose (SCENE_CAM + extrinsics). */
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-    if (e.ctrlKey) return;   // don't interfere with Ctrl+Z/Y
+    if (e.ctrlKey) return;
     const k = e.key.toLowerCase();
     if ('adwsqe'.includes(k) && k.length === 1) {
         e.preventDefault();
-        const ext = S.camParams.main_camera.extrinsics;
-        if (!ext) return;
         if (e.shiftKey) {
-            /* Shift held → rotate extrinsics (2° per press) */
             const DEG = 2;
-            const r = ext.rotation_euler_deg;
-            if (k === 'a') r[1] += DEG;   // yaw left
-            if (k === 'd') r[1] -= DEG;   // yaw right
-            if (k === 'w') r[0] += DEG;   // pitch up
-            if (k === 's') r[0] -= DEG;   // pitch down
-            if (k === 'q') r[2] += DEG;   // roll CCW
-            if (k === 'e') r[2] -= DEG;   // roll CW
+            const r = SCENE_CAM.rotation_euler_deg;
+            if (k === 'a') r[1] += DEG;
+            if (k === 'd') r[1] -= DEG;
+            if (k === 'w') r[0] += DEG;
+            if (k === 's') r[0] -= DEG;
+            if (k === 'q') r[2] += DEG;
+            if (k === 'e') r[2] -= DEG;
         } else {
-            /* No modifier → translate extrinsics (0.1m per press) */
             const STEP = 0.1;
-            const p = ext.position;
+            const p = SCENE_CAM.position;
             const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
             const right = new THREE.Vector3(1, 0, 0).applyQuaternion(R.main.quaternion);
             if (k === 'a') { p[0] -= right.x * STEP; p[1] -= right.y * STEP; p[2] -= right.z * STEP; }
@@ -1000,18 +997,9 @@ document.addEventListener('keydown', (e) => {
             if (k === 'q') { p[1] -= STEP; }
             if (k === 'e') { p[1] += STEP; }
         }
-        /* Lightweight update: applyPose moves cameras without recreating them.
-           Debounce the full store.set to sync the camera panel after keys stop. */
         camRig.applyPose(S.camParams);
         refreshH();
         loop.markDirty(3);
-        clearTimeout(wasdSyncTimer);
-        wasdSyncTimer = setTimeout(() => {
-            store.set('cameras', {
-                camParams: S.camParams,
-                sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
-            });
-        }, 300);
     }
 });
 
