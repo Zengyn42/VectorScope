@@ -97,9 +97,22 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
         const { key } = resolveCam(selName);
 
         if (selName === 'Main Camera') {
-            // Main camera: absolute pose → SCENE_CAM
-            SCENE_CAM.position = [v('ci-px'), v('ci-py'), v('ci-pz')];
-            SCENE_CAM.rotation_euler_deg = [v('ci-rx'), v('ci-ry'), v('ci-rz')];
+            /* Main camera: inputs show absolute pose (SCENE_CAM + extrinsics).
+               When the user edits, update the extrinsics offset so the absolute
+               pose matches the entered values: ext = entered - SCENE_CAM. */
+            const ext = S.camParams?.main_camera?.extrinsics;
+            if (ext) {
+                ext.position = [
+                    v('ci-px') - SCENE_CAM.position[0],
+                    v('ci-py') - SCENE_CAM.position[1],
+                    v('ci-pz') - SCENE_CAM.position[2],
+                ];
+                ext.rotation_euler_deg = [
+                    v('ci-rx') - SCENE_CAM.rotation_euler_deg[0],
+                    v('ci-ry') - SCENE_CAM.rotation_euler_deg[1],
+                    v('ci-rz') - SCENE_CAM.rotation_euler_deg[2],
+                ];
+            }
         } else {
             // Secondary cameras: relative pose → extrinsics
             const ext = S.camParams[key]?.extrinsics;
@@ -207,9 +220,22 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
         let posLabel, pos, rot;
 
         if (isMain) {
+            /* Show the absolute world pose of the Main camera:
+               SCENE_CAM base + main_camera extrinsics. */
             posLabel = 'Absolute Pose';
-            pos = SCENE_CAM.position;
-            rot = SCENE_CAM.rotation_euler_deg;
+            const ext = S.camParams?.main_camera?.extrinsics;
+            const ep = ext?.position || [0, 0, 0];
+            const er = ext?.rotation_euler_deg || [0, 0, 0];
+            pos = [
+                SCENE_CAM.position[0] + ep[0],
+                SCENE_CAM.position[1] + ep[1],
+                SCENE_CAM.position[2] + ep[2],
+            ];
+            rot = [
+                SCENE_CAM.rotation_euler_deg[0] + er[0],
+                SCENE_CAM.rotation_euler_deg[1] + er[1],
+                SCENE_CAM.rotation_euler_deg[2] + er[2],
+            ];
         } else {
             posLabel = 'Relative Pose (to Main)';
             const ext = S.camParams?.[key]?.extrinsics;

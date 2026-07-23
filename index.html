@@ -962,6 +962,7 @@ $('btn-help').onclick = () => {
 $('help-dialog').addEventListener('click', (e) => {
     if (e.target === $('help-dialog')) $('help-dialog').classList.remove('open');
 });
+let wasdSyncTimer = 0;
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') $('help-dialog').classList.remove('open');
     if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoManager.undo(); }
@@ -999,10 +1000,18 @@ document.addEventListener('keydown', (e) => {
             if (k === 'q') { p[1] -= STEP; }
             if (k === 'e') { p[1] += STEP; }
         }
-        store.set('cameras', {
-            camParams: S.camParams,
-            sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
-        });
+        /* Lightweight update: applyPose moves cameras without recreating them.
+           Debounce the full store.set to sync the camera panel after keys stop. */
+        camRig.applyPose(S.camParams);
+        refreshH();
+        loop.markDirty(3);
+        clearTimeout(wasdSyncTimer);
+        wasdSyncTimer = setTimeout(() => {
+            store.set('cameras', {
+                camParams: S.camParams,
+                sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+            });
+        }, 300);
     }
 });
 
