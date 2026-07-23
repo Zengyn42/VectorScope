@@ -184,7 +184,9 @@ export function createRenderLoop({
     getSegCfg = () => null,
 }) {
     const { rtM, rtS, rtS2, dScene, dCam, quad, matWarp, rtBev, matBev } = gl;
-    const rtAspect = rtW / rtH;
+    /** Live RT aspect — recomputed from rtM each frame so it tracks
+     *  runtime aspect-ratio changes (portrait ↔ landscape, 16:9 ↔ 4:3). */
+    function rtAspect() { return rtM.width / rtM.height; }
 
     let dirtyFrames = 3;   // paint the first frames on startup
     let skipped = 0;       // consecutive skipped rAF ticks
@@ -198,7 +200,7 @@ export function createRenderLoop({
     function renderSrcRT(s) {
         const cam = s === SRC.SEC1 ? R.sec1 : s === SRC.SEC2 ? R.sec2 : R.main;
         const rt  = s === SRC.SEC1 ? rtS   : s === SRC.SEC2 ? rtS2   : rtM;
-        cam.aspect = rtAspect; cam.updateProjectionMatrix();
+        cam.aspect = rtAspect(); cam.updateProjectionMatrix();
         renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, cam);
     }
 
@@ -311,7 +313,7 @@ export function createRenderLoop({
         }
 
         /* Pass 4: Main Camera panel */
-        const panelAspect = P.m.h > 0 ? P.m.w / P.m.h : rtAspect;
+        const panelAspect = P.m.h > 0 ? P.m.w / P.m.h : rtAspect();
         if (P.m.w > 0) {
             R.main.aspect = panelAspect; R.main.updateProjectionMatrix();
             renderer.setViewport(P.m.x, P.m.y, P.m.w, P.m.h);
@@ -338,8 +340,9 @@ export function createRenderLoop({
         /* Pass 7: Combined panel — warp shader on the display quad,
            letterboxed so the 9:16 RT keeps its aspect inside the panel. */
         let cx = P.c.x, cy = P.c.y, cw = P.c.w, ch = P.c.h;
-        if (cw / ch > rtAspect) { const nw = ch * rtAspect; cx += (cw - nw) / 2; cw = nw; }
-        else                    { const nh = cw / rtAspect; cy += (ch - nh) / 2; ch = nh; }
+        const _ra = rtAspect();
+        if (cw / ch > _ra) { const nw = ch * _ra; cx += (cw - nw) / 2; cw = nw; }
+        else               { const nh = cw / _ra; cy += (ch - nh) / 2; ch = nh; }
         renderer.setScissor(P.c.x, P.c.y, P.c.w, P.c.h);  // clear full panel (black bars)
         renderer.setViewport(cx, cy, cw, ch);
         quad.material = matWarp; renderer.render(dScene, dCam);

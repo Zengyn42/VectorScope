@@ -53,7 +53,7 @@ export const HELP = {
 export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect }) {
     let RT_W = initW, RT_H = initH;
     const GAP = 2;
-    const BOT_GAP = 28;   // buffer between bottom-row camera panels
+    const BOT_GAP = 4;    // thin gap between bottom-row camera panels
     const P = { bev: {}, m: {}, s1: {}, s2: {}, c: {} };
     let mode = 'full';    // 'full' | 'combined'
 
@@ -81,6 +81,8 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
         const W = r.width, H = r.height;
         const topH = Math.floor(H * 0.35);
         const botH = H - topH - GAP;
+        const camAR = RT_W / RT_H;   // camera aspect ratio (e.g. 9/16, 16/9, 3/4)
+
         /* Top row: bird's eye fills the full row height at fixed 16:9,
            the info/controls panels butt up against its right edge */
         let bevH = topH;
@@ -91,12 +93,12 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
         }
         P.bev = { x: 0, y: H - bevH, w: bevW, h: bevH };
 
-        /* Bottom row: 4 camera panels, each fixed 9:16 (portrait),
+        /* Bottom row: 4 camera panels matching the current RT aspect,
            block left-aligned, anchored to the bottom edge
            (right side stays free for the homography matrix HUD) */
-        let pw = Math.min(Math.floor((W - 3 * BOT_GAP) / 4), Math.floor(botH * 9 / 16));
-        let ph = Math.floor(pw * 16 / 9);
-        if (ph > botH) { ph = botH; pw = Math.floor(ph * 9 / 16); }
+        let pw = Math.min(Math.floor((W - 3 * BOT_GAP) / 4), Math.floor(botH * camAR));
+        let ph = Math.floor(pw / camAR);
+        if (ph > botH) { ph = botH; pw = Math.floor(ph * camAR); }
         const x0 = 0;
         P.m  = { x: x0,                      y: 0, w: pw, h: ph };
         P.s1 = { x: x0 + (pw + BOT_GAP),     y: 0, w: pw, h: ph };
@@ -173,7 +175,7 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
             ctrlEl.style.height = H + 'px';
         }
 
-        /* Combined panel: 9:16 (RT aspect), centered in the remaining area */
+        /* Combined panel: RT aspect (adapts to orientation/ratio), centered */
         const MARGIN = 16;
         const availW = W - ctrlW - GAP;
         let ch = H - 2 * MARGIN;
