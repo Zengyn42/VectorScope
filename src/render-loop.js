@@ -233,7 +233,10 @@ export function createRenderLoop({
            exact blend state — a frozen outgoing frame could not. */
         const dual = rec ? true : S.blendMode === 'dual';
         const trajBlending = !!rec && rec.blendT !== null;
-        const zsrc = rec ? S.sampleSrc : zoomSource(S.zoom, !!R.sec2, getSegCfg());
+        /* S.sampleSrc is set by refreshH (sampling-hud.js) and already
+           includes macro mode overrides. Use it directly so the render loop
+           matches the sampling pipeline's source decision. */
+        const zsrc = S.sampleSrc ?? zoomSource(S.zoom, !!R.sec2, getSegCfg());
         for (const s of sourcesToRender({
             zsrc, dual, blending: rec ? trajBlending : blendCtl.isBlending(),
             followerSrc: S.followerSrc, hasS2: !!R.sec2,
