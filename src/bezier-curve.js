@@ -24,7 +24,7 @@ export const HELP = {
     order: 42,
     entries: [
         ['Zoom Curve (\u2035 next to Go)', 'Controls the easing of zoom transitions when clicking Go preset buttons (0.5x, 1.0x, etc.). Replaces the default ease-in-out'],
-        ['Warp Curve (\u2035 next to Warp)', 'Controls how fast the homography interpolation progresses within a warp segment (Identity \u2192 computed H)'],
+        ['ContiZoom Curve (\u2035 next to ContiZoom)', 'Controls how fast the homography interpolation progresses within a ContiZoom segment (Identity \u2192 computed H)'],
         ['P1 / P4 (squares)', 'Range endpoints — the curve only applies between P1.x and P4.x. Below P1.x \u2192 output 0, above P4.x \u2192 output 1'],
         ['P2 / P3 (circles)', 'Tangent handles — control the curve shape and acceleration. Drag to create ease-in, ease-out, or S-curves'],
         ['Duration (zoom only)', 'Time in milliseconds for the zoom transition. Default: 600ms'],

@@ -29,7 +29,7 @@ export const HELP = {
     entries: [
         ['Zoom / Go / Play', 'Continuous 0.5–10x zoom; cameras hand over at 1x and 5x. Play bounces automatically'],
         ['Focus D', 'Depth of the homography focus plane — objects at this depth align perfectly across cameras'],
-        ['Warp', 'Toggle homography correction; off shows the naive prewarp/crop behavior'],
+        ['ContiZoom', 'Toggle homography correction; off shows the naive prewarp/crop behavior'],
         ['Prewarp1/2', 'Manual prewarp scales used when Warp is off (segments 0.5–1x / 2–5x)'],
         ['Blend / Single-Dual', 'Cross-fade length (frames) at camera handover. Single: outgoing pixels frozen but re-warped live with the zoom; Dual: outgoing camera fully re-rendered each frame'],
         ['Set Camera', 'Inspect/edit intrinsics + extrinsics of all three cameras, or load a camera JSON'],
@@ -113,7 +113,7 @@ export function initUiControls(d) {
         $('btn-bshape').textContent = c.blendShape === 'radial' ? 'Radial' : 'Flat';
         $('btn-bshape').classList.toggle('active', c.blendShape === 'radial');
         $('btn-warp').classList.toggle('active', c.warp);
-        $('btn-warp').textContent = c.warp ? 'Warp ON' : 'Warp';
+        $('btn-warp').textContent = c.warp ? 'ContiZoom ON' : 'ContiZoom';
         matWarp.uniforms.uBlendRadial.value = c.blendShape === 'radial' ? 1 : 0;
 
         refreshH();

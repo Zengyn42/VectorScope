@@ -263,7 +263,7 @@ input[type="file"] { display: none; }
         </div>
         <!-- Warp / Play -->
         <div class="ctrl-row">
-          <button id="btn-warp">Warp</button>
+          <button id="btn-warp">ContiZoom</button>
           <button id="btn-play">&#9654; Play</button>
           <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
           <button id="btn-grid" title="Show lead/follower sampling grid overlay on Combined view">Grid</button>
@@ -300,7 +300,7 @@ input[type="file"] { display: none; }
           <div class="ctrl-row">
             <button id="btn-af-sel" class="sld-btn" style="width:auto;padding:0 6px" title="AF Select: drag a rectangle on Main panel to set Focus D">AF Select</button>
             <button id="btn-zoom-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697; Zoom</button>
-            <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Warp interpolation curve">&#9697; Warp</button>
+            <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="ContiZoom interpolation curve">&#9697; ContiZoom</button>
           </div>
           <!-- Trajectory: transport + record/playback -->
           <div id="grp-trajectory">
@@ -906,7 +906,7 @@ const curveDurRow = $('curve-dur').parentElement;
 
 function openCurveDialog(target) {
     curveTarget = target;
-    $('curve-dialog-title').textContent = target === 'zoom' ? 'Zoom Transition Curve' : 'Warp Interpolation Curve';
+    $('curve-dialog-title').textContent = target === 'zoom' ? 'Zoom Transition Curve' : 'ContiZoom Interpolation Curve';
     // Show duration control only for zoom curve
     curveDurRow.style.display = target === 'zoom' ? 'flex' : 'none';
     if (target === 'zoom') $('curve-dur').value = zoomDuration;
@@ -1063,7 +1063,7 @@ function applyTrajFrame(rec) {
     $('vd').textContent = u.focusD.toFixed(1);
     if ('prewarp1' in u) { $('sld-pw').value = u.prewarp1; $('vpw').textContent = u.prewarp1.toFixed(2) + 'x'; }
     if ('prewarp2' in u) { $('sld-pw2').value = u.prewarp2; $('vpw2').textContent = u.prewarp2.toFixed(2) + 'x'; }
-    if ('warp' in u) { $('btn-warp').classList.toggle('active', u.warp); $('btn-warp').textContent = u.warp ? 'Warp ON' : 'Warp'; }
+    if ('warp' in u) { $('btn-warp').classList.toggle('active', u.warp); $('btn-warp').textContent = u.warp ? 'ContiZoom ON' : 'ContiZoom'; }
     if ('blendX' in u) { $('sld-blend').value = u.blendX; $('vblend').textContent = u.blendX + 'f'; }
     if ('blendMode' in u) { $('btn-bmode').textContent = u.blendMode === 'single' ? 'Single' : 'Dual'; $('btn-bmode').classList.toggle('active', u.blendMode === 'dual'); }
     if ('blendShape' in u) { $('btn-bshape').textContent = u.blendShape === 'radial' ? 'Radial' : 'Flat'; $('btn-bshape').classList.toggle('active', u.blendShape === 'radial'); matWarp.uniforms.uBlendRadial.value = u.blendShape === 'radial' ? 1 : 0; }

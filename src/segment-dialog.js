@@ -29,7 +29,7 @@ function renderSegmentDialog(container, segmentConfig) {
           + '<td style="padding:2px 4px;">Range</td>'
           + '<td style="padding:2px 4px;">Lead</td>'
           + '<td style="padding:2px 4px;">Follower</td>'
-          + '<td style="padding:2px 4px;">Warp</td>'
+          + '<td style="padding:2px 4px;">ContiZoom</td>'
           + '<td></td></tr>';
 
     // For N breakpoints, there are N+1 segments
