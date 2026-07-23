@@ -255,6 +255,7 @@ export function createRenderLoop({
             }
         } else if (S.sampleM) {
             const { t, prevSrc, prevM } = blendCtl.update(S.sampleSrc, S.sampleM);
+            S._blendT = t;   // expose blend progress for macro mode warp override
             const feed = blendFeed({
                 t, prevSrc, prevM, dual,
                 followerSrc: S.followerSrc, followerM: S.followerM,

@@ -69,8 +69,10 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         // Effective warp = global master switch AND per-segment flag.
         // Global warp OFF → no warp anywhere. Global ON → each segment's own flag.
         let effectiveWarp = S.warp;
+        let warpT;  // macro mode warp-strength override (undefined = normal)
         if (ov) {
             explicitSrcs = { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc };
+            if (ov.warpT !== undefined) warpT = ov.warpT;
         } else if (segCfg) {
             explicitSrcs = {
                 leadSrc: segCfg.getLeadSource(S.zoom, hasS2),
@@ -82,7 +84,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         const opts = {
             z: S.zoom, warp: effectiveWarp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-            w: _rtW, h: _rtH, warpCurve: getWarpCurve(), segRange,
+            w: _rtW, h: _rtH, warpCurve: getWarpCurve(), segRange, warpT,
             ...explicitSrcs,
         };
         const { src, m: Msamp } = computeSampleMatrixExplicit(opts);

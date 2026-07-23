@@ -181,6 +181,48 @@ export function createMacroMode({ SRC, zoomSource, isBlending }) {
     }
 
     /**
+     * Compute the homography warp-strength override for the leading camera.
+     *
+     * @param {number} blendT - current blend progress (0→1 from blendCtl)
+     * @param {number} zoom   - current zoom level
+     * @returns {number|null} - override warp t (null = use normal zoom rules)
+     *
+     * - Entry blend (to_uw): t ramps 0→1 with blendT
+     * - Holding: t = 1 (full warp) unless zoom is in the natural UW segment
+     *   [0.5, 1.0) where normal log-space t applies → return null
+     * - Exit blend (back_mid/back_target from UW): t ramps 1→0 with blendT
+     * - Intermediate hops (to_mid, back_mid with non-UW): t = 1 (the
+     *   intermediate camera needs full warp during the hop)
+     */
+    function getWarpT(blendT, zoom) {
+        if (!enabled) return null;
+        switch (state) {
+            case 'to_mid':
+                return 1;                          // intermediate hop: full warp
+            case 'to_uw':
+                return blendT;                     // ramp 0→1
+            case 'holding':
+                // In the natural UW segment, let normal t rules apply
+                if (zoom < 1.0 - 1e-9) return null;
+                return 1;                          // outside natural segment: full warp
+            case 'back_mid':
+                // UW→Main hop: UW (outgoing) warp ramps down
+                return 1 - blendT;
+            case 'back_target':
+                // Final hop: normal rules for the new leading camera
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    /** Whether the combined label should show "Macro Mode". */
+    function isInMacro() {
+        return enabled && (state === 'to_uw' || state === 'holding' ||
+               state === 'to_mid' || state === 'back_mid');
+    }
+
+    /**
      * Serialize state for undo snapshots.
      */
     function serialize() {
@@ -200,8 +242,8 @@ export function createMacroMode({ SRC, zoomSource, isBlending }) {
     }
 
     return {
-        enable, disable, isActive, isOverriding,
-        getThreshold, setThreshold,
+        enable, disable, isActive, isOverriding, isInMacro,
+        getThreshold, setThreshold, getWarpT,
         tick, serialize, restore,
     };
 }

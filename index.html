@@ -678,6 +678,11 @@ const refreshH = createSamplingRefresh({
         if (!S._continuousAF) warnings += '<div style="color:#ff6b6b;margin-top:2px">⚠ AF OFF</div>';
         if (macroMode.isOverriding()) warnings += '<div style="color:#4ea8de;margin-top:2px">🔬 Macro → UW</div>';
         $('hmat').innerHTML = html + warnings;
+        /* Override combined label when macro mode is active */
+        if (macroMode.isInMacro()) {
+            $('lbl-c').textContent = '\u25CE Macro Mode';
+            $('lbl-c').style.color = '#4ea8de';
+        }
     },
     /* Play mode: lead/follower come from the trajectory frame, not the
        zoom rules (boss rule #2). Macro mode: force UW when close.
@@ -689,10 +694,13 @@ const refreshH = createSamplingRefresh({
             followerSrc: CAM_TO_SRC[rec.follower],
             label: `TRAJ f${transport.getFrame()} ${rec.lead}\u2192${rec.follower}`,
         };
-        /* Macro mode: tick + apply override */
+        /* Macro mode: tick + apply override with warp strength */
         const hasS2 = !!R.sec2;
         const mmo = macroMode.tick(S.depthD, S.zoom, hasS2);
-        if (mmo.overrideSrc !== null) return { leadSrc: mmo.overrideSrc };
+        if (mmo.overrideSrc !== null) {
+            const warpT = macroMode.getWarpT(S._blendT ?? 1, S.zoom);
+            return { leadSrc: mmo.overrideSrc, warpT };
+        }
         return null;
     },
 });

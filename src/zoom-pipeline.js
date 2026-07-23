@@ -152,6 +152,7 @@ export function computeSampleMatrixExplicit(opts) {
     // Generic warp path: when we have a segment range and warp is ON,
     // interpolate from the lead's crop at segFrom → H(lead←follower) at segTo.
     // This replaces the hardcoded segment boundaries.
+    // opts.warpT: optional override for the interpolation strength (macro mode).
     if (opts.warp && opts.segRange && opts.followerSrc !== undefined && opts.followerSrc !== lead) {
         const [segFrom, segTo] = opts.segRange;
         const p = opts.params;
@@ -162,11 +163,33 @@ export function computeSampleMatrixExplicit(opts) {
         const leadCam = camOf(lead);
         if (followerCam && leadCam) {
             const Hlf = computeHPair(leadCam, followerCam, opts.D);
-            let t = Math.log(opts.z / segFrom) / Math.log(segTo / segFrom);
-            t = Math.max(0, Math.min(1, t));
-            if (opts.warpCurve) t = opts.warpCurve(t);
+            let t;
+            if (opts.warpT !== undefined && opts.warpT !== null) {
+                t = opts.warpT;   // macro mode override
+            } else {
+                t = Math.log(opts.z / segFrom) / Math.log(segTo / segFrom);
+                t = Math.max(0, Math.min(1, t));
+                if (opts.warpCurve) t = opts.warpCurve(t);
+            }
             const startM = zoomMatrix(segFrom / nominal, opts.w, opts.h);
             return { src: lead, m: normLerp(startM, Hlf, t) };
+        }
+    }
+    // Macro mode warp override without a segRange (e.g., UW forced at zoom > 1.0).
+    // Compute H(UW ← follower) at full strength, interpolated by warpT.
+    if (opts.warp && opts.warpT !== undefined && opts.warpT !== null) {
+        const p = opts.params;
+        const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
+                           : s === SRC.SEC2 ? p.secondary_camera_2
+                           : p.main_camera;
+        // Determine the natural follower for homography computation
+        const fol = opts.followerSrc ?? (lead === SRC.SEC1 ? SRC.MAIN : SRC.SEC1);
+        const followerCam = camOf(fol);
+        const leadCam = camOf(lead);
+        if (followerCam && leadCam) {
+            const Hlf = computeHPair(leadCam, followerCam, opts.D);
+            const cropM = zoomMatrix(opts.z / nominal, opts.w, opts.h);
+            return { src: lead, m: normLerp(cropM, Hlf, opts.warpT) };
         }
     }
 
