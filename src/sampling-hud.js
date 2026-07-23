@@ -49,9 +49,13 @@ export function formatHMatrix(H, label) {
  *        the lead/follower sources (Play mode: read from the trajectory frame)
  * @returns {Function} refreshH — call after any zoom / warp / camera change
  */
-export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverride = () => null, getSegCfg = () => null, getWarpCurve = () => null }) {
+export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHInit, onHud,
+        getOverride = () => null, getSegCfg = () => null, getWarpCurve = () => null,
+        getRTSize = null }) {
+    let _rtW = rtWInit, _rtH = rtHInit;
     return function refreshH() {
         if (!S.camParams) return;
+        if (getRTSize) { const sz = getRTSize(); _rtW = sz[0]; _rtH = sz[1]; }
         const ov = getOverride();
         // If sec2 isn't materialized as a Three.js camera, hide it from the
         // pipeline so segments C/D fall back to a plain main-camera crop.
@@ -78,7 +82,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW, rtH, onHud, getOverr
         const opts = {
             z: S.zoom, warp: effectiveWarp, D: S.depthD, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
-            w: rtW, h: rtH, warpCurve: getWarpCurve(), segRange,
+            w: _rtW, h: _rtH, warpCurve: getWarpCurve(), segRange,
             ...explicitSrcs,
         };
         const { src, m: Msamp } = computeSampleMatrixExplicit(opts);

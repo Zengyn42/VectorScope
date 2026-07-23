@@ -268,6 +268,10 @@ input[type="file"] { display: none; }
           <button id="btn-combined" title="Focus mode: show only the Combined view">Combined</button>
           <button id="btn-grid" title="Show lead/follower sampling grid overlay on Combined view">Grid</button>
         </div>
+        <div class="ctrl-row">
+          <button id="btn-orient" title="Toggle portrait / landscape orientation">Portrait</button>
+          <button id="btn-ratio" title="Toggle 16:9 / 4:3 aspect ratio">16:9</button>
+        </div>
         <!-- Advanced collapsible section -->
         <button id="btn-advanced">Advanced &#9656;</button>
         <div id="grp-advanced" style="display:none">
@@ -545,7 +549,9 @@ const S = {
 /* ================================================================
    RENDERER + GL CONTEXT (src/gl-bootstrap.js)
    ================================================================ */
-const RT_W = 1080, RT_H = 1920;   // portrait 9:16, matches camera windows
+let RT_W = 1080, RT_H = 1920;      // portrait 9:16, matches camera windows
+let rtOrientation = 'portrait';    // 'portrait' | 'landscape'
+let rtRatio = '16:9';              // '16:9' | '4:3'
 const canvas = $('main-canvas');
 const gl = createGlContext({ THREE, canvas, rtW: RT_W, rtH: RT_H, log });
 const { renderer, scene, aLight, dLight, rtDepth, depthMat, matWarp } = gl;
@@ -611,7 +617,7 @@ const getWarpCurveFn = () => {
 /* Sampling refresh (src/sampling-hud.js): pushes the zoom pipeline's pure
    math into shader uniforms, blend inputs, follower state and the HUD. */
 const refreshH = createSamplingRefresh({
-    S, R, matWarp, rtW: RT_W, rtH: RT_H, getSegCfg,
+    S, R, matWarp, rtW: RT_W, rtH: RT_H, getRTSize: () => [RT_W, RT_H], getSegCfg,
     getWarpCurve: getWarpCurveFn,
     onHud: (html) => {
         let warnings = '';
@@ -655,7 +661,7 @@ assetRegistry.setSceneAsset({ name: 'bedroom.glb', format: 'glb', url: 'assets/b
 /* ================================================================
    PANELS
    ================================================================ */
-const { P, layoutPanels, getPanel, toNDC, setMode, getMode } = createPanelManager({
+const { P, layoutPanels, getPanel, toNDC, setMode, getMode, setRT } = createPanelManager({
     $, RT_W, RT_H,
     onCameraAspect: (aspect) => {
         for (const c of [R.main, R.sec1, R.sec2]) {
@@ -1135,6 +1141,60 @@ const markDirty = () => loop.markDirty();
 
 /* Enable continuous AF by default (deferred to here so loop exists) */
 $('btn-af').click();
+
+/* ── Aspect Ratio / Orientation controls ── */
+function computeRTDims(orient, ratio) {
+    const short = 1080;
+    const long = ratio === '4:3' ? 1440 : 1920;
+    return orient === 'landscape' ? [long, short] : [short, long];
+}
+
+function applyAspect() {
+    const [w, h] = computeRTDims(rtOrientation, rtRatio);
+    RT_W = w; RT_H = h;
+
+    // Resize all render targets
+    for (const rt of [gl.rtM, gl.rtS, gl.rtS2, rtDepth]) rt.setSize(RT_W, RT_H);
+
+    // Update shader resolution uniform
+    matWarp.uniforms.uR.value.set(RT_W, RT_H);
+
+    // Update all camera image_size + optical center in current params
+    const cp = S.camParams;
+    for (const key of ['main_camera', 'secondary_camera', 'secondary_camera_2']) {
+        if (!cp[key]) continue;
+        cp[key].image_size = [RT_W, RT_H];
+        cp[key].intrinsics.cx = RT_W / 2;
+        cp[key].intrinsics.cy = RT_H / 2;
+    }
+
+    // Update panels with new RT dimensions and re-layout
+    setRT(RT_W, RT_H);
+
+    // Re-init cameras and refresh everything
+    store.set('cameras', {
+        camParams: cp,
+        sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+    });
+    loop.markDirty(5);
+
+    // Update button labels
+    $('btn-orient').textContent = rtOrientation === 'landscape' ? 'Landscape' : 'Portrait';
+    $('btn-orient').classList.toggle('active', rtOrientation === 'landscape');
+    $('btn-ratio').textContent = rtRatio;
+    $('btn-ratio').classList.toggle('active', rtRatio === '4:3');
+    log(`${rtOrientation} ${rtRatio} (${RT_W}×${RT_H})`);
+}
+$('btn-orient').onclick = () => {
+    undoManager.checkpoint('orient');
+    rtOrientation = rtOrientation === 'portrait' ? 'landscape' : 'portrait';
+    applyAspect();
+};
+$('btn-ratio').onclick = () => {
+    undoManager.checkpoint('ratio');
+    rtRatio = rtRatio === '16:9' ? '4:3' : '16:9';
+    applyAspect();
+};
 onSceneChanged = markDirty;                                // async loads via log()
 for (const name of store.names()) store.subscribe(name, markDirty);  // all config writes
 document.addEventListener('input', markDirty, true);       // sliders, dialog edits

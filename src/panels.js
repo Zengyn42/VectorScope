@@ -50,7 +50,8 @@ export const HELP = {
     ],
 };
 
-export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
+export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect }) {
+    let RT_W = initW, RT_H = initH;
     const GAP = 2;
     const BOT_GAP = 28;   // buffer between bottom-row camera panels
     const P = { bev: {}, m: {}, s1: {}, s2: {}, c: {} };
@@ -243,5 +244,8 @@ export function createPanelManager({ $, RT_W, RT_H, onCameraAspect }) {
         };
     }
 
-    return { P, layoutPanels, getPanel, toNDC, setMode, getMode };
+    /** Update the render target dimensions (called when aspect ratio changes). */
+    function setRT(w, h) { RT_W = w; RT_H = h; }
+
+    return { P, layoutPanels, getPanel, toNDC, setMode, getMode, setRT };
 }
