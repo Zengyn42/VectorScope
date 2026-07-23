@@ -77,7 +77,7 @@ export const HELP = {
     ],
 };
 
-export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P, S, RT_W, RT_H, getMainCam, onFocus }) {
+export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P, S, RT_W, RT_H, getMainCam, onFocus, onToggle }) {
     const afState = { active: false, dragging: false, x0: 0, y0: 0 };
     /** Continuous AF state */
     const contAF = { active: false };
@@ -159,6 +159,7 @@ export function initAutofocus({ $, canvas, renderer, scene, depthMat, rtDepth, P
         contAF.active = !contAF.active;
         if (S) S._continuousAF = contAF.active;
         $('btn-af').classList.toggle('active', contAF.active);
+        if (onToggle) onToggle(contAF.active);
         // Exit manual AF select if it was active
         if (contAF.active && afState.active) {
             afState.active = false;

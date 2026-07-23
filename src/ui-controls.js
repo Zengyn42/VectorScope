@@ -52,7 +52,7 @@ export const HELP = {
 export const CONTROL_DEFAULTS = {
     /* ── Per-frame (trajectory records these) ── */
     zoom: 1.0,
-    warp: false,
+    warp: true,
     depthD: 3.0,
     prewarp1: 2.0,
     prewarp2: 5.0,

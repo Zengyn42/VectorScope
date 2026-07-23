@@ -613,7 +613,12 @@ const getWarpCurveFn = () => {
 const refreshH = createSamplingRefresh({
     S, R, matWarp, rtW: RT_W, rtH: RT_H, getSegCfg,
     getWarpCurve: getWarpCurveFn,
-    onHud: (html) => { $('hmat').innerHTML = html; },
+    onHud: (html) => {
+        let warnings = '';
+        if (!S.warp) warnings += '<div style="color:#ff6b6b;margin-top:4px">⚠ ContiZoom OFF</div>';
+        if (!S._continuousAF) warnings += '<div style="color:#ff6b6b;margin-top:2px">⚠ AF OFF</div>';
+        $('hmat').innerHTML = html + warnings;
+    },
     /* Play mode: lead/follower come from the trajectory frame, not the
        zoom rules (boss rule #2). Free mode: null → rules apply. */
     getOverride: () => {
@@ -796,7 +801,9 @@ const af = initAutofocus({
         if (!isFinite(focusD)) return;   // no object — keep Focus D unchanged
         store.set('controls', { depthD: focusD });
     },
+    onToggle: () => { refreshH(); if (typeof loop !== 'undefined') loop.markDirty(3); },
 });
+/* AF auto-enable is deferred to after the render loop is created (see below) */
 
 /* ================================================================
    UI CONTROLS (src/ui-controls.js) — registers the 'controls' section
@@ -1090,6 +1097,9 @@ const loop = createRenderLoop({
    inside the loop itself). Uninstrumented sources are caught by the loop's
    keep-alive heartbeat. */
 const markDirty = () => loop.markDirty();
+
+/* Enable continuous AF by default (deferred to here so loop exists) */
+$('btn-af').click();
 onSceneChanged = markDirty;                                // async loads via log()
 for (const name of store.names()) store.subscribe(name, markDirty);  // all config writes
 document.addEventListener('input', markDirty, true);       // sliders, dialog edits
