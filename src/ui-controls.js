@@ -21,6 +21,7 @@
 import { createZoomAnimator } from './zoom-anim.js';
 import { renderCamDialog, bindDialog } from './camera-dialog.js';
 import { segmentLabel } from './segment-config.js';
+import { DEF_CAM } from './camera.js';
 
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -203,6 +204,13 @@ export function initUiControls(d) {
         }
         $('sld-os').value = 1; $('vos').textContent = '\u2014';
         store.set('controls', CONTROL_DEFAULTS);
+        // Reset all cameras to defaults (position, rotation, intrinsics)
+        SCENE_CAM.position = [1.7, 0.8, 4.5];
+        SCENE_CAM.rotation_euler_deg = [0, 0, 0];
+        store.set('cameras', {
+            camParams: JSON.parse(JSON.stringify(DEF_CAM)),
+            sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
+        });
         log('Reset done');
     };
 
