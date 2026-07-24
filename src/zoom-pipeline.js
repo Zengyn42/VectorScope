@@ -9,9 +9,9 @@
  *
  * Segments (half-open — a boundary zoom belongs to the NEXT camera):
  * ```
- * A  [0.5, 1.0)x : source = sec1;  warp ON: normLerp(I, H(sec1←main), log t)
+ * A  [0.5, 1.0)x : source = sec1;  warp ON: scaleThenWarp(H(sec1←main), crop(z), log t)
  * B  [1.0, 2.0]x : source = main;  plain crop(z)
- * C  (2.0, 5.0)x : source = main;  warp ON: normLerp(crop(2), H(main←sec2 view), log t)
+ * C  (2.0, 5.0)x : source = main;  warp ON: scaleThenWarp(H(main←sec2 view), crop(z), log t)
  * D  [5.0, 10 ]x : source = sec2;  plain crop(z/5)
  * ```
  * So z=1.0 shows the main camera full frame and z=5.0 shows sec2 full frame.
@@ -63,6 +63,32 @@ export function normLerp(A, B, t) {
     const s = o[8];
     if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) o[i] /= s;
     return o;
+}
+
+/**
+ * Scale-then-warp composition: apply the CURRENT zoom's crop first, then
+ * interpolate a pure geometric residual on top.
+ *
+ * ```
+ * H_res  = H_full · inv(crop(z))          — scale factored out of the full H
+ * M(z,t) = normLerp(I, H_res, t) · crop(z)
+ * ```
+ * - t = 0 → exact crop(z): pure digital zoom, no geometric correction
+ * - t = 1 → H_full: the complete homography
+ * - Mid-segment the scaling ALWAYS tracks z exactly (decoupled from t);
+ *   t only drives the geometric-correction residual. (The previous
+ *   formulation `normLerp(crop(segFrom), H_full, t)` entangled both.)
+ *
+ * @param {number[]} Hfull - full homography (output px → source px) at t = 1
+ * @param {number[]} cropZ - crop matrix for the current zoom (t = 0 endpoint)
+ * @param {number} t - warp strength in [0, 1]
+ * @returns {number[]} 3×3 row-major sampling matrix
+ */
+export function scaleThenWarp(Hfull, cropZ, t) {
+    const inv = M.inv(cropZ);
+    if (!inv) return normLerp(cropZ, Hfull, t);   // degenerate crop fallback
+    const Hres = M.mul(Hfull, inv);
+    return M.mul(normLerp(M.id(), Hres, t), cropZ);
 }
 
 /**
@@ -171,8 +197,8 @@ export function computeSampleMatrixExplicit(opts) {
                 t = Math.max(0, Math.min(1, t));
                 if (opts.warpCurve) t = opts.warpCurve(t);
             }
-            const startM = zoomMatrix(segFrom / nominal, opts.w, opts.h);
-            return { src: lead, m: normLerp(startM, Hlf, t) };
+            const cropZ = zoomMatrix(opts.z / nominal, opts.w, opts.h);
+            return { src: lead, m: scaleThenWarp(Hlf, cropZ, t) };
         }
     }
     // Macro mode warp override without a segRange (e.g., UW forced at zoom > 1.0).
@@ -188,8 +214,17 @@ export function computeSampleMatrixExplicit(opts) {
         const leadCam = camOf(lead);
         if (followerCam && leadCam) {
             const Hlf = computeHPair(leadCam, followerCam, opts.D);
+            // Hlf alone reproduces the follower's view at its NOMINAL zoom
+            // (full frame). When macro forces UW at zoom > nominal (e.g.
+            // entering from Tele at 5x), the current zoom's scale gap must
+            // also be applied: compose the follower's crop(z) BEFORE the
+            // homography so t=1 replicates the follower's view AT zoom z.
+            const folNominal = fol === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
+                             : fol === SRC.SEC2 ? (opts.prewarp2 || 5)
+                             : 1;
+            const Hfull = M.mul(Hlf, zoomMatrix(opts.z / folNominal, opts.w, opts.h));
             const cropM = zoomMatrix(opts.z / nominal, opts.w, opts.h);
-            return { src: lead, m: normLerp(cropM, Hlf, opts.warpT) };
+            return { src: lead, m: scaleThenWarp(Hfull, cropM, opts.warpT) };
         }
     }
 
@@ -283,7 +318,7 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
             const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, D);
             let t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
             if (warpCurve) t = warpCurve(t);
-            return { src: SRC.SEC1, m: normLerp(M.id(), Hm2s1, t) };
+            return { src: SRC.SEC1, m: scaleThenWarp(Hm2s1, zoomMatrix(z / 0.5, w, h), t) };
         }
         // prewarp1 = focal_length_ratio (UW vs Main); already encodes the
         // FOV relationship. Total crop = prewarp1 × z on the UW RT.
@@ -301,7 +336,7 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
             const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, D);
             let t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
             if (warpCurve) t = warpCurve(t);
-            return { src: SRC.MAIN, m: normLerp(zoomMatrix(2, w, h), Hs2m, t) };
+            return { src: SRC.MAIN, m: scaleThenWarp(Hs2m, zoomMatrix(z, w, h), t) };
         }
         // Segment C: Main is the reference camera, just crop by z.
         // prewarp2 doesn't apply here — it describes the Tele/Main focal

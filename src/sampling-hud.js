@@ -87,11 +87,12 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
            zoom static → D frozen (AF changes don't move H); zoom moving →
            D chases the live value at |Δzoom| * damping. Camera-parameter
            changes always pass through (H recomputed each refresh).
-           Trajectory play / macro overrides bypass damping entirely. ── */
+           Trajectory playback bypasses damping; macro mode keeps it
+           (ov.damp) so AF changes can't move H while zoom is static. ── */
         const predLead = explicitSrcs.leadSrc ?? zoomSource(S.zoom, hasS2);
         const Deff = damping.update({
             depthD: S.depthD, zoom: S.zoom, lead: predLead,
-            factor: S.damping ?? 5, bypass: !!ov,
+            factor: S.damping ?? 5, bypass: !!ov && !ov.damp,
         });
         const opts = {
             z: S.zoom, warp: effectiveWarp, D: Deff, params,

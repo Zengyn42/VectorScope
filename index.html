@@ -706,7 +706,10 @@ const refreshH = createSamplingRefresh({
         const mmo = macroMode.tick(S.depthD, S.zoom, hasS2);
         if (mmo.overrideSrc !== null) {
             const warpT = macroMode.getWarpT(S._blendT ?? 1, S.zoom);
-            return { leadSrc: mmo.overrideSrc, warpT };
+            // damp:true — macro mode KEEPS the H damping rules (zoom static
+            // → H_applied frozen against AF changes); only trajectory
+            // playback bypasses damping.
+            return { leadSrc: mmo.overrideSrc, warpT, damp: true };
         }
         return null;
     },

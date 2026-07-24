@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { M } from '../src/math.js';
 import { computeHPair, zoomMatrix } from '../src/homography.js';
 import {
-    SRC, normLerp, segName, zoomSource, followerSource,
+    SRC, normLerp, scaleThenWarp, segName, zoomSource, followerSource,
     computeSampleMatrix, computeSampleMatrixExplicit, computeFollowerMatrix, easeInOutQuad,
 } from '../src/zoom-pipeline.js';
 
@@ -115,11 +115,14 @@ describe('computeSampleMatrix — segment A (warp ON)', () => {
         assertVecClose(norm(m), norm(Hm2s1), 'A @1x⁻', 1e-4);
     });
 
-    it('t runs in log space: z=sqrt(0.5) → t=0.5', () => {
+    it('t runs in log space: z=sqrt(0.5) → t=0.5 (scale-then-warp)', () => {
         const p = makeRig();
         const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, D);
-        const { m } = sample(Math.sqrt(0.5));
-        assertVecClose(norm(m), normLerp(M.id(), Hm2s1, 0.5), 'A midpoint');
+        const z = Math.sqrt(0.5);
+        const { m } = sample(z);
+        // Decoupled formulation: crop(z) applied first, warp residual at t=0.5 on top
+        const expected = scaleThenWarp(Hm2s1, zoomMatrix(z / 0.5, W, H), 0.5);
+        assertVecClose(norm(m), norm(expected), 'A midpoint');
     });
 });
 
@@ -366,5 +369,51 @@ describe('easeInOutQuad', () => {
             assert.ok(v >= prev, `monotone at t=${t}`);
             prev = v;
         }
+    });
+});
+
+describe('scaleThenWarp — decoupled scale/warp composition', () => {
+    it('t=0 → exact crop(z), no geometric correction', () => {
+        const rig = makeRig();
+        const Hfull = computeHPair(rig.secondary_camera, rig.main_camera, D);
+        const crop = zoomMatrix(1.3, W, H);
+        assertVecClose(norm(scaleThenWarp(Hfull, crop, 0)), norm(crop), 'STW t=0');
+    });
+    it('t=1 → full homography', () => {
+        const rig = makeRig();
+        const Hfull = computeHPair(rig.secondary_camera, rig.main_camera, D);
+        const crop = zoomMatrix(1.3, W, H);
+        assertVecClose(norm(scaleThenWarp(Hfull, crop, 1)), norm(Hfull), 'STW t=1');
+    });
+    it('mid-t: crop factor tracks z exactly (residual has no net scale when H is a pure scale)', () => {
+        // If Hfull is itself a scale matrix, the residual is a scale too and
+        // scaleThenWarp must interpolate BETWEEN the two scales while the
+        // crop(z) component is always applied first.
+        const crop = zoomMatrix(2, W, H);
+        const Hfull = zoomMatrix(4, W, H);
+        const m = scaleThenWarp(Hfull, crop, 0.5);
+        // residual = crop(2); normLerp(I, crop(2), .5) then × crop(2)
+        const expected = M.mul(normLerp(M.id(), zoomMatrix(2, W, H), 0.5), crop);
+        assertVecClose(norm(m), norm(expected), 'STW mid');
+    });
+});
+
+describe('macro fallback path — zoom scale gap applied to forced UW', () => {
+    const opts = (extra) => ({
+        z: 5, warp: true, D, params: makeRig(),
+        prewarp1: 2, prewarp2: 5, w: W, h: H,
+        leadSrc: SRC.SEC1, ...extra,           // UW forced at 5x (macro from Tele)
+    });
+    it('warpT=1 → H(UW←Main) composed with Main crop(z): replicates Main AT current zoom', () => {
+        const p = makeRig();
+        const Hlf = computeHPair(p.secondary_camera, p.main_camera, D);
+        const { src, m } = computeSampleMatrixExplicit(opts({ warpT: 1 }));
+        assert.equal(src, SRC.SEC1);
+        const expected = M.mul(Hlf, zoomMatrix(5, W, H));   // fol=Main, nominal 1
+        assertVecClose(norm(m), norm(expected), 'macro t=1 @5x', 1e-4);
+    });
+    it('warpT=0 → pure UW crop at current zoom (no geometric correction)', () => {
+        const { m } = computeSampleMatrixExplicit(opts({ warpT: 0 }));
+        assertVecClose(norm(m), norm(zoomMatrix(5 / 0.5, W, H)), 'macro t=0 @5x', 1e-4);
     });
 });
