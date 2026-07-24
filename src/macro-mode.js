@@ -187,12 +187,12 @@ export function createMacroMode({ SRC, zoomSource, isBlending }) {
      * @param {number} zoom   - current zoom level
      * @returns {number|null} - override warp t (null = use normal zoom rules)
      *
-     * - Entry blend (to_uw): t ramps 0→1 with blendT
+     * - Entry (to_mid, to_uw): t = 1 immediately. The visual transition
+     *   is handled by the blend controller's cross-fade, not by t.
      * - Holding: t = 1 (full warp) unless zoom is in the natural UW segment
      *   [0.5, 1.0) where normal log-space t applies → return null
-     * - Exit blend (back_mid/back_target from UW): t ramps 1→0 with blendT
-     * - Intermediate hops (to_mid, back_mid with non-UW): t = 1 (the
-     *   intermediate camera needs full warp during the hop)
+     * - Exit blend (back_mid from UW): t ramps 1→0 with blendT
+     * - Final hop (back_target): null → normal segment rules
      */
     function getWarpT(blendT, zoom) {
         if (!enabled) return null;
@@ -200,7 +200,7 @@ export function createMacroMode({ SRC, zoomSource, isBlending }) {
             case 'to_mid':
                 return 1;                          // intermediate hop: full warp
             case 'to_uw':
-                return blendT;                     // ramp 0→1
+                return 1;                          // UW immediately at full warp
             case 'holding':
                 // In the natural UW segment, let normal t rules apply
                 if (zoom < 1.0 - 1e-9) return null;
