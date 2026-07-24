@@ -11,7 +11,8 @@
  * {@link formatHMatrix} is a pure formatter so the HUD markup is unit-testable.
  */
 
-import { computeSampleMatrixExplicit, computeFollowerMatrix, followerSource, SRC } from './zoom-pipeline.js';
+import { computeSampleMatrixExplicit, computeFollowerMatrix, followerSource, zoomSource, SRC } from './zoom-pipeline.js';
+import { createDamping } from './h-damping.js';
 import { computeHPair } from './homography.js';
 import { M } from './math.js';
 import { camDisplayName } from './camera.js';
@@ -53,6 +54,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         getOverride = () => null, getSegCfg = () => null, getWarpCurve = () => null,
         getRTSize = null }) {
     let _rtW = rtWInit, _rtH = rtHInit;
+    const damping = createDamping();
     return function refreshH() {
         if (!S.camParams) return;
         if (getRTSize) { const sz = getRTSize(); _rtW = sz[0]; _rtH = sz[1]; }
@@ -81,8 +83,18 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
             if (S.warp) effectiveWarp = segCfg.getSegmentWarp(S.zoom);
         }
         const segRange = segCfg ? segCfg.getSegmentRange(S.zoom) : null;
+        /* ── H damping: H_applied uses a damped focus D (src/h-damping.js).
+           zoom static → D frozen (AF changes don't move H); zoom moving →
+           D chases the live value at |Δzoom| * damping. Camera-parameter
+           changes always pass through (H recomputed each refresh).
+           Trajectory play / macro overrides bypass damping entirely. ── */
+        const predLead = explicitSrcs.leadSrc ?? zoomSource(S.zoom, hasS2);
+        const Deff = damping.update({
+            depthD: S.depthD, zoom: S.zoom, lead: predLead,
+            factor: S.damping ?? 5, bypass: !!ov,
+        });
         const opts = {
-            z: S.zoom, warp: effectiveWarp, D: S.depthD, params,
+            z: S.zoom, warp: effectiveWarp, D: Deff, params,
             prewarp1: S.prewarpScale, prewarp2: S.prewarpScale2,
             w: _rtW, h: _rtH, warpCurve: getWarpCurve(), segRange, warpT,
             ...explicitSrcs,
@@ -104,7 +116,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         const camOf = (s) => params[paramKeyOf(s)];
         const folSrc = opts.followerSrc ?? followerSource(S.zoom, hasS2);
         if (S.warp && folSrc !== src && params[paramKeyOf(folSrc)]) {
-            const Hlf = computeHPair(camOf(folSrc), camOf(src), S.depthD);
+            const Hlf = computeHPair(camOf(folSrc), camOf(src), Deff);
             S.followerSrc = folSrc;
             S.followerM = M.mul(Hlf, Msamp);
         } else {
@@ -125,7 +137,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
             if (!params[paramKeyOf(s)]) continue;
             if (s === src) { S.liveM[s] = Msamp; continue; }
             if (S.warp) {
-                const Hs = computeHPair(camOf(s), camOf(src), S.depthD);
+                const Hs = computeHPair(camOf(s), camOf(src), Deff);
                 S.liveM[s] = M.mul(Hs, Msamp);
             } else {
                 S.liveM[s] = computeFollowerMatrix(
@@ -141,7 +153,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         const leadName = camDisplayName(src);
         const folName = camDisplayName(S.followerSrc);
         const header = `Lead: ${leadName}  Fol: ${folName}  `
-            + `D=${S.depthD.toFixed(1)} Z=${S.zoom.toFixed(2)} `
+            + `D=${Deff.toFixed(1)}${Math.abs(Deff - S.depthD) > 0.05 ? `\u2192${S.depthD.toFixed(1)}` : ''} Z=${S.zoom.toFixed(2)} `
             + `${ov?.label ?? segmentLabel(S.zoom, getSegCfg()).text}${effectiveWarp ? '' : ' raw'}`;
 
         // Compute the prewarp-only base (warp=false) for both cameras

@@ -327,6 +327,13 @@ input[type="file"] { display: none; }
             <span class="val" id="vpw2">1.00x</span>
           </div>
           <div class="ctrl-row">
+            <label title="H damping: when zoom is static, H_applied is frozen against AF/Focus-D changes; when zooming, it chases H_desired at |&Delta;zoom| &times; damping">Damping:</label>
+            <button class="sld-btn" onclick="nudge('sld-damp',-5)">&minus;</button>
+            <input type="range" id="sld-damp" min="0" max="20" step="0.5" value="5">
+            <button class="sld-btn" onclick="nudge('sld-damp',5)">+</button>
+            <span class="val" id="vdamp">5.0</span>
+          </div>
+          <div class="ctrl-row">
             <button id="btn-af-sel" class="sld-btn" style="width:auto;padding:0 6px" title="AF Select: drag a rectangle on Main panel to set Focus D">AF Select</button>
             <button id="btn-zoom-curve" class="sld-btn" style="width:auto;padding:0 6px" title="Zoom transition curve &amp; duration">&#9697; Zoom</button>
             <button id="btn-warp-curve" class="sld-btn" style="width:auto;padding:0 6px" title="ContiZoom interpolation curve">&#9697; ContiZoom</button>

@@ -100,10 +100,15 @@ export function createPanelManager({ $, RT_W: initW, RT_H: initH, onCameraAspect
         let ph = Math.floor(pw / camAR);
         if (ph > botH) { ph = botH; pw = Math.floor(ph * camAR); }
         const x0 = 0;
-        P.m  = { x: x0,                      y: 0, w: pw, h: ph };
-        P.s1 = { x: x0 + (pw + BOT_GAP),     y: 0, w: pw, h: ph };
-        P.s2 = { x: x0 + 2 * (pw + BOT_GAP), y: 0, w: pw, h: ph };
-        P.c  = { x: x0 + 3 * (pw + BOT_GAP), y: 0, w: pw, h: ph };
+        /* Anchor the camera row to the TOP of the bottom region (right
+           below the bird's-eye row) so landscape RTs — short, wide panels —
+           don't leave a large empty band between BEV and the camera views.
+           In portrait, ph ≈ botH so py ≈ 0 (unchanged). */
+        const py = Math.max(0, botH - ph);
+        P.m  = { x: x0,                      y: py, w: pw, h: ph };
+        P.s1 = { x: x0 + (pw + BOT_GAP),     y: py, w: pw, h: ph };
+        P.s2 = { x: x0 + 2 * (pw + BOT_GAP), y: py, w: pw, h: ph };
+        P.c  = { x: x0 + 3 * (pw + BOT_GAP), y: py, w: pw, h: ph };
 
         /* Position DOM overlay panels (CSS coords, top-left origin) */
         const infoEl = $('panel-info');

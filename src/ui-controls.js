@@ -62,6 +62,7 @@ export const CONTROL_DEFAULTS = {
     blendShape: 'radial',  // 'flat' = uniform alpha | 'radial' = center-out gradient
     /* ── Session (scene save only, not per-frame) ── */
     clipY: 2.0,
+    damping: 5.0,   // H damping factor: alpha = |Δzoom| * damping (h-damping.js)
 };
 
 /**
@@ -97,7 +98,7 @@ export function initUiControls(d) {
         S.zoom = c.zoom; S.warp = c.warp; S.depthD = c.depthD;
         S.prewarpScale = c.prewarp1; S.prewarpScale2 = c.prewarp2;
         S.clipY = c.clipY; S.blendX = c.blendX; S.blendMode = c.blendMode;
-        S.blendShape = c.blendShape;
+        S.blendShape = c.blendShape; S.damping = c.damping;
 
         $('sld-d').value = c.depthD; $('vd').textContent = c.depthD.toFixed(1);
         $('sld-pw').value = c.prewarp1; $('vpw').textContent = c.prewarp1.toFixed(2) + 'x';
@@ -109,6 +110,7 @@ export function initUiControls(d) {
         $('lbl-c').style.color = sl.color;
         $('sld-clip').value = c.clipY; $('vclip').textContent = c.clipY.toFixed(1);
         $('sld-blend').value = c.blendX; $('vblend').textContent = c.blendX + 'f';
+        if ($('sld-damp')) { $('sld-damp').value = c.damping; $('vdamp').textContent = c.damping.toFixed(1); }
         $('btn-bmode').textContent = c.blendMode === 'single' ? 'Single' : 'Dual';
         $('btn-bmode').classList.toggle('active', c.blendMode === 'dual');
         $('btn-bshape').textContent = c.blendShape === 'radial' ? 'Radial' : 'Flat';
@@ -140,6 +142,7 @@ export function initUiControls(d) {
     };
     $('sld-clip').oninput = function () { store.set('controls', { clipY: +this.value }); };
     $('sld-blend').oninput = function () { store.set('controls', { blendX: Math.round(+this.value) }); };
+    if ($('sld-damp')) $('sld-damp').oninput = function () { store.set('controls', { damping: +this.value }); };
 
     /* Blend mode toggle — Single: outgoing RT pixels frozen, but sampled
        through the live matrix (S.liveM) so the frame tracks zoom; Dual: live
