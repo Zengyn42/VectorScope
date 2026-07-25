@@ -576,6 +576,7 @@ import { createCurveEditor } from './src/curve-editor.js';
 import { createTrajectoryLibrary, trajToJson } from './src/trajectory-library.js';
 import { createGridOverlay } from './src/grid-overlay.js';
 import { applyTrajFrameToState, TRAJ_LOCK_IDS } from './src/traj-frame.js';
+import { applyCameraKey } from './src/keyboard-camera.js';
 import { createUndoManager } from './src/undo.js';
 import { captureState, restoreState as restoreUndoState } from './src/undo-state.js';
 import { createBevAxes } from './src/bev-axes.js';
@@ -1064,35 +1065,14 @@ document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); undoManager.redo(); }
 
     /* ── WASDQE: move/rotate SCENE_CAM (rig base pose) ──
-       Modifies the rig base so ALL cameras move together. Inter-camera
-       relative extrinsics stay unchanged → homography is unaffected.
-       The camera panel shows absolute pose (SCENE_CAM + extrinsics). */
+       Pose math lives in src/keyboard-camera.js. Modifies the rig base
+       so ALL cameras move together; inter-camera relative extrinsics
+       stay unchanged → homography is unaffected. The camera panel shows
+       absolute pose (SCENE_CAM + extrinsics). */
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     if (e.ctrlKey) return;
-    const k = e.key.toLowerCase();
-    if ('adwsqe'.includes(k) && k.length === 1) {
+    if (applyCameraKey(e.key, e.shiftKey, SCENE_CAM, R.main.quaternion)) {
         e.preventDefault();
-        if (e.shiftKey) {
-            const DEG = 2;
-            const r = SCENE_CAM.rotation_euler_deg;
-            if (k === 'a') r[1] += DEG;
-            if (k === 'd') r[1] -= DEG;
-            if (k === 'w') r[0] += DEG;
-            if (k === 's') r[0] -= DEG;
-            if (k === 'q') r[2] += DEG;
-            if (k === 'e') r[2] -= DEG;
-        } else {
-            const STEP = 0.1;
-            const p = SCENE_CAM.position;
-            const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(R.main.quaternion);
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(R.main.quaternion);
-            if (k === 'a') { p[0] -= right.x * STEP; p[1] -= right.y * STEP; p[2] -= right.z * STEP; }
-            if (k === 'd') { p[0] += right.x * STEP; p[1] += right.y * STEP; p[2] += right.z * STEP; }
-            if (k === 'w') { p[0] += fwd.x * STEP; p[1] += fwd.y * STEP; p[2] += fwd.z * STEP; }
-            if (k === 's') { p[0] -= fwd.x * STEP; p[1] -= fwd.y * STEP; p[2] -= fwd.z * STEP; }
-            if (k === 'q') { p[1] -= STEP; }
-            if (k === 'e') { p[1] += STEP; }
-        }
         camRig.applyPose(S.camParams);
         refreshH();
         loop.markDirty(3);

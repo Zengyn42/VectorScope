@@ -12,6 +12,7 @@
  */
 
 import { computeSampleMatrixExplicit, computeFollowerMatrix, followerSource, zoomSource, SRC } from './zoom-pipeline.js';
+import { camOf, paramKeyOf } from './camera-utils.js';
 import { createDamping } from './h-damping.js';
 import { computeHPair } from './homography.js';
 import { M } from './math.js';
@@ -119,12 +120,9 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         // M_lead_actual is the SAME lead matrix the shader uses (Msamp).
         // We compute it directly here instead of calling computeFollowerMatrix
         // (which would re-derive the lead with potentially different warp flags).
-        const paramKeyOf = (s) => s === SRC.SEC1 ? 'secondary_camera'
-                                : s === SRC.SEC2 ? 'secondary_camera_2' : 'main_camera';
-        const camOf = (s) => params[paramKeyOf(s)];
         const folSrc = opts.followerSrc ?? followerSource(S.zoom, hasS2);
         if (S.warp && folSrc !== src && params[paramKeyOf(folSrc)]) {
-            const Hlf = computeHPair(camOf(folSrc), camOf(src), Deff);
+            const Hlf = computeHPair(camOf(params, folSrc), camOf(params, src), Deff);
             S.followerSrc = folSrc;
             S.followerM = M.mul(Hlf, Msamp);
         } else {
@@ -145,7 +143,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
             if (!params[paramKeyOf(s)]) continue;
             if (s === src) { S.liveM[s] = Msamp; continue; }
             if (S.warp) {
-                const Hs = computeHPair(camOf(s), camOf(src), Deff);
+                const Hs = computeHPair(camOf(params, s), camOf(params, src), Deff);
                 S.liveM[s] = M.mul(Hs, Msamp);
             } else {
                 S.liveM[s] = computeFollowerMatrix(

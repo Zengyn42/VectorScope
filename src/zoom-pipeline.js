@@ -27,9 +27,11 @@
 
 import { M } from './math.js';
 import { computeHPair, zoomMatrix } from './homography.js';
+import { SRC, camOf } from './camera-utils.js';
 
-/** Source texture indices, matching the shader's `uSrc` uniform. */
-export const SRC = { SEC1: 0, MAIN: 1, SEC2: 2 };
+/** Source texture indices — defined in camera-utils.js, re-exported here
+ *  so existing `import { SRC } from './zoom-pipeline.js'` keeps working. */
+export { SRC };
 
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -182,11 +184,8 @@ export function computeSampleMatrixExplicit(opts) {
     if (opts.warp && opts.segRange && opts.followerSrc !== undefined && opts.followerSrc !== lead) {
         const [segFrom, segTo] = opts.segRange;
         const p = opts.params;
-        const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
-                           : s === SRC.SEC2 ? p.secondary_camera_2
-                           : p.main_camera;
-        const followerCam = camOf(opts.followerSrc);
-        const leadCam = camOf(lead);
+        const followerCam = camOf(p, opts.followerSrc);
+        const leadCam = camOf(p, lead);
         if (followerCam && leadCam) {
             const Hlf = computeHPair(leadCam, followerCam, opts.D);
             let t;
@@ -205,13 +204,10 @@ export function computeSampleMatrixExplicit(opts) {
     // Compute H(UW ← follower) at full strength, interpolated by warpT.
     if (opts.warp && opts.warpT !== undefined && opts.warpT !== null) {
         const p = opts.params;
-        const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
-                           : s === SRC.SEC2 ? p.secondary_camera_2
-                           : p.main_camera;
         // Determine the natural follower for homography computation
         const fol = opts.followerSrc ?? (lead === SRC.SEC1 ? SRC.MAIN : SRC.SEC1);
-        const followerCam = camOf(fol);
-        const leadCam = camOf(lead);
+        const followerCam = camOf(p, fol);
+        const leadCam = camOf(p, lead);
         if (followerCam && leadCam) {
             const Hlf = computeHPair(leadCam, followerCam, opts.D);
             // Hlf alone reproduces the follower's view at its NOMINAL zoom
@@ -282,10 +278,7 @@ export function computeFollowerMatrix(opts) {
     // This guarantees alignment at focus depth D: any 3D point on the focus
     // plane maps to the same output pixel through either camera's matrix.
     const D = opts.D;
-    const camOf = (s) => s === SRC.SEC1 ? p.secondary_camera
-                       : s === SRC.SEC2 ? p.secondary_camera_2
-                       : p.main_camera;
-    const Hlf = computeHPair(camOf(src), camOf(lead.src), D);
+    const Hlf = computeHPair(camOf(p, src), camOf(p, lead.src), D);
     return { src, m: M.mul(Hlf, lead.m) };
 }
 
