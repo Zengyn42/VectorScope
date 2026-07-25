@@ -26,10 +26,14 @@ Half-open intervals — a boundary zoom belongs to the **next** camera:
 
 | Segment | Zoom range | Active source | Warp-ON sampling |
 |---|---|---|---|
-| A | [0.5, 1.0)x | UW | `normLerp(I, H(UW←Main), log-t)` |
-| B | [1.0, 2.0]x | Main | `crop(z)` |
-| C | (2.0, 5.0)x | Main | `normLerp(crop(2), H(Main←Tele view), log-t)` |
-| D | [5.0, 10]x | Tele | `crop(z/5)` |
+| A | [0.5, 1.0)x | UW | `scaleThenWarp(H(UW←Main), crop(z/0.5), log-t)` |
+| B | [1.0, 2.0]x | Main | `crop(z)` (segment warp flag = false) |
+| C | (2.0, 5.0)x | Main | `scaleThenWarp(H(Main←Tele), crop(z), log-t)` |
+| D | [5.0, 10]x | Tele | `crop(z/prewarp2)` (segment warp flag = false) |
+
+See `docs/HOMOGRAPHY_PIPELINE.md` §8 for `scaleThenWarp` (zoom scaling is
+applied first, warp t only drives the geometric residual) and for H
+damping of the Focus-D input.
 
 ## 3. Leading / Follower Cameras
 
@@ -101,3 +105,98 @@ crossing (in both directions), the live follower is always the correct
 Toggle: the **Single/Dual** button next to the Blend slider
 (`S.blendMode`). The blend state machine (`src/blend.js`) is shared by both
 modes; dual mode only replaces *what* is fed as the previous layer.
+
+## 5. Rig Pose Model
+
+Implemented in `src/camera-rig.js` (`init` for full rebuild, `applyPose`
+for the cheap per-frame path used by trajectory playback).
+
+**Three-level composition** — each level is a rigid offset on top of its
+parent:
+
+```
+SCENE_CAM (rig base pose, world)          src/camera.js SCENE_CAM
+  └─ Main   = base ∘ main_camera.extrinsics
+       ├─ UW   = Main ∘ secondary_camera.extrinsics
+       └─ Tele = Main ∘ secondary_camera_2.extrinsics
+```
+
+For every camera, with `refQuat`/`refPos` = its parent's world pose:
+
+```js
+cam.position   = ext.position rotated by refQuat, + refPos
+cam.quaternion = refQuat ⊗ eulerQuat(ext.rotation_euler_deg)
+```
+
+- **UW/Tele use `rig.main.quaternion` / `rig.main.position` as the
+  reference**, so their JSON extrinsics are always *relative to Main*, not
+  to the world. Rotating the rig moves all three cameras together.
+- Euler convention: degrees, THREE **'ZYX' order** (`R = Rz·Ry·Rx`) —
+  matched exactly by the pure-quaternion helpers in
+  `src/camera-preset.js` (`eulerToQuat`) and by the CV-side `eulerR` in
+  `src/homography.js`.
+- **Intrinsics → frustum**: vertical FOV from `fy`
+  (`fov = 2·atan(imgH / 2fy)`). An off-center optical axis
+  (`cx,cy ≠ image center` by more than 0.5 px) is applied as an
+  asymmetric frustum via `setViewOffset(imgW, imgH, cx−imgW/2,
+  cy−imgH/2, imgW, imgH)`; otherwise `clearViewOffset()`.
+- `applyPose(p, basePose)` also refreshes FOV/view-offset every call, so
+  per-frame focal or optical-center changes during trajectory playback
+  take effect immediately.
+
+### Homography-side convention (src/homography.js)
+
+`computeHPair(mc, sc, D)` returns `H = K1·(R12 + t12·n2ᵀ/d2)·K2⁻¹`
+mapping **cam2 px → cam1 px**, with the focus plane fronto-parallel *in
+the rig (Main) frame* at depth D. Three.js (Y-up, Z-back) ↔ CV (Y-down,
+Z-forward) conversion via `Flip = diag(1,−1,−1)`. The formula is fully
+general — it handles non-identity Main extrinsics correctly, although in
+normal use Main's extrinsics are identity (the rig pose lives in
+SCENE_CAM). Set `globalThis.VS_DEBUG_H = true` to log per-call t12/d2/H.
+
+## 6. Camera Presets
+
+Preset files live in **`resource/camera_setting/*.json`** in the repo,
+served and managed by `serve.py`:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/list?kind=camera` | GET | list preset filenames |
+| `/api/save?kind=camera` | POST `{name, data}` | write a preset |
+| `/api/delete?kind=camera` | POST `{file}` | delete (filename whitelist `[\w\- ]{1,64}\.json`) |
+
+Client: `src/resource-presets.js` (fails soft on static hosts without the
+API). Trajectory presets use the same machinery with
+`kind=trajectory` → `resource/trajectory_setting/`.
+
+### Canonical form
+
+A canonical preset has **Main extrinsics = identity** — the rig's world
+pose is *not* part of a preset; presets are position-independent. UW/Tele
+extrinsics are stored **relative to Main** (the system convention).
+
+### Load rules (`src/camera-preset.js`)
+
+1. **File Main extrinsics is identity** → apply *relative*: the current
+   scene's rig pose (SCENE_CAM + current Main extrinsics) is kept; only
+   intrinsics and the relative UW/Tele extrinsics come from the file.
+2. **Not identity** → the UI asks the user (`planPresetLoad` →
+   `mainIsIdentity:false`):
+   - **absolute** — SCENE_CAM ← the file's Main pose, Main extrinsics
+     reset to identity (the pose is re-homed into the rig base);
+   - **relative** — keep the current rig pose, as in rule 1.
+3. **In all cases** UW/Tele extrinsics entering the system are re-derived
+   relative to the file's Main: `rel = inv(main_file) ∘ sec_file`
+   (`relativeExt`, pure quaternion math — no-op when Main is identity).
+
+Applying goes through the single entry point
+`store.set('cameras', {camParams, sceneCam})`, which re-inits the rig,
+recomputes H, and re-renders the Set Camera dialog.
+
+### Save / Remove
+
+- **Save as preset** (`buildPresetJson`): snapshots the live camera
+  params, **forces Main extrinsics to identity**, keeps UW/Tele
+  relative values as-is → POST `/api/save`.
+- **Remove** button (Set Camera dialog): confirm → POST `/api/delete` →
+  refresh the preset list.

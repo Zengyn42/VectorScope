@@ -132,8 +132,10 @@ export function computeHPair(mc, sc, D) {
     const s = H[8];
     if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) H[i] /= s;
 
-    console.log('[VS] computeH: t12=', t12.map((v) => v.toFixed(4)),
-        'd2=', d2.toFixed(4), 'H=', H.map((v) => v.toFixed(4)));
+    if (globalThis.VS_DEBUG_H) {
+        console.log('[VS] computeH: t12=', t12.map((v) => v.toFixed(4)),
+            'd2=', d2.toFixed(4), 'H=', H.map((v) => v.toFixed(4)));
+    }
     return H;
 }
 

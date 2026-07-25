@@ -60,12 +60,19 @@ segments. Default breakpoints: **[1.0, 2.0, 5.0]** → 4 segments.
 Convention: `z < breakpoint` belongs to the segment above it;
 `z >= breakpoint` belongs to the segment below it.
 
-| Segment | Range | Lead | Follower | Warp-ON sampling |
-|---------|-------|------|----------|------------------|
-| A | [0.5, 1.0) | UW | Main | `normLerp(I, H(UW←Main, D), log-t)` |
-| B | [1.0, 2.0) | Main | UW | `crop(z)` (plain center crop) |
-| C | [2.0, 5.0) | Main | Tele | `normLerp(crop(2), H(Main←Tele, D), log-t)` |
-| D | [5.0, 10.0] | Tele | Main | `crop(z / prewarp2)` |
+| Segment | Range | Lead | Follower | Warp flag | Warp-ON sampling |
+|---------|-------|------|----------|-----------|------------------|
+| A | [0.5, 1.0) | UW | Main | true | `scaleThenWarp(H(UW←Main, D), crop(z/0.5), log-t)` |
+| B | [1.0, 2.0) | Main | UW | false | `crop(z)` (plain center crop) |
+| C | [2.0, 5.0) | Main | Tele | true | `scaleThenWarp(H(Main←Tele, D), crop(z), log-t)` |
+| D | [5.0, 10.0] | Tele | Main | false | `crop(z / prewarp2)` |
+
+The per-segment **warp flag** gates warp interpolation independently of the
+global ContiZoom switch (effective warp = global AND segment flag). It
+applies in free mode **and** during trajectory playback — the trajectory
+file forces lead/follower, but plain-crop segments stay plain crops
+(otherwise they would warp toward the file's follower and snap back at the
+next breakpoint). Macro mode's forced warp (`warpT` override) is exempt.
 
 **Lead camera** = the camera currently displayed in the Combined view.
 **Follower camera** = used only during blending when the lead transitions
@@ -78,13 +85,16 @@ Users can reconfigure via the **Segments** dialog button:
 - Change lead/follower camera assignment per segment
 - Saved/loaded with the scene via the config store
 
-When a custom segment assignment contradicts the hardcoded warp rules
-(e.g. Main leading at 0.7x), the lead falls back to a plain center
-crop at `z / nominal(lead)` — warp interpolation only works for the
-default segment arrangement.
+Custom segments use the generic warp path in
+`computeSampleMatrixExplicit()`: given the segment's `[segFrom, segTo]`
+range and an explicit lead/follower, it interpolates
+`scaleThenWarp(H(lead←follower, D), crop(z/nominal(lead)), log-t)` across
+the segment. When no follower is defined (or warp is off for the segment),
+the lead falls back to a plain center crop at `z / nominal(lead)`.
 
 Module: `src/segment-config.js` — breakpoint model with
-`getLeadSource()`, `getFollowerSource()`.
+`getLeadSource()`, `getFollowerSource()`, `getSegmentWarp()`,
+`getSegmentRange()`.
 
 ---
 
@@ -99,7 +109,7 @@ warp interpolation in the handover segments (A and C):
 ```
 t = log(z / 0.5) / log(2)           // log-space: 0 at 0.5x, 1 at 1.0x
 H = computeHPair(UW_cam, Main_cam, D)
-M_lead = normLerp(Identity, H, t)
+M_lead = scaleThenWarp(H, zoomMatrix(z / 0.5), t)
 ```
 
 **Segment B** (Main):
@@ -111,7 +121,7 @@ M_lead = zoomMatrix(z)              // plain crop
 ```
 t = log(z / 2) / log(2.5)           // log-space: 0 at 2x, 1 at 5x
 H = computeHPair(Main_cam, Tele_cam, D)
-M_lead = normLerp(zoomMatrix(2), H, t)
+M_lead = scaleThenWarp(H, zoomMatrix(z), t)
 ```
 
 **Segment D** (Tele):
@@ -296,19 +306,42 @@ Module: `src/homography.js` — `computeHPair()`.
 
 ---
 
-## 8. Warp Interpolation: `normLerp()`
+## 8. Warp Interpolation: `scaleThenWarp()` + `normLerp()`
 
-Blends two 3x3 projective matrices at parameter t ∈ [0, 1]:
+`normLerp(A, B, t)` blends two 3x3 projective matrices at t ∈ [0, 1]:
 
 1. Normalize both matrices so `h33 = 1` (projective equivalence).
 2. Linearly interpolate each element.
 3. Re-normalize result to `h33 = 1`.
+
+`scaleThenWarp(Hfull, cropZ, t)` decouples the zoom scaling from the
+geometric correction (boss rule: *apply the current zoom's scaling first,
+then warp*):
+```
+H_res  = H_full · inv(crop(z))       // scale factored out of the full H
+M(z,t) = normLerp(I, H_res, t) · crop(z)
+```
+- t = 0 → exact `crop(z)`: pure digital zoom, no geometric correction
+- t = 1 → `H_full`: the complete homography
+- Mid-segment the scaling ALWAYS tracks z exactly; t only drives the
+  geometric residual. (The old form `normLerp(crop(segFrom), H_full, t)`
+  entangled scale and warp — mid-segment zoom lagged the slider.)
 
 The interpolation parameter runs in **log-zoom space** so perceived zoom
 speed is uniform:
 ```
 t = log(z / z_start) / log(z_end / z_start)
 ```
+
+### H damping (`src/h-damping.js`)
+
+The **applied** H is not computed from the live focus D directly. The D
+input is damped: when zoom is static frame-to-frame, D is frozen (AF
+changes cannot move the applied H); when zoom changes, D chases the live
+value with step `clamp(|Δzoom| × damping_factor, 0, 1)` (Advanced panel
+slider, default 5). Lead-source switches snap D to live. Trajectory
+playback bypasses damping; macro mode keeps it. Camera-parameter changes
+always pass through — only the AF/Focus-D influence is damped.
 
 ---
 
@@ -335,6 +368,10 @@ t = log(z / z_start) / log(z_end / z_start)
 
 3. **Warp-off identity**: When warp is off, `H_displayed = Identity` for both cameras (the HUD shows the geometric correction component only).
 
-4. **Segment config fallback**: When a custom lead assignment contradicts the hardcoded warp rules, the lead uses plain crop (`z / nominal`) — warp interpolation math is not applied.
+4. **Segment config fallback**: When a segment defines no usable follower (or its warp flag is off), the lead uses plain crop (`z / nominal`) — warp interpolation math is not applied.
+
+5. **Scale/warp decoupling**: For any t, `scaleThenWarp(H, crop(z), t)` maps the output center scale exactly as `crop(z)` does — zoom tracking never lags the warp interpolation.
+
+6. **Playback continuity**: During trajectory playback the per-segment warp flag still applies (lead/follower come from the file). Verified: demo_zoom_sweep replay has no same-source frame jump beyond normal zoom motion, and ≤5px focus-plane mismatch at lead switches.
 
 5. **No cross-dependency**: The lead matrix is computed first; the follower matrix depends on the lead (via `H_relative × M_lead`), but NOT the other way around.
