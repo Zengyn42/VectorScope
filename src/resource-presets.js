@@ -38,3 +38,14 @@ export async function savePreset(kind, name, data) {
     if (!r.ok) throw new Error(`save failed: HTTP ${r.status}`);
     return (await r.json()).file;
 }
+
+/** Delete a preset file via the server API. Throws on failure. */
+export async function deletePreset(kind, file) {
+    const r = await fetch(`/api/delete?kind=${kind}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file }),
+    });
+    if (!r.ok) throw new Error(`delete failed: HTTP ${r.status}`);
+    return (await r.json()).file;
+}

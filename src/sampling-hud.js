@@ -75,6 +75,13 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         if (ov) {
             explicitSrcs = { leadSrc: ov.leadSrc, followerSrc: ov.followerSrc };
             if (ov.warpT !== undefined) warpT = ov.warpT;
+            // Trajectory playback (no warpT override): the file forces
+            // lead/follower, but the per-segment warp flag still applies —
+            // otherwise plain-crop segments (e.g. Main 1–2x, Tele 5–10x)
+            // get warp-interpolated toward the file's follower and snap
+            // back at the next breakpoint (huge visual discontinuity).
+            // Macro mode (warpT defined) keeps its forced warp.
+            else if (S.warp && segCfg) effectiveWarp = segCfg.getSegmentWarp(S.zoom);
         } else if (segCfg) {
             explicitSrcs = {
                 leadSrc: segCfg.getLeadSource(S.zoom, hasS2),

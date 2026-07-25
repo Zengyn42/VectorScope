@@ -468,6 +468,7 @@ input[type="file"] { display: none; }
       <select id="sel-cam-preset" style="min-width:140px"><option value="">&mdash;</option></select>
       <button id="btn-cam-preset-load" title="Apply the selected preset from resource/camera_setting/">Apply</button>
       <button id="btn-cam-preset-save" title="Save current cameras into resource/camera_setting/ (main extrinsics saved as identity)">Save as preset</button>
+      <button id="btn-cam-preset-del" title="Delete the selected preset file from resource/camera_setting/">Remove</button>
     </div>
     <div id="cam-params-content"></div>
     <div class="modal-actions">
@@ -542,7 +543,7 @@ import { SCENE_CAM, DEF_CAM } from './src/camera.js';
 import { SRC, zoomSource } from './src/zoom-pipeline.js';
 import { createBlendController } from './src/blend.js';
 import { createMacroMode } from './src/macro-mode.js';
-import { listPresets, fetchPreset, savePreset } from './src/resource-presets.js';
+import { listPresets, fetchPreset, savePreset, deletePreset } from './src/resource-presets.js';
 import { planPresetLoad, applyPreset, buildPresetJson } from './src/camera-preset.js';
 import { createSceneAnimator } from './src/scene-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
@@ -971,6 +972,7 @@ $('btn-cam-preset-load').onclick = async () => {
         });
         undoManager.checkpoint('cam-preset');
         store.set('cameras', payload);
+        ui.openCamDialog();   // re-render the dialog fields with the new params
         log(`Camera preset applied: ${file} (${mode})`);
     } catch (e) { log(`Preset load failed: ${e.message}`); console.error(e); }
 };
@@ -983,6 +985,17 @@ $('btn-cam-preset-save').onclick = async () => {
         log(`Camera preset saved: resource/camera_setting/${file}`);
         await refreshCamPresets();
     } catch (e) { log(`Preset save failed: ${e.message}`); }
+};
+
+$('btn-cam-preset-del').onclick = async () => {
+    const file = $('sel-cam-preset').value;
+    if (!file) { log('Select a camera preset first'); return; }
+    if (!confirm(`Delete preset "${file}" from resource/camera_setting/?`)) return;
+    try {
+        await deletePreset('camera', file);
+        log(`Camera preset removed: ${file}`);
+        await refreshCamPresets();
+    } catch (e) { log(`Preset delete failed: ${e.message}`); }
 };
 
 /* ================================================================
@@ -1137,7 +1150,7 @@ window.refreshH = refreshH;
 refreshH();
 
 // Debug/test hook (headless regression scripts inspect blend state)
-window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegistry, assetParser, sceneIO, syncObjs, registerModel, R, P, setMode, getMode };
+window.VS_DEBUG = { matWarp, blendCtl, sceneAnim, S, store, objectOps, assetRegistry, assetParser, sceneIO, syncObjs, registerModel, R, P, setMode, getMode, transport };
 
 /* ================================================================
    UNDO MANAGER (Feature 1 — src/undo.js)

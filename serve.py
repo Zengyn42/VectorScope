@@ -78,10 +78,34 @@ async def api_save(request):
     return JSONResponse({'ok': True, 'file': name + '.json'})
 
 
+async def api_delete(request):
+    """POST /api/delete?kind=... body {"file": "name.json"} → delete preset.
+
+    File name is sanitized to a bare basename inside the whitelisted folder —
+    no path traversal, only .json files can be removed.
+    """
+    d = RESOURCE_DIRS.get(request.query_params.get('kind', ''))
+    if not d:
+        return JSONResponse({'error': 'bad kind'}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({'error': 'bad json'}, status_code=400)
+    file = os.path.basename(str(body.get('file', '')))
+    if not re.fullmatch(r'[\w\- ]{1,64}\.json', file):
+        return JSONResponse({'error': 'bad file'}, status_code=400)
+    path = os.path.join(ROOT, d, file)
+    if not os.path.isfile(path):
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    os.remove(path)
+    return JSONResponse({'ok': True, 'file': file})
+
+
 app = Starlette(
     routes=[
         Route('/api/list', api_list, methods=['GET']),
         Route('/api/save', api_save, methods=['POST']),
+        Route('/api/delete', api_delete, methods=['POST']),
         Mount('/', app=StaticFiles(directory=ROOT, html=True)),
     ],
     middleware=[Middleware(NoCacheMiddleware)],
