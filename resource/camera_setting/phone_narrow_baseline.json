@@ -1,0 +1,74 @@
+{
+  "main_camera": {
+    "intrinsics": {
+      "fx": 1500,
+      "fy": 1500,
+      "cx": 540,
+      "cy": 960
+    },
+    "extrinsics": {
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation_euler_deg": [
+        0,
+        0,
+        0
+      ]
+    },
+    "image_size": [
+      1080,
+      1920
+    ]
+  },
+  "secondary_camera": {
+    "intrinsics": {
+      "fx": 750,
+      "fy": 750,
+      "cx": 540,
+      "cy": 960
+    },
+    "extrinsics": {
+      "position": [
+        0.2,
+        0,
+        0
+      ],
+      "rotation_euler_deg": [
+        0,
+        0,
+        0
+      ]
+    },
+    "image_size": [
+      1080,
+      1920
+    ]
+  },
+  "secondary_camera_2": {
+    "intrinsics": {
+      "fx": 15000,
+      "fy": 15000,
+      "cx": 540,
+      "cy": 960
+    },
+    "extrinsics": {
+      "position": [
+        -0.2,
+        0,
+        0
+      ],
+      "rotation_euler_deg": [
+        0,
+        0,
+        0
+      ]
+    },
+    "image_size": [
+      1080,
+      1920
+    ]
+  }
+}

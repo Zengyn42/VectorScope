@@ -360,6 +360,7 @@ input[type="file"] { display: none; }
               <button id="btn-traj-load" title="Load a trajectory JSON file">Load</button>
               <input type="file" id="ftraj" accept=".json" style="display:none">
               <button id="btn-traj-save" title="Save the selected trajectory to disk">Save</button>
+              <button id="btn-traj-preset" title="Save the selected trajectory into resource/trajectory_setting/">Preset+</button>
               <button id="btn-traj-rec" title="Start/stop recording a trajectory"
                       style="min-width:36px">&#9679; Rec</button>
             </div>
@@ -462,6 +463,12 @@ input[type="file"] { display: none; }
 <div class="modal-overlay" id="cam-dialog">
   <div class="modal">
     <h2>Camera Parameters</h2>
+    <div class="ctrl-row" style="margin-bottom:8px">
+      <label>Preset:</label>
+      <select id="sel-cam-preset" style="min-width:140px"><option value="">&mdash;</option></select>
+      <button id="btn-cam-preset-load" title="Apply the selected preset from resource/camera_setting/">Apply</button>
+      <button id="btn-cam-preset-save" title="Save current cameras into resource/camera_setting/ (main extrinsics saved as identity)">Save as preset</button>
+    </div>
     <div id="cam-params-content"></div>
     <div class="modal-actions">
       <button onclick="document.getElementById('fcam').click()">Load Camera JSON</button>
@@ -535,6 +542,8 @@ import { SCENE_CAM, DEF_CAM } from './src/camera.js';
 import { SRC, zoomSource } from './src/zoom-pipeline.js';
 import { createBlendController } from './src/blend.js';
 import { createMacroMode } from './src/macro-mode.js';
+import { listPresets, fetchPreset, savePreset } from './src/resource-presets.js';
+import { planPresetLoad, applyPreset, buildPresetJson } from './src/camera-preset.js';
 import { createSceneAnimator } from './src/scene-anim.js';
 import { createCameraRig } from './src/camera-rig.js';
 import { createBevGhost } from './src/bev-ghost.js';
@@ -917,8 +926,64 @@ window.nudgeZoom = (dir) => {
     const next = Math.max(0.5, Math.min(10, +(z + dir * 0.1).toFixed(1)));
     store.set('controls', { zoom: next });
 };
-window.openCamDialog = () => { undoManager.checkpoint('cam-dialog'); ui.openCamDialog(); };
+window.openCamDialog = () => { undoManager.checkpoint('cam-dialog'); ui.openCamDialog(); refreshCamPresets(); };
 window.closeCamDialog = ui.closeCamDialog;
+
+/* ── Camera presets (resource/camera_setting/) ── */
+async function refreshCamPresets() {
+    const sel = $('sel-cam-preset');
+    const cur = sel.value;
+    const files = await listPresets('camera');
+    sel.innerHTML = '<option value="">\u2014</option>';
+    for (const f of files) {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f.replace(/\.json$/, '');
+        sel.appendChild(opt);
+    }
+    if (files.includes(cur)) sel.value = cur;
+}
+
+$('btn-cam-preset-load').onclick = async () => {
+    const file = $('sel-cam-preset').value;
+    if (!file) { log('Select a camera preset first'); return; }
+    try {
+        const fileParams = await fetchPreset('camera', file);
+        /* Boss load rules (src/camera-preset.js):
+           - file main extrinsics identity → keep current main pose
+           - non-identity → ask absolute vs relative placement
+           - UW/Tele extrinsics ALWAYS re-derived relative to main */
+        const { mainIsIdentity } = planPresetLoad(fileParams);
+        let mode = 'relative';
+        if (!mainIsIdentity) {
+            mode = confirm(
+                'This preset has a NON-identity main camera pose.\n\n'
+                + 'OK  \u2192 ABSOLUTE: place the rig at the pose stored in the file\n'
+                + 'Cancel \u2192 RELATIVE: keep the current main camera position')
+                ? 'absolute' : 'relative';
+        }
+        const payload = applyPreset(fileParams, mode, {
+            sceneCam: {
+                position: [...SCENE_CAM.position],
+                rotation_euler_deg: [...SCENE_CAM.rotation_euler_deg],
+            },
+            mainExt: S.camParams.main_camera.extrinsics,
+        });
+        undoManager.checkpoint('cam-preset');
+        store.set('cameras', payload);
+        log(`Camera preset applied: ${file} (${mode})`);
+    } catch (e) { log(`Preset load failed: ${e.message}`); console.error(e); }
+};
+
+$('btn-cam-preset-save').onclick = async () => {
+    const name = prompt('Preset name:');
+    if (!name) return;
+    try {
+        const file = await savePreset('camera', name, buildPresetJson(S.camParams));
+        log(`Camera preset saved: resource/camera_setting/${file}`);
+        await refreshCamPresets();
+    } catch (e) { log(`Preset save failed: ${e.message}`); }
+};
 
 /* ================================================================
    COMBINED FOCUS MODE + HELP
@@ -1427,6 +1492,13 @@ trajLibraryIO.restore = (jsons) => {
     transport.eject();
 };
 
+/** Trajectory preset files from resource/trajectory_setting/ (serve.py API). */
+let trajPresetFiles = [];
+async function refreshTrajPresets() {
+    trajPresetFiles = await listPresets('trajectory');
+    syncTrajList();
+}
+
 function syncTrajList() {
     const sel = $('sel-traj');
     const cur = sel.value;
@@ -1436,14 +1508,31 @@ function syncTrajList() {
         opt.value = name; opt.textContent = name;
         sel.appendChild(opt);
     }
+    // Resource-folder presets (📁 prefix, loaded on demand)
+    for (const f of trajPresetFiles) {
+        const opt = document.createElement('option');
+        opt.value = '__res__:' + f;
+        opt.textContent = '\uD83D\uDCC1 ' + f.replace(/\.json$/, '');
+        sel.appendChild(opt);
+    }
     // Restore selection if still valid
-    if (cur !== '__default__' && trajLibrary.has(cur)) sel.value = cur;
+    if (cur !== '__default__' &&
+        (trajLibrary.has(cur) || (cur.startsWith('__res__:') && trajPresetFiles.includes(cur.slice(8))))) {
+        sel.value = cur;
+    }
 }
 
-$('sel-traj').onchange = function () {
+$('sel-traj').onchange = async function () {
     if (this.value === '__default__') {
         transport.stop();
         log('Trajectory: free mode (default)');
+    } else if (this.value.startsWith('__res__:')) {
+        const file = this.value.slice(8);
+        try {
+            const traj = parseTrajectory(await fetchPreset('trajectory', file));
+            transport.load(traj);
+            log(`Trajectory preset: ${traj.name} \u2014 ${traj.length}f @ ${traj.fps}fps (\u25B6 to play)`);
+        } catch (e) { log(`Trajectory preset load failed: ${e.message}`); console.error(e); }
     } else {
         const traj = trajLibrary.get(this.value);
         if (traj) {
@@ -1452,6 +1541,22 @@ $('sel-traj').onchange = function () {
         }
     }
 };
+
+/* ── Save selected trajectory into resource/trajectory_setting/ ── */
+$('btn-traj-preset').onclick = async () => {
+    const name = $('sel-traj').value;
+    if (name === '__default__' || name.startsWith('__res__:') || !trajLibrary.has(name)) {
+        log('Select a recorded/loaded trajectory to save as preset');
+        return;
+    }
+    const traj = trajLibrary.get(name);
+    try {
+        const file = await savePreset('trajectory', traj.name, trajToJson(traj));
+        log(`Trajectory preset saved: resource/trajectory_setting/${file}`);
+        await refreshTrajPresets();
+    } catch (e) { log(`Preset save failed: ${e.message}`); }
+};
+refreshTrajPresets();
 
 /* ── Load Folder (multiple trajectories) ── */
 /* Load: pick a single trajectory .json file */
