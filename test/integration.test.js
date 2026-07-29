@@ -31,7 +31,7 @@ import { parseTrajectory } from '../src/trajectory.js';
 import { trajToJson } from '../src/trajectory-library.js';
 import { applyTrajFrameToState } from '../src/traj-frame.js';
 
-const W = 1080, H = 1920, D = 3;
+const W = 1920, H = 1080, D = 3;
 
 /** Standard 3-camera rig matching DEF_CAM. */
 function makeRig() {

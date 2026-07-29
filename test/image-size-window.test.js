@@ -22,7 +22,7 @@ import { createCameraRig } from '../src/camera-rig.js';
 import { computeHPair, computeHPairWin } from '../src/homography.js';
 import { computeSampleMatrix, computeFollowerMatrix } from '../src/zoom-pipeline.js';
 
-const W = 1080, H = 1920, D = 3.0;   // window (= RT) size
+const W = 1920, H = 1080, D = 3.0;   // window (= RT) size
 const sceneStub = { add() {}, remove() {} };
 
 function cam(imgW, imgH, dcx, dcy, ext) {

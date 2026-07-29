@@ -291,6 +291,11 @@ input[type="file"] { display: none; }
           <button id="btn-orient" title="Toggle portrait / landscape orientation">Portrait</button>
           <button id="btn-ratio" title="Toggle 16:9 / 4:3 aspect ratio">16:9</button>
         </div>
+        <!-- Rig pose (read-only): derived from orientation, never user-editable -->
+        <div class="ctrl-row" title="Rig pose w.r.t. scene-cam (read-only). Landscape: identity. Portrait: Rz(+90°) CCW.">
+          <span class="cam-lbl">Rig</span>
+          <span class="val" id="rig-pose" style="font-size:11px">pos [0,0,0] rot [0,0,+90&deg;]</span>
+        </div>
         <div class="ctrl-row">
           <button id="btn-macro" title="Macro Mode: force UW camera when Focus D is below threshold">Macro</button>
           <input type="range" id="sld-macro" min="0.1" max="3.0" step="0.05" value="0.5"
@@ -966,7 +971,7 @@ $('btn-cam-preset-load').onclick = async () => {
         /* Boss load rules (src/camera-preset.js):
            - file main extrinsics identity → keep current main pose
            - non-identity → ask absolute vs relative placement
-           - UW/Tele extrinsics ALWAYS re-derived relative to main */
+           - UW/Tele extrinsics used as-is (already rig-relative) */
         const { mainIsIdentity } = planPresetLoad(fileParams);
         let mode = 'relative';
         if (!mainIsIdentity) {
@@ -1312,26 +1317,22 @@ function applyAspect() {
     // Update shader resolution uniform
     matWarp.uniforms.uR.value.set(RT_W, RT_H);
 
-    // Update all camera image_size + optical center in current params
-    const cp = S.camParams;
-    for (const key of ['main_camera', 'secondary_camera', 'secondary_camera_2']) {
-        if (!cp[key]) continue;
-        cp[key].image_size = [RT_W, RT_H];
-        cp[key].intrinsics.cx = RT_W / 2;
-        cp[key].intrinsics.cy = RT_H / 2;
-    }
-
     // Update panels with new RT dimensions and re-layout
     setRT(RT_W, RT_H);
 
-    // Re-init cameras and refresh everything
+    // Re-init cameras and refresh everything. Sensor params (image_size,
+    // cx/cy) are NOT touched — the sensor is orientation-independent
+    // ([1920,1080], long edge always x); only the rig rotation and the
+    // window (RT) change with orientation.
     store.set('cameras', {
-        camParams: cp,
+        camParams: S.camParams,
         sceneCam: { position: SCENE_CAM.position, rotation_euler_deg: SCENE_CAM.rotation_euler_deg },
     });
     loop.markDirty(5);
 
-    // Update button labels
+    // Update button labels + read-only rig pose display
+    $('rig-pose').textContent = rtOrientation === 'landscape'
+        ? 'pos [0,0,0] rot [0,0,0]' : 'pos [0,0,0] rot [0,0,+90°]';
     $('btn-orient').textContent = rtOrientation === 'landscape' ? 'Landscape' : 'Portrait';
     $('btn-orient').classList.toggle('active', rtOrientation === 'landscape');
     $('btn-ratio').textContent = rtRatio;

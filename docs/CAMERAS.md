@@ -106,54 +106,104 @@ Toggle: the **Single/Dual** button next to the Blend slider
 (`S.blendMode`). The blend state machine (`src/blend.js`) is shared by both
 modes; dual mode only replaces *what* is fed as the previous layer.
 
-## 5. Rig Pose Model
+## 5. Rig Pose Model (Five-Layer Coordinate Chain)
 
 Implemented in `src/camera-rig.js` (`init` for full rebuild, `applyPose`
 for the cheap per-frame path used by trajectory playback).
 
-**Three-level composition** — each level is a rigid offset on top of its
-parent:
+**Five-layer composition** — scene → scene-cam → rig → cameras:
 
 ```
-SCENE_CAM (rig base pose, world)          src/camera.js SCENE_CAM
-  └─ Main   = base ∘ main_camera.extrinsics
-       ├─ UW   = Main ∘ secondary_camera.extrinsics
-       └─ Tele = Main ∘ secondary_camera_2.extrinsics
+scene (world origin)
+  └─ scene-cam (SCENE_CAM: WASDQE navigation pose)     src/camera.js SCENE_CAM
+       └─ rig (orientation layer: landscape=identity, portrait=Rz(+90°) CCW)
+            ├─ Main  = rig ∘ main_camera.extrinsics
+            ├─ UW    = rig ∘ secondary_camera.extrinsics
+            └─ Tele  = rig ∘ secondary_camera_2.extrinsics
 ```
 
-For every camera, with `refQuat`/`refPos` = its parent's world pose:
+All three cameras (Main, UW, Tele) are direct children of the **rig
+frame** — NOT nested under Main. Their JSON extrinsics are always
+*relative to the rig*, not to each other. Moving Main's extrinsics does
+NOT affect UW/Tele positions.
+
+**Rig coordinate system**: x along sensor long edge, y along sensor
+short edge, z along optical axis. Sensor long edge is always x:
+`image_size = [1920, 1080]`.
+
+For every camera, `poseCam(cam, cp, baseQuat, basePos)` applies:
 
 ```js
-cam.position   = ext.position rotated by refQuat, + refPos
-cam.quaternion = refQuat ⊗ eulerQuat(ext.rotation_euler_deg)
+// 1. Rig rotation (qRig) applied to the extrinsic offset; the extrinsic
+//    ORIENTATION is conjugated (qRig ⊗ qExt ⊗ qRig⁻¹): the rig body roll
+//    is cancelled by the portrait DISPLAY rotation (see below), so an
+//    identity-extrinsics camera renders unrolled — world content upright.
+offset.applyQuaternion(qRig);
+qExt = qRig ⊗ eulerQuat(ext.rotation_euler_deg) ⊗ qRig⁻¹;
+// 2. Then composed with the base (SCENE_CAM) pose
+cam.position   = offset.applyQuaternion(baseQuat) + basePos
+cam.quaternion = baseQuat ⊗ qExt
 ```
 
-- **UW/Tele use `rig.main.quaternion` / `rig.main.position` as the
-  reference**, so their JSON extrinsics are always *relative to Main*, not
-  to the world. Rotating the rig moves all three cameras together.
+### Rig orientation (portrait vs landscape)
+
+The rig quaternion `qRig` depends on the window aspect ratio:
+
+| Window | Condition | qRig | Physical meaning |
+|---|---|---|---|
+| **Landscape** | `winW ≥ winH` | identity | Rig coincides with scene-cam; sensor x = screen horizontal |
+| **Portrait** | `winW < winH` | Rz(+90°) CCW (seen from the screen front) | Phone rotated CCW: sensor x → screen vertical |
+
+Portrait is the *phone rotated CCW* model: the rig (cameras + baseline)
+physically rolls Rz(+90°), and the DISPLAY rotates the sensor image back
++90° CCW so world content stays upright on screen. The display rotation
+cancels the body roll for camera ORIENTATION (conjugation above) but not
+for the baseline POSITION.
+
+Consequence: **extrinsic +x baseline** gives:
+- **Landscape**: horizontal parallax (left-right, 左右)
+- **Portrait**: vertical parallax (up-down, 上下) — the sensor-x baseline
+  is displayed along the screen vertical
+
+The same preset file produces correct parallax in both orientations
+without any data modification.
+
+### Intrinsics → frustum
+
+- **Landscape**: FOV from `fy` and the window height
+  (`fov = 2·atan(winH / 2fy)`)
+- **Portrait**: FOV from `fx` and the window height
+  (`fov = 2·atan(winH / 2fx)`) — sensor x becomes display vertical
+
+An off-center optical axis (`cx,cy ≠ SENSOR center` by more than
+0.5 px) is applied as an asymmetric frustum via
+`setViewOffset(winW, winH, ox, oy, winW, winH)` with
+`(ox, oy) = (−dx, −dy)` in landscape and `(−dy, +dx)` in portrait,
+where `(dx, dy) = (cx − imgW/2, cy − imgH/2)` (the sensor principal
+offset rotates with the display in portrait);
+otherwise `clearViewOffset()`. The offsets are **negated**: a positive setViewOffset shifts the rendered
+window right/down, which moves the optical-axis point left/up in the
+output — the negation puts the axis point AT the translated window
+position, matching the K used by `computeHPairWin` and the shader
+sampling matrices.
+
+### Sensor vs window
+
+`image_size` is the SENSOR extent. The displayed output is a 1:1,
+**center-anchored `winW×winH` window** of the sensor (window = the
+shared RT size, `getWinSize` option of `createCameraRig`). Sensor px ↔
+window px conversion is a center-aligned **translation** —
+`u_win = u_img − (imgW/2 − winW/2)` — composed with a +90° CCW display
+rotation in portrait; never a scale: enlarging the
+sensor (with a centered optical axis) changes neither the render nor
+any homography; it only adds usable pixels outside the center window.
+
+### Other details
+
 - Euler convention: degrees, THREE **'ZYX' order** (`R = Rz·Ry·Rx`) —
   matched exactly by the pure-quaternion helpers in
   `src/camera-preset.js` (`eulerToQuat`) and by the CV-side `eulerR` in
   `src/homography.js`.
-- **Sensor vs window**: `image_size` is the SENSOR extent. The displayed
-  output is a 1:1, **center-anchored `winW×winH` window** of the sensor
-  (window = the shared RT size, `getWinSize` option of
-  `createCameraRig`). Sensor px ↔ window px conversion is a pure
-  center-aligned **translation** — `u_win = u_img − (imgW/2 − winW/2)` —
-  never a scale: enlarging the sensor (with a centered optical axis)
-  changes neither the render nor any homography; it only adds usable
-  pixels outside the center window.
-- **Intrinsics → frustum**: vertical FOV from `fy` and the **window**
-  height (`fov = 2·atan(winH / 2fy)`). An off-center optical axis
-  (`cx,cy ≠ SENSOR center` by more than 0.5 px) is applied as an
-  asymmetric frustum via `setViewOffset(winW, winH, imgW/2−cx,
-  imgH/2−cy, winW, winH)`; otherwise `clearViewOffset()`. The offsets
-  are **negated** relative to `(cx−imgW/2, cy−imgH/2)`: a positive
-  setViewOffset shifts the rendered window right/down, which moves the
-  optical-axis point left/up in the output — the negation puts the axis
-  point AT the translated window position `winW/2 + (cx−imgW/2)`
-  (y-down), matching the K used by `computeHPairWin` and the shader
-  sampling matrices.
 - `applyPose(p, basePose)` also refreshes FOV/view-offset every call, so
   per-frame focal or optical-center changes during trajectory playback
   take effect immediately.
@@ -162,16 +212,36 @@ cam.quaternion = refQuat ⊗ eulerQuat(ext.rotation_euler_deg)
 
 `computeHPair(mc, sc, D)` returns `H = K1·(R12 + t12·n2ᵀ/d2)·K2⁻¹`
 mapping **cam2 px → cam1 px** in SENSOR pixel space, with the focus plane
-fronto-parallel *in the rig (Main) frame* at depth D. The pipeline uses
+fronto-parallel in the rig frame at depth D. All camera extrinsics are
+relative to the rig frame. The pipeline uses
 `computeHPairWin(mc, sc, D, winW, winH)` — the same H conjugated into
-**window px** by the center-aligned translations (`T(mc)·H·T(sc)⁻¹`), so
-it depends on each optical center only through its offset from the
-sensor center. When every `image_size` equals the window, the two are
-identical. Three.js (Y-up, Z-back) ↔ CV (Y-down,
-Z-forward) conversion via `Flip = diag(1,−1,−1)`. The formula is fully
-general — it handles non-identity Main extrinsics correctly, although in
-normal use Main's extrinsics are identity (the rig pose lives in
-SCENE_CAM). Set `globalThis.VS_DEBUG_H = true` to log per-call t12/d2/H.
+**window px** by per-camera sensor→window maps (`W(mc)·H·W(sc)⁻¹`).
+`W` is a center-aligned translation in landscape, composed with the
++90° CCW display rotation in portrait:
+
+```
+landscape:  u_w = u_s + (winW − imgW)/2,  v_w = v_s + (winH − imgH)/2
+portrait:   u_w = v_s + (winW − imgH)/2,  v_w = −u_s + (winH + imgW)/2
+```
+
+H depends on each optical center only through its offset from the
+sensor center. In landscape with `image_size` equal to the window, W = I
+and `computeHPairWin == computeHPair`.
+
+The rig BODY rotation cancels in R12 (both cameras share it), so the
+sensor-space H is orientation-independent; the orientation enters only
+through the display rotation inside `W` — which is what turns the
+sensor-x baseline parallax vertical on a portrait screen.
+
+Three.js (Y-up, Z-back) ↔ CV (Y-down, Z-forward) conversion via
+`Flip = diag(1,−1,−1)`. The formula is fully general — it handles
+non-identity Main extrinsics correctly, although in normal use Main's
+extrinsics are identity (the rig pose lives in SCENE_CAM). Set
+`globalThis.VS_DEBUG_H = true` to log per-call t12/d2/H.
+
+Render vs H consistency is verified numerically in
+`test/landscape-roll.test.js` (sub-pixel error < 1e-6 px for both
+portrait and landscape, with offset + rotation extrinsics).
 
 ## 6. Camera Presets
 
@@ -192,21 +262,21 @@ API). Trajectory presets use the same machinery with
 
 A canonical preset has **Main extrinsics = identity** — the rig's world
 pose is *not* part of a preset; presets are position-independent. UW/Tele
-extrinsics are stored **relative to Main** (the system convention).
+extrinsics are stored **relative to the rig frame** (the system
+convention).
 
 ### Load rules (`src/camera-preset.js`)
 
 1. **File Main extrinsics is identity** → apply *relative*: the current
    scene's rig pose (SCENE_CAM + current Main extrinsics) is kept; only
-   intrinsics and the relative UW/Tele extrinsics come from the file.
+   intrinsics and the rig-relative UW/Tele extrinsics come from the file.
 2. **Not identity** → the UI asks the user (`planPresetLoad` →
    `mainIsIdentity:false`):
    - **absolute** — SCENE_CAM ← the file's Main pose, Main extrinsics
      reset to identity (the pose is re-homed into the rig base);
    - **relative** — keep the current rig pose, as in rule 1.
-3. **In all cases** UW/Tele extrinsics entering the system are re-derived
-   relative to the file's Main: `rel = inv(main_file) ∘ sec_file`
-   (`relativeExt`, pure quaternion math — no-op when Main is identity).
+3. UW/Tele extrinsics from the file are used **as-is** — they are already
+   rig-relative in the preset format.
 
 Applying goes through the single entry point
 `store.set('cameras', {camParams, sceneCam})`, which re-inits the rig,
@@ -216,6 +286,6 @@ recomputes H, and re-renders the Set Camera dialog.
 
 - **Save as preset** (`buildPresetJson`): snapshots the live camera
   params, **forces Main extrinsics to identity**, keeps UW/Tele
-  relative values as-is → POST `/api/save`.
+  rig-relative values as-is → POST `/api/save`.
 - **Remove** button (Set Camera dialog): confirm → POST `/api/delete` →
   refresh the preset list.

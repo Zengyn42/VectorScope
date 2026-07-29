@@ -56,7 +56,7 @@ export function eulerR(deg) {
  *   H = K1 · (R12 + t12·n2ᵀ/d2) · K2⁻¹
  *
  * Full general formula — works for any R1, R2, t1, t2.
- * Convention: extrinsics are relative to main camera.
+ * Convention: all camera extrinsics are relative to the rig frame.
  * Main camera extrinsics should be identity in normal use,
  * but the formula handles non-identity correctly.
  *
@@ -92,11 +92,11 @@ export function computeHPair(mc, sc, D) {
 
     // Convert both cameras' extrinsics to CV convention
     function toCV_R(euler_deg) {
-        const R_threejs = eulerR(euler_deg);       // camera-to-parent rotation (Three.js)
-        return M.mul(Flip, M.mul(R_threejs, Flip)); // rotation in CV convention
+        const R_threejs = eulerR(euler_deg);         // camera-to-parent rotation (Three.js)
+        return M.mul(Flip, M.mul(R_threejs, Flip));  // rotation in CV convention
     }
     function toCV_pos(pos) {
-        return [pos[0], -pos[1], -pos[2]];          // position in CV convention
+        return [pos[0], -pos[1], -pos[2]];           // position in CV convention
     }
 
     // Camera 1 (main) — CV rotation and extrinsic translation
@@ -143,24 +143,23 @@ export function computeHPair(mc, sc, D) {
  * {@link computeHPair} expressed in **window pixel space**.
  *
  * `image_size` is the SENSOR extent; the displayed output is a 1:1,
- * center-anchored winW×winH window of the sensor. Sensor px ↔ window px
- * conversion is therefore a pure center-aligned TRANSLATION (never a
- * scale):
- * ```
- * u_win = u_img − (imgW/2 − winW/2)
- * v_win = v_img − (imgH/2 − winH/2)
- * ```
+ * center-anchored winW×winH window of the sensor — never a scale.
+ * Landscape: the window map is a pure center-aligned translation.
+ * Portrait: the sensor image is additionally rotated +90° CCW on screen
+ * (phone rotated CCW; the display rotation keeps world content upright,
+ * and the sensor-x baseline parallax appears VERTICAL on screen).
+ *
  * The raw {@link computeHPair} H works in sensor px (K uses absolute
  * cx/cy). This wrapper conjugates it into window px:
  * ```
- * H_win = T(mc) · H · T(sc)⁻¹
+ * H_win = W(mc) · H · W(sc)⁻¹
  * ```
- * where `T(c)` translates c's sensor px → window px. When every camera's
- * image_size equals the window (the default), T = I and this is exactly
- * computeHPair. Consequently H_win depends on the optical center only
- * through its offset from the SENSOR center (cx − imgW/2) — enlarging the
- * sensor with a centered cx does not change the homography (nor the
- * display).
+ * where `W(c)` maps c's sensor px → window px (translation, plus the 90°
+ * rotation in portrait). In landscape with image_size == window, W = I
+ * and this is exactly computeHPair. H_win depends on the optical center
+ * only through its offset from the SENSOR center (cx − imgW/2) —
+ * enlarging the sensor with a centered cx does not change the homography
+ * (nor the display).
  *
  * @param {object} mc  cam1 params ({ intrinsics, extrinsics, image_size })
  * @param {object} sc  cam2 params ({ intrinsics, extrinsics, image_size })
@@ -171,13 +170,38 @@ export function computeHPair(mc, sc, D) {
  *          mapping cam2 WINDOW px → cam1 WINDOW px
  */
 export function computeHPairWin(mc, sc, D, winW, winH) {
+    /* Sensor H is orientation-independent: since both cameras share the same
+       rig rotation, R12 is the same regardless of rig pose. Only the
+       sensor→window coordinate mapping (W matrix) differs per orientation.
+
+       Landscape (winW ≥ winH): sensor pixel ↔ window pixel is a pure
+       center-aligned translation.
+         u_w = u_s + (winW − imgW) / 2
+         v_w = v_s + (winH − imgH) / 2
+       Portrait (winW < winH): the rig is rotated Rz(+90°) CCW so sensor x
+       (width) maps to display vertical. The sensor→window mapping is:
+         u_w = v_s + (winW − imgH) / 2
+         v_w = −u_s + imgW/2 + winH/2
+    */
     const H = computeHPair(mc, sc, D);
     const [iw1, ih1] = mc.image_size ?? [winW, winH];
     const [iw2, ih2] = sc.image_size ?? [winW, winH];
-    // T(mc): mc sensor px → window px;  T(sc)⁻¹: sc window px → sensor px
-    const T1 = [1, 0, (winW - iw1) / 2, 0, 1, (winH - ih1) / 2, 0, 0, 1];
-    const T2i = [1, 0, (iw2 - winW) / 2, 0, 1, (ih2 - winH) / 2, 0, 0, 1];
-    const Hw = M.mul(T1, M.mul(H, T2i));
+    const portrait = winW < winH;
+
+    /* W(c): sensor px → window px (formulas in the block above).
+       Landscape: pure center-aligned translation.
+       Portrait: +90° CCW display rotation composed with the center
+       alignment — the sensor image is rotated back so world content stays
+       upright while the (sensor-x) baseline parallax becomes vertical on
+       screen. W2i is the exact inverse of W(sc) (window → sensor px). */
+    const W1 = portrait
+        ? [0, 1, (winW - ih1) / 2,   -1, 0, (winH + iw1) / 2,   0, 0, 1]
+        : [1, 0, (winW - iw1) / 2,    0, 1, (winH - ih1) / 2,   0, 0, 1];
+    const W2i = portrait
+        ? [0, -1, (winH + iw2) / 2,   1, 0, (ih2 - winW) / 2,   0, 0, 1]
+        : [1, 0, (iw2 - winW) / 2,    0, 1, (ih2 - winH) / 2,   0, 0, 1];
+
+    const Hw = M.mul(W1, M.mul(H, W2i));
     const s = Hw[8];
     if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) Hw[i] /= s;
     return Hw;

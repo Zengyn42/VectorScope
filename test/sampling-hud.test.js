@@ -47,7 +47,7 @@ describe('createSamplingRefresh', () => {
         const matWarp = mockMatWarp();
         let hud = null;
         const refreshH = createSamplingRefresh({
-            S, R: { sec2: '__sec2' in over ? over.__sec2 : {} }, matWarp, rtW: 1080, rtH: 1920,
+            S, R: { sec2: '__sec2' in over ? over.__sec2 : {} }, matWarp, rtW: 1920, rtH: 1080,
             onHud: (html) => { hud = html; },
             ...(over.__getOverride ? { getOverride: over.__getOverride } : {}),
             ...(over.__segCfg ? { getSegCfg: () => over.__segCfg } : {}),
@@ -65,7 +65,7 @@ describe('createSamplingRefresh', () => {
     it('pushes uniforms, stashes sample + follower state, and emits the HUD', () => {
         const { S, matWarp, refreshH, getHud } = mk({ zoom: 1.5 });
         refreshH();
-        const opts = { z: 1.5, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1080, h: 1920 };
+        const opts = { z: 1.5, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1920, h: 1080 };
         const expect = computeSampleMatrix(opts);
         const fol = computeFollowerMatrix(opts);
         assert.equal(matWarp.rec.uSrc, expect.src);
@@ -94,7 +94,7 @@ describe('createSamplingRefresh', () => {
     });
 
     describe('trajectory override respects per-segment warp flag', () => {
-        const base = { z: 0, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1080, h: 1920 };
+        const base = { z: 0, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1920, h: 1080 };
 
         it('plain-crop segment (Main 1-2x, warp:false) stays a crop during playback', () => {
             const segCfg = createSegmentConfig();
@@ -161,7 +161,7 @@ describe('createSamplingRefresh', () => {
         it('warp OFF: non-lead entries match computeFollowerMatrix for that source', () => {
             const { S, refreshH } = mk({ zoom: 1.5 });
             refreshH();
-            const opts = { z: 1.5, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1080, h: 1920 };
+            const opts = { z: 1.5, warp: false, D: 3, params: DEF_CAM, prewarp1: 1, prewarp2: 1, w: 1920, h: 1080 };
             for (const s of [SRC.SEC1, SRC.SEC2]) {
                 const exp = computeFollowerMatrix({ ...opts, followerSrc: s });
                 assert.deepEqual(S.liveM[s], exp.m);

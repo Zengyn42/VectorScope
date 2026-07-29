@@ -96,24 +96,23 @@ describe('planPresetLoad / applyPreset', () => {
         assert.equal(camParams.main_camera.intrinsics.fx, 1500, 'intrinsics from file');
     });
 
-    it('non-identity + absolute: SCENE_CAM ← file main pose, main ext ← identity', () => {
+    it('non-identity + absolute: SCENE_CAM ← file main pose, main ext ← identity, sec used as-is', () => {
         const { camParams, sceneCam } = applyPreset(shifted, 'absolute', CUR);
         close(sceneCam.position, [2, 0, -1], 'sceneCam = file main');
         close(sceneCam.rotation_euler_deg, [0, 90, 0], 'sceneCam rot');
         close(camParams.main_camera.extrinsics.position, [0, 0, 0], 'main ext identity');
-        // sec1 world offset +X from a main yawed 90° → in main frame
-        const rel = camParams.secondary_camera.extrinsics.position;
-        close(rel, relativeExt(shifted.main_camera.extrinsics,
-            shifted.secondary_camera.extrinsics).position, 'sec1 rel-to-main');
+        // sec extrinsics are rig-relative in the file — used as-is, no rebase through main
+        close(camParams.secondary_camera.extrinsics.position,
+            shifted.secondary_camera.extrinsics.position, 'sec1 as-is from file');
     });
 
-    it('non-identity + relative: current pose kept, rel still re-derived', () => {
+    it('non-identity + relative: current pose kept, sec extrinsics used as-is', () => {
         const { camParams, sceneCam } = applyPreset(shifted, 'relative', CUR);
         close(sceneCam.position, CUR.sceneCam.position, 'sceneCam kept');
         close(camParams.main_camera.extrinsics.position, CUR.mainExt.position, 'main ext kept');
-        const expect = relativeExt(shifted.main_camera.extrinsics,
-            shifted.secondary_camera.extrinsics);
-        close(camParams.secondary_camera.extrinsics.position, expect.position, 'sec1 rel');
+        // sec extrinsics are rig-relative in the file — used as-is, no rebase through main
+        close(camParams.secondary_camera.extrinsics.position,
+            shifted.secondary_camera.extrinsics.position, 'sec1 as-is from file');
     });
 
     it('buildPresetJson: main ext forced to identity, sec exts kept', () => {

@@ -8,7 +8,7 @@ import {
 } from '../src/zoom-pipeline.js';
 
 const EPS = 1e-6;
-const W = 1080, H = 1920;
+const W = 1920, H = 1080;
 const D = 3;
 
 function assertVecClose(actual, expected, msg, eps = EPS) {

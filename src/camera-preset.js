@@ -3,21 +3,20 @@
  * @description
  * Camera preset load logic (resource/camera_setting/*.json).
  *
- * **Convention** (matches homography.js + camera-rig.js): the main camera's
- * extrinsics represent the WHOLE RIG pose; UW/Tele extrinsics are stored
- * RELATIVE to main. A canonical preset therefore has main extrinsics =
- * identity (zero position, zero rotation).
+ * **Convention** (five-layer coordinate chain):
+ * - Main camera extrinsics represent the RIG offset from SCENE_CAM.
+ *   A canonical preset has main extrinsics = identity (rig at SCENE_CAM).
+ * - UW/Tele extrinsics are stored RELATIVE TO THE RIG FRAME (not main).
+ *   Sensor long edge is always x: image_size = [1920, 1080].
  *
- * **Load rules (boss spec):**
+ * **Load rules:**
  * 1. If the file's main extrinsics IS identity → keep the current scene's
- *    main pose (rig stays where it is); only intrinsics + relative
- *    UW/Tele extrinsics come from the file.
+ *    main pose (rig stays where it is); only intrinsics + UW/Tele
+ *    rig-relative extrinsics come from the file.
  * 2. If NOT identity → the caller must ask the user:
  *    - 'absolute': place the rig at the file's main pose
  *    - 'relative': keep the current scene's main pose
- * 3. In ALL cases the UW/Tele extrinsics loaded into the system are
- *    RELATIVE to main — computed as rel = inv(main_file) ∘ sec_file.
- *    (When main is identity this is a no-op.)
+ * 3. UW/Tele extrinsics are used as-is (already rig-relative in the file).
  *
  * Rotation convention: euler degrees, THREE 'ZYX' order (matches
  * camera-rig.js eulerQuat). Implemented with pure quaternion math —
@@ -130,9 +129,6 @@ export function applyPreset(fileParams, mode, current) {
     const fileMainExt = fileParams.main_camera?.extrinsics
         || { position: [0, 0, 0], rotation_euler_deg: [0, 0, 0] };
 
-    // Rule 3: ALWAYS store UW/Tele relative to main.
-    const relOf = (cam) => cam ? relativeExt(fileMainExt, cam.extrinsics) : null;
-
     const camParams = JSON.parse(JSON.stringify(fileParams));
 
     if (mode === 'absolute') {
@@ -155,19 +151,14 @@ export function applyPreset(fileParams, mode, current) {
         };
     }
 
-    if (camParams.secondary_camera) {
-        camParams.secondary_camera.extrinsics = relOf(fileParams.secondary_camera);
-    }
-    if (camParams.secondary_camera_2) {
-        camParams.secondary_camera_2.extrinsics = relOf(fileParams.secondary_camera_2);
-    }
+    // UW/Tele extrinsics are rig-relative in the file — use as-is.
     return { camParams, sceneCam };
 }
 
 /**
  * Build a canonical preset JSON from the live state: main extrinsics =
  * identity (the rig pose is NOT saved — presets are position-independent
- * unless hand-authored otherwise), UW/Tele extrinsics relative to main
+ * unless hand-authored otherwise), UW/Tele extrinsics relative to rig
  * (already the system convention, saved as-is).
  */
 export function buildPresetJson(camParams) {

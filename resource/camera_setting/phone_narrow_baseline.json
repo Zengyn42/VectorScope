@@ -3,8 +3,8 @@
     "intrinsics": {
       "fx": 1500,
       "fy": 1500,
-      "cx": 540,
-      "cy": 960
+      "cx": 960,
+      "cy": 540
     },
     "extrinsics": {
       "position": [
@@ -19,16 +19,16 @@
       ]
     },
     "image_size": [
-      1080,
-      1920
+      1920,
+      1080
     ]
   },
   "secondary_camera": {
     "intrinsics": {
       "fx": 750,
       "fy": 750,
-      "cx": 540,
-      "cy": 960
+      "cx": 960,
+      "cy": 540
     },
     "extrinsics": {
       "position": [
@@ -43,20 +43,20 @@
       ]
     },
     "image_size": [
-      1080,
-      1920
+      1920,
+      1080
     ]
   },
   "secondary_camera_2": {
     "intrinsics": {
       "fx": 15000,
       "fy": 15000,
-      "cx": 540,
-      "cy": 960
+      "cx": 960,
+      "cy": 540
     },
     "extrinsics": {
       "position": [
-        -0.2,
+        0.4,
         0,
         0
       ],
@@ -67,8 +67,8 @@
       ]
     },
     "image_size": [
-      1080,
-      1920
+      1920,
+      1080
     ]
   }
 }

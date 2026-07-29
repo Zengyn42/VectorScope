@@ -39,12 +39,15 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         markerMap: new Map(),        // Map<Group, camName> for BEV click detection
     };
 
-    /** Create a PerspectiveCamera from intrinsic parameters. */
+    /** Create a PerspectiveCamera from intrinsic parameters.
+     *  Portrait: FOV from fx (sensor x = display vertical); aspect = winW/winH.
+     *  Landscape / legacy: FOV from fy; aspect = winW/winH. */
     function makeCamFromIntrinsics(intrinsics, imageSize) {
-        const { fy } = intrinsics;
-        const [, h] = winOf(imageSize);   // FOV from the WINDOW height
-        const fov = 2 * Math.atan(h / (2 * fy)) * 180 / Math.PI;
-        return new THREE.PerspectiveCamera(fov, 4 / 3, 0.01, 500);
+        const { fx, fy } = intrinsics;
+        const [winW, winH] = winOf(imageSize);
+        const isPortrait = getWinSize && winW < winH;
+        const fov = 2 * Math.atan(winH / (2 * (isPortrait ? fx : fy))) * 180 / Math.PI;
+        return new THREE.PerspectiveCamera(fov, winW / winH, 0.01, 500);
     }
 
     /** Compute horizontal FOV in radians from intrinsics (window width —
@@ -88,6 +91,45 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         return new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'ZYX'));
     };
 
+    /* Portrait orientation = the rig rotated 90° COUNTER-CLOCKWISE (on screen)
+       about the optical axis. Sensor long edge is always along x (image_size
+       = [1920, 1080]). In portrait the rig's +x axis maps to world +y, so the
+       extrinsic x baseline becomes a vertical (up-down) parallax.
+       Active Rz(+90°): +x (right) → +y (up). Landscape → null (identity). */
+    const rigQuat = () => {
+        if (!getWinSize) return null;       // legacy mode: no orientation semantics
+        const [w, h] = getWinSize();
+        return w < h
+            ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2)
+            : null;
+    };
+
+    /** Five-layer chain: world = SCENE_CAM ∘ qRig ∘ ext.
+     *  baseQuat/basePos = SCENE_CAM pose. rigQuat() is applied inside so
+     *  ALL cameras (main and sec) are called with the same (baseQuat, basePos).
+     *
+     *  Portrait DISPLAY model (phone rotated CCW): the sensor image is
+     *  rotated back +90° (CCW) on screen so world content stays upright.
+     *  That display rotation is equivalent to an extra camera roll
+     *  qRig⁻¹ applied on the right, which cancels the rig's body roll for
+     *  the ORIENTATION: q_render = qRig·qExt·qRig⁻¹ (identity ext →
+     *  unrolled camera, upright content). The POSITION offset keeps the
+     *  full rig rotation (physical baseline really is vertical in
+     *  portrait). Homography side implements the same display rotation in
+     *  computeHPairWin — render/H consistency is verified numerically.
+     *  Shared by init() and applyPose(). */
+    function poseCam(cam, cp, baseQuat, basePos) {
+        const qR = rigQuat();
+        const off = new THREE.Vector3(...(cp.extrinsics?.position || [0, 0, 0]));
+        let qExt = eulerQuat(cp.extrinsics?.rotation_euler_deg || [0, 0, 0]);
+        if (qR) {
+            off.applyQuaternion(qR);
+            qExt = qR.clone().multiply(qExt).multiply(qR.clone().invert());
+        }
+        cam.position.copy(off.applyQuaternion(baseQuat).add(basePos));
+        cam.quaternion.copy(baseQuat).multiply(qExt);
+    }
+
     /**
      * Fast per-frame update for trajectory playback: reposition the existing
      * cameras from a rig base pose + camera params WITHOUT rebuilding camera
@@ -104,33 +146,31 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         const baseQuat = eulerQuat(basePose.rotation_euler_deg);
 
         const setCam = (cam, cp, refQuat, refPos) => {
-            const off = new THREE.Vector3(...(cp.extrinsics?.position || [0, 0, 0]));
-            cam.position.copy(off.applyQuaternion(refQuat).add(refPos));
-            cam.quaternion.copy(refQuat).multiply(eulerQuat(cp.extrinsics?.rotation_euler_deg || [0, 0, 0]));
+            poseCam(cam, cp, refQuat, refPos);
             const { fx, fy, cx, cy } = cp.intrinsics;
             const [imgW, imgH] = cp.image_size;
             const [winW, winH] = winOf(cp.image_size);
-            /* image_size is the SENSOR extent; the camera renders the 1:1
-               center-anchored winW×winH window of it. FOV therefore comes
-               from the WINDOW height — enlarging the sensor must not
-               rescale the display (sensor px ↔ window px is a pure
-               center-aligned translation, docs/CAMERAS.md). */
-            const fov = 2 * Math.atan(winH / (2 * fy)) * 180 / Math.PI;
+            /* Portrait: sensor x (imgW) is displayed vertically (winH),
+               so FOV comes from fx and aspect = winW/winH.
+               Landscape / legacy: FOV from fy, same aspect formula. */
+            const isPortrait = getWinSize && winW < winH;
+            const fov = 2 * Math.atan(winH / (2 * (isPortrait ? fx : fy))) * 180 / Math.PI;
             if (Math.abs(cam.fov - fov) > 1e-9) { cam.fov = fov; }
-            /* Apply the optical-center offset as an asymmetric frustum.
-               In window coords the axis point sits at
-               cx_win = winW/2 + (cx − imgW/2) (center-aligned translation
-               of the sensor cx). Sign convention: setViewOffset(+ox)
-               shifts the rendered window RIGHT within the full frame,
-               which moves the optical-axis point LEFT in the output — so
-               the offset must be NEGATED: ox = −(cx − imgW/2), likewise
-               for y (THREE's offsetY is down-positive, and the NDC→
-               y-down-image flip makes y invert the same way). Verified
-               numerically: with this sign, H(cam1←cam2,D)·p2 matches the
-               rendered projection to 0.000 px for cameras with off-center
-               principal points and sensor ≠ window sizes. */
-            const ox = imgW / 2 - cx;
-            const oy = imgH / 2 - cy;
+            /* Aspect = window aspect (portrait < 1, landscape > 1). */
+            cam.aspect = winW / winH;
+            /* Apply optical-center offset as asymmetric frustum.
+               Sensor→window mapping: center-aligned translation, composed
+               with the +90° CCW display rotation in portrait
+               (u_w − winW/2 = v_s − imgH/2, v_w − winH/2 = −(u_s − imgW/2)),
+               so the sensor principal offset (dx, dy) = (cx − imgW/2,
+               cy − imgH/2) lands at window offset (dy, −dx).
+               Sign convention: setViewOffset(+ox) shifts the rendered window
+               RIGHT within the full frame → optical axis moves LEFT in output
+               → negate the window-space offset. */
+            const dx = cx - imgW / 2;
+            const dy = cy - imgH / 2;
+            const ox = isPortrait ? -dy : -dx;
+            const oy = isPortrait ?  dx : -dy;
             if (Math.abs(ox) > 0.5 || Math.abs(oy) > 0.5) {
                 cam.setViewOffset(winW, winH, ox, oy, winW, winH);
             } else {
@@ -138,10 +178,12 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
             }
             cam.updateProjectionMatrix();
         };
+        /* Five-layer chain: all cameras relative to rig frame (baseQuat, basePos).
+           poseCam() applies rigQuat() internally. */
         setCam(rig.main, p.main_camera, baseQuat, basePos);
-        setCam(rig.sec1, p.secondary_camera, rig.main.quaternion, rig.main.position);
+        setCam(rig.sec1, p.secondary_camera, baseQuat, basePos);
         if (rig.sec2 && p.secondary_camera_2) {
-            setCam(rig.sec2, p.secondary_camera_2, rig.main.quaternion, rig.main.position);
+            setCam(rig.sec2, p.secondary_camera_2, baseQuat, basePos);
         }
         recenterBev();
     }
@@ -193,18 +235,13 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         rig.main = makeCamFromIntrinsics(p.main_camera.intrinsics, p.main_camera.image_size);
         const basePos = new THREE.Vector3(...SCENE_CAM.position);
         const baseQuat = eulerQuat(SCENE_CAM.rotation_euler_deg);
-        const mainOff = new THREE.Vector3(...(p.main_camera.extrinsics?.position || [0, 0, 0]));
-        rig.main.position.copy(mainOff.applyQuaternion(baseQuat).add(basePos));
-        rig.main.quaternion.copy(baseQuat)
-            .multiply(eulerQuat(p.main_camera.extrinsics?.rotation_euler_deg || [0, 0, 0]));
+        poseCam(rig.main, p.main_camera, baseQuat, basePos);
         scene.add(rig.main);
 
-        // Secondary cameras (extrinsics relative to the main camera)
+        // Secondary cameras (extrinsics relative to the rig frame)
         const makeSec = (sp) => {
             const cam = makeCamFromIntrinsics(sp.intrinsics, sp.image_size);
-            const relPos = new THREE.Vector3(...sp.extrinsics.position);
-            cam.position.copy(relPos.applyQuaternion(rig.main.quaternion).add(rig.main.position));
-            cam.quaternion.copy(rig.main.quaternion).multiply(eulerQuat(sp.extrinsics.rotation_euler_deg));
+            poseCam(cam, sp, baseQuat, basePos);
             scene.add(cam);
             return cam;
         };

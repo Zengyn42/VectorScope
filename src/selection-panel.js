@@ -12,7 +12,7 @@
  * - **Main Camera selected**: shows the *absolute pose* (world position +
  *   orientation) — edits write back to `SCENE_CAM`.
  * - **Secondary camera selected**: shows the *relative pose w.r.t. the
- *   main camera* (extrinsics) — edits write back to
+ *   rig frame* (extrinsics) — edits write back to
  *   `camParams.secondary_camera[_2].extrinsics`.
  *
  * All pose edits are applied live: each input change triggers `onCamEdit`,
@@ -237,7 +237,7 @@ export function initSelectionPanel({ THREE, S, SCENE_CAM, getMainCam, getSecCam,
                 SCENE_CAM.rotation_euler_deg[2] + er[2],
             ];
         } else {
-            posLabel = 'Relative Pose (to Main)';
+            posLabel = 'Relative Pose (to Rig)';
             const ext = S.camParams?.[key]?.extrinsics;
             pos = ext?.position || [0, 0, 0];
             rot = ext?.rotation_euler_deg || [0, 0, 0];
