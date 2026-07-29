@@ -14,7 +14,7 @@
 import { computeSampleMatrixExplicit, computeFollowerMatrix, followerSource, zoomSource, SRC } from './zoom-pipeline.js';
 import { camOf, paramKeyOf } from './camera-utils.js';
 import { createDamping } from './h-damping.js';
-import { computeHPair } from './homography.js';
+import { computeHPairWin } from './homography.js';
 import { M } from './math.js';
 import { camDisplayName } from './camera.js';
 import { segmentLabel } from './segment-config.js';
@@ -122,7 +122,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         // (which would re-derive the lead with potentially different warp flags).
         const folSrc = opts.followerSrc ?? followerSource(S.zoom, hasS2);
         if (S.warp && folSrc !== src && params[paramKeyOf(folSrc)]) {
-            const Hlf = computeHPair(camOf(params, folSrc), camOf(params, src), Deff);
+            const Hlf = computeHPairWin(camOf(params, folSrc), camOf(params, src), Deff, _rtW, _rtH);
             S.followerSrc = folSrc;
             S.followerM = M.mul(Hlf, Msamp);
         } else {
@@ -143,7 +143,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
             if (!params[paramKeyOf(s)]) continue;
             if (s === src) { S.liveM[s] = Msamp; continue; }
             if (S.warp) {
-                const Hs = computeHPair(camOf(params, s), camOf(params, src), Deff);
+                const Hs = computeHPairWin(camOf(params, s), camOf(params, src), Deff, _rtW, _rtH);
                 S.liveM[s] = M.mul(Hs, Msamp);
             } else {
                 S.liveM[s] = computeFollowerMatrix(

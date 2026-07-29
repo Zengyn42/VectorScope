@@ -19,10 +19,20 @@
  * @param {object} opts.scene - scene the cameras/markers are added to
  * @param {object} opts.SCENE_CAM - `{ position, rotation_euler_deg }` base pose (read live)
  * @param {number} [opts.bevSize=6] - BEV ortho half-extent (m)
+ * @param {Function} [opts.getWinSize] - returns `[winW, winH]`, the shared
+ *        display/RT window size. `image_size` is the SENSOR extent; each
+ *        camera renders the 1:1 center-anchored winW×winH window of its
+ *        sensor (FOV derives from the WINDOW height, so enlarging the
+ *        sensor never rescales the display). Omitted → window = each
+ *        camera's own image_size (legacy behavior, used by unit tests).
  * @returns {{ rig, init, updateBevAspect, syncMarkers }}
  */
-export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit = 6 }) {
+export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit = 6,
+        getWinSize = null }) {
     let bevSize = bevSizeInit;
+    /** Effective render window for a camera: shared RT window, or the
+     *  camera's own sensor size when no window provider is configured. */
+    const winOf = (imageSize) => (getWinSize ? getWinSize() : imageSize);
     const rig = {
         main: null, sec1: null, sec2: null, bev: null,
         markers: [],                 // Group objects for BEV camera indicators
@@ -32,14 +42,15 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
     /** Create a PerspectiveCamera from intrinsic parameters. */
     function makeCamFromIntrinsics(intrinsics, imageSize) {
         const { fy } = intrinsics;
-        const [, h] = imageSize;
+        const [, h] = winOf(imageSize);   // FOV from the WINDOW height
         const fov = 2 * Math.atan(h / (2 * fy)) * 180 / Math.PI;
         return new THREE.PerspectiveCamera(fov, 4 / 3, 0.01, 500);
     }
 
-    /** Compute horizontal FOV in radians from intrinsics. */
+    /** Compute horizontal FOV in radians from intrinsics (window width —
+     *  what is actually displayed, not the full sensor). */
     function hfovFromIntrinsics(intrinsics, imageSize) {
-        return 2 * Math.atan(imageSize[0] / (2 * intrinsics.fx));
+        return 2 * Math.atan(winOf(imageSize)[0] / (2 * intrinsics.fx));
     }
 
     /** Colored camera marker (sphere + direction line + FOV wedge), layer 1 (BEV-only). */
@@ -98,25 +109,30 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
             cam.quaternion.copy(refQuat).multiply(eulerQuat(cp.extrinsics?.rotation_euler_deg || [0, 0, 0]));
             const { fx, fy, cx, cy } = cp.intrinsics;
             const [imgW, imgH] = cp.image_size;
-            const fov = 2 * Math.atan(imgH / (2 * fy)) * 180 / Math.PI;
+            const [winW, winH] = winOf(cp.image_size);
+            /* image_size is the SENSOR extent; the camera renders the 1:1
+               center-anchored winW×winH window of it. FOV therefore comes
+               from the WINDOW height — enlarging the sensor must not
+               rescale the display (sensor px ↔ window px is a pure
+               center-aligned translation, docs/CAMERAS.md). */
+            const fov = 2 * Math.atan(winH / (2 * fy)) * 180 / Math.PI;
             if (Math.abs(cam.fov - fov) > 1e-9) { cam.fov = fov; }
-            /* Apply optical-center offset as an asymmetric frustum.
-               Sign convention: setViewOffset(+ox) shifts the rendered
-               window RIGHT within the full sensor, which moves the
-               optical-axis point LEFT in the output image (to
-               imgW/2 − ox). The CV intrinsics K place the axis point AT
-               (cx, cy) in y-down image coords — the same convention the
-               homography K and the shader's sampling matrices use — so
-               the offset must be NEGATED: ox = −(cx − imgW/2), and
-               likewise for y (THREE's offsetY is down-positive, and the
-               NDC→y-down-image flip makes y invert the same way).
-               Verified numerically: with this sign, H(cam1←cam2,D)·p2
-               matches the rendered projection to 0.000 px for cameras
-               with off-center principal points. */
+            /* Apply the optical-center offset as an asymmetric frustum.
+               In window coords the axis point sits at
+               cx_win = winW/2 + (cx − imgW/2) (center-aligned translation
+               of the sensor cx). Sign convention: setViewOffset(+ox)
+               shifts the rendered window RIGHT within the full frame,
+               which moves the optical-axis point LEFT in the output — so
+               the offset must be NEGATED: ox = −(cx − imgW/2), likewise
+               for y (THREE's offsetY is down-positive, and the NDC→
+               y-down-image flip makes y invert the same way). Verified
+               numerically: with this sign, H(cam1←cam2,D)·p2 matches the
+               rendered projection to 0.000 px for cameras with off-center
+               principal points and sensor ≠ window sizes. */
             const ox = imgW / 2 - cx;
             const oy = imgH / 2 - cy;
             if (Math.abs(ox) > 0.5 || Math.abs(oy) > 0.5) {
-                cam.setViewOffset(imgW, imgH, ox, oy, imgW, imgH);
+                cam.setViewOffset(winW, winH, ox, oy, winW, winH);
             } else {
                 cam.clearViewOffset();
             }

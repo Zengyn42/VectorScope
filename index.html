@@ -637,7 +637,8 @@ const bevGhost = createBevGhost({ THREE, scene, getClipY: () => S.clipY });
 /* Camera rig (src/camera-rig.js): main/sec1/sec2 + BEV camera + markers.
    R is a live object — init() reassigns its fields; always access by
    property (R.main), never destructure. */
-const camRig = createCameraRig({ THREE, scene, SCENE_CAM, bevSize: 6 });
+const camRig = createCameraRig({ THREE, scene, SCENE_CAM, bevSize: 6,
+    getWinSize: () => [RT_W, RT_H] });
 const R = camRig.rig;
 
 /* Trajectory transport (src/transport.js): Play/Pause/Stop/Seek/Step state

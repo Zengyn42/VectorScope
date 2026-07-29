@@ -140,6 +140,50 @@ export function computeHPair(mc, sc, D) {
 }
 
 /**
+ * {@link computeHPair} expressed in **window pixel space**.
+ *
+ * `image_size` is the SENSOR extent; the displayed output is a 1:1,
+ * center-anchored winW×winH window of the sensor. Sensor px ↔ window px
+ * conversion is therefore a pure center-aligned TRANSLATION (never a
+ * scale):
+ * ```
+ * u_win = u_img − (imgW/2 − winW/2)
+ * v_win = v_img − (imgH/2 − winH/2)
+ * ```
+ * The raw {@link computeHPair} H works in sensor px (K uses absolute
+ * cx/cy). This wrapper conjugates it into window px:
+ * ```
+ * H_win = T(mc) · H · T(sc)⁻¹
+ * ```
+ * where `T(c)` translates c's sensor px → window px. When every camera's
+ * image_size equals the window (the default), T = I and this is exactly
+ * computeHPair. Consequently H_win depends on the optical center only
+ * through its offset from the SENSOR center (cx − imgW/2) — enlarging the
+ * sensor with a centered cx does not change the homography (nor the
+ * display).
+ *
+ * @param {object} mc  cam1 params ({ intrinsics, extrinsics, image_size })
+ * @param {object} sc  cam2 params ({ intrinsics, extrinsics, image_size })
+ * @param {number} D   Plane depth from the rig (main camera) frame
+ * @param {number} winW  window width (px) — the shared output/RT width
+ * @param {number} winH  window height (px)
+ * @returns {number[]} 3×3 homography (row-major, normalized so H[8]=1)
+ *          mapping cam2 WINDOW px → cam1 WINDOW px
+ */
+export function computeHPairWin(mc, sc, D, winW, winH) {
+    const H = computeHPair(mc, sc, D);
+    const [iw1, ih1] = mc.image_size ?? [winW, winH];
+    const [iw2, ih2] = sc.image_size ?? [winW, winH];
+    // T(mc): mc sensor px → window px;  T(sc)⁻¹: sc window px → sensor px
+    const T1 = [1, 0, (winW - iw1) / 2, 0, 1, (winH - ih1) / 2, 0, 0, 1];
+    const T2i = [1, 0, (iw2 - winW) / 2, 0, 1, (ih2 - winH) / 2, 0, 0, 1];
+    const Hw = M.mul(T1, M.mul(H, T2i));
+    const s = Hw[8];
+    if (Math.abs(s) > 1e-10) for (let i = 0; i < 9; i++) Hw[i] /= s;
+    return Hw;
+}
+
+/**
  * Zoom matrix in pixel space: output pixel → zoomed pixel.
  *   px = center + (p - center) / zoom
  *   Z = [[1/z, 0, cx*(1-1/z)], [0, 1/z, cy*(1-1/z)], [0, 0, 1]]

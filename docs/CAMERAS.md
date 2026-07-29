@@ -135,16 +135,25 @@ cam.quaternion = refQuat ⊗ eulerQuat(ext.rotation_euler_deg)
   matched exactly by the pure-quaternion helpers in
   `src/camera-preset.js` (`eulerToQuat`) and by the CV-side `eulerR` in
   `src/homography.js`.
-- **Intrinsics → frustum**: vertical FOV from `fy`
-  (`fov = 2·atan(imgH / 2fy)`). An off-center optical axis
-  (`cx,cy ≠ image center` by more than 0.5 px) is applied as an
-  asymmetric frustum via `setViewOffset(imgW, imgH, imgW/2−cx,
-  imgH/2−cy, imgW, imgH)`; otherwise `clearViewOffset()`. The offsets
-  are **negated** relative to `(cx−W/2, cy−H/2)`: a positive
+- **Sensor vs window**: `image_size` is the SENSOR extent. The displayed
+  output is a 1:1, **center-anchored `winW×winH` window** of the sensor
+  (window = the shared RT size, `getWinSize` option of
+  `createCameraRig`). Sensor px ↔ window px conversion is a pure
+  center-aligned **translation** — `u_win = u_img − (imgW/2 − winW/2)` —
+  never a scale: enlarging the sensor (with a centered optical axis)
+  changes neither the render nor any homography; it only adds usable
+  pixels outside the center window.
+- **Intrinsics → frustum**: vertical FOV from `fy` and the **window**
+  height (`fov = 2·atan(winH / 2fy)`). An off-center optical axis
+  (`cx,cy ≠ SENSOR center` by more than 0.5 px) is applied as an
+  asymmetric frustum via `setViewOffset(winW, winH, imgW/2−cx,
+  imgH/2−cy, winW, winH)`; otherwise `clearViewOffset()`. The offsets
+  are **negated** relative to `(cx−imgW/2, cy−imgH/2)`: a positive
   setViewOffset shifts the rendered window right/down, which moves the
-  optical-axis point left/up in the output — the negation makes the
-  rendered image match the CV intrinsics K (axis point AT `(cx, cy)`,
-  y-down) used by `computeHPair` and the shader sampling matrices.
+  optical-axis point left/up in the output — the negation puts the axis
+  point AT the translated window position `winW/2 + (cx−imgW/2)`
+  (y-down), matching the K used by `computeHPairWin` and the shader
+  sampling matrices.
 - `applyPose(p, basePose)` also refreshes FOV/view-offset every call, so
   per-frame focal or optical-center changes during trajectory playback
   take effect immediately.
@@ -152,8 +161,13 @@ cam.quaternion = refQuat ⊗ eulerQuat(ext.rotation_euler_deg)
 ### Homography-side convention (src/homography.js)
 
 `computeHPair(mc, sc, D)` returns `H = K1·(R12 + t12·n2ᵀ/d2)·K2⁻¹`
-mapping **cam2 px → cam1 px**, with the focus plane fronto-parallel *in
-the rig (Main) frame* at depth D. Three.js (Y-up, Z-back) ↔ CV (Y-down,
+mapping **cam2 px → cam1 px** in SENSOR pixel space, with the focus plane
+fronto-parallel *in the rig (Main) frame* at depth D. The pipeline uses
+`computeHPairWin(mc, sc, D, winW, winH)` — the same H conjugated into
+**window px** by the center-aligned translations (`T(mc)·H·T(sc)⁻¹`), so
+it depends on each optical center only through its offset from the
+sensor center. When every `image_size` equals the window, the two are
+identical. Three.js (Y-up, Z-back) ↔ CV (Y-down,
 Z-forward) conversion via `Flip = diag(1,−1,−1)`. The formula is fully
 general — it handles non-identity Main extrinsics correctly, although in
 normal use Main's extrinsics are identity (the rig pose lives in

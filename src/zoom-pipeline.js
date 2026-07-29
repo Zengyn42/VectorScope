@@ -26,7 +26,7 @@
  */
 
 import { M } from './math.js';
-import { computeHPair, zoomMatrix } from './homography.js';
+import { computeHPairWin, zoomMatrix } from './homography.js';
 import { SRC, camOf } from './camera-utils.js';
 
 /** Source texture indices — defined in camera-utils.js, re-exported here
@@ -187,7 +187,7 @@ export function computeSampleMatrixExplicit(opts) {
         const followerCam = camOf(p, opts.followerSrc);
         const leadCam = camOf(p, lead);
         if (followerCam && leadCam) {
-            const Hlf = computeHPair(leadCam, followerCam, opts.D);
+            const Hlf = computeHPairWin(leadCam, followerCam, opts.D, opts.w, opts.h);
             let t;
             if (opts.warpT !== undefined && opts.warpT !== null) {
                 t = opts.warpT;   // macro mode override
@@ -209,7 +209,7 @@ export function computeSampleMatrixExplicit(opts) {
         const followerCam = camOf(p, fol);
         const leadCam = camOf(p, lead);
         if (followerCam && leadCam) {
-            const Hlf = computeHPair(leadCam, followerCam, opts.D);
+            const Hlf = computeHPairWin(leadCam, followerCam, opts.D, opts.w, opts.h);
             // Hlf alone reproduces the follower's view at its NOMINAL zoom
             // (full frame). When macro forces UW at zoom > nominal (e.g.
             // entering from Tele at 5x), the current zoom's scale gap must
@@ -278,7 +278,7 @@ export function computeFollowerMatrix(opts) {
     // This guarantees alignment at focus depth D: any 3D point on the focus
     // plane maps to the same output pixel through either camera's matrix.
     const D = opts.D;
-    const Hlf = computeHPair(camOf(p, src), camOf(p, lead.src), D);
+    const Hlf = computeHPairWin(camOf(p, src), camOf(p, lead.src), D, opts.w, opts.h);
     return { src, m: M.mul(Hlf, lead.m) };
 }
 
@@ -308,7 +308,7 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
     if (z < 1.0) {
         /* ── Segment A: sec1 → main handover ── */
         if (warp) {
-            const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, D);
+            const Hm2s1 = computeHPairWin(p.secondary_camera, p.main_camera, D, w, h);
             let t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
             if (warpCurve) t = warpCurve(t);
             return { src: SRC.SEC1, m: scaleThenWarp(Hm2s1, zoomMatrix(z / 0.5, w, h), t) };
@@ -326,7 +326,7 @@ export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewa
     if (z < 5.0) {
         /* ── Segment C: main → sec2 handover ── */
         if (warp) {
-            const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, D);
+            const Hs2m = computeHPairWin(p.main_camera, p.secondary_camera_2, D, w, h);
             let t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
             if (warpCurve) t = warpCurve(t);
             return { src: SRC.MAIN, m: scaleThenWarp(Hs2m, zoomMatrix(z, w, h), t) };
