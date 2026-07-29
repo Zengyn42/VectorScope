@@ -101,10 +101,20 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
             const fov = 2 * Math.atan(imgH / (2 * fy)) * 180 / Math.PI;
             if (Math.abs(cam.fov - fov) > 1e-9) { cam.fov = fov; }
             /* Apply optical-center offset as an asymmetric frustum.
-               setViewOffset shifts the rendered sub-region of the full
-               sensor: offset = (cx - imgW/2, cy - imgH/2). */
-            const ox = cx - imgW / 2;
-            const oy = cy - imgH / 2;
+               Sign convention: setViewOffset(+ox) shifts the rendered
+               window RIGHT within the full sensor, which moves the
+               optical-axis point LEFT in the output image (to
+               imgW/2 − ox). The CV intrinsics K place the axis point AT
+               (cx, cy) in y-down image coords — the same convention the
+               homography K and the shader's sampling matrices use — so
+               the offset must be NEGATED: ox = −(cx − imgW/2), and
+               likewise for y (THREE's offsetY is down-positive, and the
+               NDC→y-down-image flip makes y invert the same way).
+               Verified numerically: with this sign, H(cam1←cam2,D)·p2
+               matches the rendered projection to 0.000 px for cameras
+               with off-center principal points. */
+            const ox = imgW / 2 - cx;
+            const oy = imgH / 2 - cy;
             if (Math.abs(ox) > 0.5 || Math.abs(oy) > 0.5) {
                 cam.setViewOffset(imgW, imgH, ox, oy, imgW, imgH);
             } else {

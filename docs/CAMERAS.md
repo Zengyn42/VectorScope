@@ -138,8 +138,13 @@ cam.quaternion = refQuat ⊗ eulerQuat(ext.rotation_euler_deg)
 - **Intrinsics → frustum**: vertical FOV from `fy`
   (`fov = 2·atan(imgH / 2fy)`). An off-center optical axis
   (`cx,cy ≠ image center` by more than 0.5 px) is applied as an
-  asymmetric frustum via `setViewOffset(imgW, imgH, cx−imgW/2,
-  cy−imgH/2, imgW, imgH)`; otherwise `clearViewOffset()`.
+  asymmetric frustum via `setViewOffset(imgW, imgH, imgW/2−cx,
+  imgH/2−cy, imgW, imgH)`; otherwise `clearViewOffset()`. The offsets
+  are **negated** relative to `(cx−W/2, cy−H/2)`: a positive
+  setViewOffset shifts the rendered window right/down, which moves the
+  optical-axis point left/up in the output — the negation makes the
+  rendered image match the CV intrinsics K (axis point AT `(cx, cy)`,
+  y-down) used by `computeHPair` and the shader sampling matrices.
 - `applyPose(p, basePose)` also refreshes FOV/view-offset every call, so
   per-frame focal or optical-center changes during trajectory playback
   take effect immediately.
