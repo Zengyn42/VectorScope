@@ -577,6 +577,7 @@ import { createTrajectoryLibrary, trajToJson } from './src/trajectory-library.js
 import { createGridOverlay } from './src/grid-overlay.js';
 import { applyTrajFrameToState, TRAJ_LOCK_IDS } from './src/traj-frame.js';
 import { applyCameraKey } from './src/keyboard-camera.js';
+import { focalPrewarps } from './src/camera-utils.js';
 import { createUndoManager } from './src/undo.js';
 import { captureState, restoreState as restoreUndoState } from './src/undo-state.js';
 import { createBevAxes } from './src/bev-axes.js';
@@ -781,6 +782,16 @@ store.register('cameras', {
         layoutPanels();
         camRig.updateBevAspect(P.bev);
         refreshH();
+        /* Prewarp sliders auto-track the rig's focal ratios on every camera
+           apply: prewarp1 = f_Main/f_UW, prewarp2 = f_Tele/f_Main. Routed
+           through the controls section so state, sliders and sampling all
+           refresh via the normal path (no-op when already in sync). */
+        const { prewarp1, prewarp2 } = focalPrewarps(v.camParams);
+        const ctl = store.get('controls');
+        const patch = {};
+        if (prewarp1 !== null && Math.abs(ctl.prewarp1 - prewarp1) > 1e-9) patch.prewarp1 = prewarp1;
+        if (prewarp2 !== null && Math.abs(ctl.prewarp2 - prewarp2) > 1e-9) patch.prewarp2 = prewarp2;
+        if (Object.keys(patch).length) store.set('controls', patch);
     },
 });
 

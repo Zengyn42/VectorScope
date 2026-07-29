@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { SRC, paramKeyOf, camOf } from '../src/camera-utils.js';
+import { SRC, paramKeyOf, camOf, focalPrewarps } from '../src/camera-utils.js';
 import { SRC as SRC_ZP } from '../src/zoom-pipeline.js';
 
 describe('camera-utils', () => {
@@ -30,5 +30,44 @@ describe('camera-utils', () => {
         assert.equal(camOf({ main_camera: {} }, SRC.SEC2), undefined);
         assert.equal(camOf(null, SRC.MAIN), undefined);
         assert.equal(camOf(undefined, SRC.SEC1), undefined);
+    });
+
+    it('focalPrewarps: prewarp1 = f_Main/f_UW, prewarp2 = f_Tele/f_Main', () => {
+        const r = focalPrewarps({
+            main_camera: { intrinsics: { fx: 1500 } },
+            secondary_camera: { intrinsics: { fx: 750 } },
+            secondary_camera_2: { intrinsics: { fx: 7500 } },
+        });
+        assert.equal(r.prewarp1, 2);
+        assert.equal(r.prewarp2, 5);
+    });
+
+    it('focalPrewarps: non-integer ratios pass through unrounded', () => {
+        const r = focalPrewarps({
+            main_camera: { intrinsics: { fx: 1200 } },
+            secondary_camera: { intrinsics: { fx: 900 } },
+            secondary_camera_2: { intrinsics: { fx: 4200 } },
+        });
+        assert.ok(Math.abs(r.prewarp1 - 1200 / 900) < 1e-12);
+        assert.ok(Math.abs(r.prewarp2 - 4200 / 1200) < 1e-12);
+    });
+
+    it('focalPrewarps: missing Tele / bad focals → null (leave slider untouched)', () => {
+        const noTele = focalPrewarps({
+            main_camera: { intrinsics: { fx: 1500 } },
+            secondary_camera: { intrinsics: { fx: 750 } },
+        });
+        assert.equal(noTele.prewarp1, 2);
+        assert.equal(noTele.prewarp2, null);
+
+        const zero = focalPrewarps({
+            main_camera: { intrinsics: { fx: 0 } },
+            secondary_camera: { intrinsics: { fx: 750 } },
+            secondary_camera_2: { intrinsics: { fx: 7500 } },
+        });
+        assert.equal(zero.prewarp1, null);
+        assert.equal(zero.prewarp2, null);
+
+        assert.deepEqual(focalPrewarps(null), { prewarp1: null, prewarp2: null });
     });
 });

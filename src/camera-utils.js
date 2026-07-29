@@ -34,3 +34,26 @@ export function paramKeyOf(s) {
 export function camOf(params, s) {
     return params?.[paramKeyOf(s)];
 }
+
+/**
+ * Focal-length-ratio prewarps for the current rig:
+ * - `prewarp1` = f_Main / f_UW   (warp-off crop for segment A on the UW RT;
+ *    also 1/nominal zoom of the UW camera)
+ * - `prewarp2` = f_Tele / f_Main (Tele nominal zoom; warp-off segment D crop)
+ *
+ * Uses fx (square pixels assumed, fx ≈ fy). Returns `null` for a ratio whose
+ * cameras are missing or have a non-positive focal, so callers can leave the
+ * corresponding slider untouched.
+ *
+ * @param {object} params - full camera params ({main_camera, secondary_camera, secondary_camera_2?})
+ * @returns {{prewarp1: number|null, prewarp2: number|null}}
+ */
+export function focalPrewarps(params) {
+    const mf = params?.main_camera?.intrinsics?.fx;
+    const uf = params?.secondary_camera?.intrinsics?.fx;
+    const tf = params?.secondary_camera_2?.intrinsics?.fx;
+    return {
+        prewarp1: (mf > 0 && uf > 0) ? mf / uf : null,
+        prewarp2: (mf > 0 && tf > 0) ? tf / mf : null,
+    };
+}
