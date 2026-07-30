@@ -36,6 +36,25 @@ export function camOf(params, s) {
 }
 
 /**
+ * Nominal zoom for a camera source — THE single source of truth.
+ * Nominal = the zoom factor at which the camera shows its full frame:
+ * UW = 1/prewarp1, Main = 1.0, Tele = prewarp2.
+ *
+ * (Previously duplicated as inline ternaries in zoom-pipeline.js and as the
+ * static SRC_NOMINAL table in render-loop.js — consolidated here.)
+ *
+ * @param {number} src - SRC.SEC1 | SRC.MAIN | SRC.SEC2
+ * @param {number} [prewarp1=1] - focal length ratio Main/UW
+ * @param {number} [prewarp2=5] - focal length ratio Tele/Main
+ * @returns {number} nominal zoom factor
+ */
+export function cameraNominal(src, prewarp1 = 1, prewarp2 = 5) {
+    if (src === SRC.SEC1) return 1 / (prewarp1 || 1);
+    if (src === SRC.SEC2) return prewarp2 || 5;
+    return 1.0;
+}
+
+/**
  * Focal-length-ratio prewarps for the current rig:
  * - `prewarp1` = f_Main / f_UW   (warp-off crop for segment A on the UW RT;
  *    also 1/nominal zoom of the UW camera)

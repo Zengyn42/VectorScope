@@ -27,7 +27,8 @@
 
 import { M } from './math.js';
 import { computeHPairWin, zoomMatrix } from './homography.js';
-import { SRC, camOf } from './camera-utils.js';
+import { SRC, camOf, cameraNominal } from './camera-utils.js';
+import { defaultSegment } from './segment-config.js';
 
 /** Source texture indices — defined in camera-utils.js, re-exported here
  *  so existing `import { SRC } from './zoom-pipeline.js'` keeps working. */
@@ -111,9 +112,11 @@ export function segName(z) {
  */
 export function zoomSource(z, hasS2, segCfg) {
     if (segCfg) return segCfg.getLeadSource(z, hasS2);
-    if (z < 1.0 - 1e-9) return SRC.SEC1;   // at exactly 1.0x → main leads
-    if (z < 5.0 || !hasS2) return SRC.MAIN;
-    return SRC.SEC2;
+    // UI convention: snap z within 1e-9 below 1.0x up to the boundary so
+    // float slider values at "1.0" resolve to main. Matrix math elsewhere
+    // uses the strict table (defaultSegment) directly.
+    const ze = (z < 1.0 && z >= 1.0 - 1e-9) ? 1.0 : z;
+    return defaultSegment(ze, hasS2).lead;
 }
 
 /**
@@ -143,13 +146,12 @@ export function zoomSource(z, hasS2, segCfg) {
  */
 export function followerSource(z, hasS2, segCfg) {
     if (segCfg) return segCfg.getFollowerSource(z, hasS2);
-    if (z < 1.0) return SRC.MAIN;
-    if (z < 2.0 || !hasS2) return SRC.SEC1;
-    return z < 5.0 ? SRC.SEC2 : SRC.MAIN;
+    // Degraded rig (no Tele): the only boundary is 1.0x, so the standby
+    // camera above 1.0x is always UW. (The default table would degrade
+    // SEC2→MAIN, making follower == lead — no blend partner.)
+    if (!hasS2 && z >= 1.0) return SRC.SEC1;
+    return defaultSegment(z, hasS2).follower;
 }
-
-/** Nominal magnification of each source (full-frame zoom factor). */
-export const SRC_NOMINAL = { [SRC.SEC1]: 0.5, [SRC.MAIN]: 1, [SRC.SEC2]: 5 };
 
 /**
  * {@link computeSampleMatrix} with an **explicit lead source** (trajectory
@@ -173,9 +175,7 @@ export function computeSampleMatrixExplicit(opts) {
     if (lead === undefined) return computeSampleMatrix(opts);
 
     // Compute lead's nominal zoom (for crop fallback).
-    const nominal = lead === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
-                  : lead === SRC.SEC2 ? (opts.prewarp2 || 5)
-                  : 1;
+    const nominal = cameraNominal(lead, opts.prewarp1, opts.prewarp2);
 
     // Generic warp path: when we have a segment range and warp is ON,
     // interpolate from the lead's crop at segFrom → H(lead←follower) at segTo.
@@ -203,9 +203,7 @@ export function computeSampleMatrixExplicit(opts) {
             // own crop when it takes over as lead — no scale jump at the
             // segment boundary even when prewarp ≠ true ratio. The lead's
             // residual scale ramps 1 → prewarp/trueRatio across the segment.
-            const folNominal = opts.followerSrc === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
-                             : opts.followerSrc === SRC.SEC2 ? (opts.prewarp2 || 5)
-                             : 1;
+            const folNominal = cameraNominal(opts.followerSrc, opts.prewarp1, opts.prewarp2);
             const Hfull = M.mul(Hlf, zoomMatrix(opts.z / folNominal, opts.w, opts.h));
             const cropZ = zoomMatrix(opts.z / nominal, opts.w, opts.h);
             return { src: lead, m: scaleThenWarp(Hfull, cropZ, t) };
@@ -226,9 +224,7 @@ export function computeSampleMatrixExplicit(opts) {
             // entering from Tele at 5x), the current zoom's scale gap must
             // also be applied: compose the follower's crop(z) BEFORE the
             // homography so t=1 replicates the follower's view AT zoom z.
-            const folNominal = fol === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
-                             : fol === SRC.SEC2 ? (opts.prewarp2 || 5)
-                             : 1;
+            const folNominal = cameraNominal(fol, opts.prewarp1, opts.prewarp2);
             const Hfull = M.mul(Hlf, zoomMatrix(opts.z / folNominal, opts.w, opts.h));
             const cropM = zoomMatrix(opts.z / nominal, opts.w, opts.h);
             return { src: lead, m: scaleThenWarp(Hfull, cropM, opts.warpT) };
@@ -259,27 +255,24 @@ export function computeSampleMatrixExplicit(opts) {
  * @param {number} [opts.leadSrc]     - explicit lead (trajectory mode)
  * @param {number} [opts.followerSrc] - explicit follower (trajectory mode);
  *        defaults to the zoom-rule follower
+ * @param {{src: number, m: number[]}} [lead] - precomputed lead result. When
+ *        the caller already has the ACTUAL lead matrix in use (e.g. refreshH's
+ *        Msamp, pushed to the shader), pass it so the follower aligns to that
+ *        exact matrix instead of a re-derivation (which could differ if the
+ *        caller's warp flags don't round-trip). Omitted → derived internally
+ *        via {@link computeSampleMatrixExplicit}.
  * @returns {{src: number, m: number[]}} follower source index + 3×3
  *          row-major sampling matrix (output px → follower px)
  */
-export function computeFollowerMatrix(opts) {
+export function computeFollowerMatrix(opts, lead = null) {
     const p = opts.params;
     const hasS2 = !!p.secondary_camera_2;
-    const lead = computeSampleMatrixExplicit(opts);
+    lead = lead ?? computeSampleMatrixExplicit(opts);
     // Use explicit followerSrc if provided (from segCfg or trajectory);
-    // otherwise fall back to hardcoded default rules.
+    // otherwise fall back to the default segment table.
     let src = opts.followerSrc ?? followerSource(opts.z, hasS2);
     if (src === SRC.SEC2 && !hasS2) src = SRC.MAIN;
     if (src === lead.src) return { src, m: lead.m.slice() };   // degenerate: same view
-
-    if (!opts.warp) {
-        // Warp OFF: each camera computes its own prewarp-based crop independently.
-        // Prewarp (focal length ratio) provides approximate alignment.
-        const { w, h, prewarp1 = 1, prewarp2 = 5 } = opts;
-        if (src === SRC.SEC1) return { src, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(opts.z, w, h)) };
-        if (src === SRC.SEC2) return { src, m: zoomMatrix(opts.z / prewarp2, w, h) };
-        return { src, m: zoomMatrix(opts.z, w, h) };
-    }
 
     // Warp ON: each camera has its own homography, both mapped to the same
     // output coordinate space (defined by the lead's current view).
@@ -288,9 +281,19 @@ export function computeFollowerMatrix(opts) {
     //            = H(follower ← lead, D) × M_lead
     // This guarantees alignment at focus depth D: any 3D point on the focus
     // plane maps to the same output pixel through either camera's matrix.
-    const D = opts.D;
-    const Hlf = computeHPairWin(camOf(p, src), camOf(p, lead.src), D, opts.w, opts.h);
-    return { src, m: M.mul(Hlf, lead.m) };
+    const folCam = camOf(p, src), leadCam = camOf(p, lead.src);
+    if (opts.warp && folCam && leadCam) {
+        const Hlf = computeHPairWin(folCam, leadCam, opts.D, opts.w, opts.h);
+        return { src, m: M.mul(Hlf, lead.m) };
+    }
+
+    // Warp OFF (or camera params missing): each camera computes its own
+    // prewarp-based crop independently. Prewarp (focal length ratio)
+    // provides approximate alignment.
+    const { w, h, prewarp1 = 1, prewarp2 = 5 } = opts;
+    if (src === SRC.SEC1) return { src, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(opts.z, w, h)) };
+    if (src === SRC.SEC2) return { src, m: zoomMatrix(opts.z / prewarp2, w, h) };
+    return { src, m: zoomMatrix(opts.z, w, h) };
 }
 
 /**
@@ -322,21 +325,18 @@ export function computeFollowerMatrix(opts) {
  * landed in one but not the other).
  */
 export function computeSampleMatrix(opts) {
-    const { z, params: p } = opts;
-    const hasS2 = !!p.secondary_camera_2;
-    // Strict segment boundaries (z<1.0 exact, no epsilon — matches the
-    // original pipeline; zoomSource() applies a 1e-9 tolerance at 1.0x
-    // which is a UI-side convention, not a matrix-math one).
-    const lead = z < 1.0 ? SRC.SEC1
-               : (z < 5.0 || !hasS2) ? SRC.MAIN
-               : SRC.SEC2;
-    const fol = followerSource(z, hasS2);
-    // Warp segments of the default pipeline: A [0.5,1) and C (2,5).
-    // B and D are plain-crop segments → no segRange → generic path crops.
-    let segRange = null;
-    if (z < 1.0) segRange = [0.5, 1.0];
-    else if (hasS2 && z > 2.0 && z < 5.0) segRange = [2, 5];
-    return computeSampleMatrixExplicit({ ...opts, leadSrc: lead, followerSrc: fol, segRange });
+    const hasS2 = !!opts.params.secondary_camera_2;
+    // Default segment table (strict boundaries — see defaultSegment).
+    // Effective warp = global flag AND the segment's own warp flag,
+    // mirroring refreshH's effectiveWarp logic for configured segments.
+    const seg = defaultSegment(opts.z, hasS2);
+    return computeSampleMatrixExplicit({
+        ...opts,
+        warp: opts.warp && seg.warp,
+        leadSrc: seg.lead,
+        followerSrc: seg.follower,
+        segRange: seg.range,
+    });
 }
 
 /**

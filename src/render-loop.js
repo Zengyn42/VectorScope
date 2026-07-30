@@ -32,7 +32,8 @@
  * The gating decision is a pure function ({@link frameGate}).
  */
 
-import { SRC, zoomSource, SRC_NOMINAL } from './zoom-pipeline.js';
+import { SRC, zoomSource } from './zoom-pipeline.js';
+import { cameraNominal } from './camera-utils.js';
 import { radialBlendParams } from './radial-blend.js';
 
 /**
@@ -277,9 +278,9 @@ export function createRenderLoop({
            follower) so the radial direction doesn't flip mid-blend when
            the follower changes at a segment boundary (e.g. 5→1 crossing 2.0x). */
         if (S.blendShape === 'radial' && matWarp.uniforms.uBlend.value < 1) {
-            const curNom = SRC_NOMINAL[zsrc] || 1;
+            const curNom = cameraNominal(zsrc, S.prewarpScale, S.prewarpScale2);
             const radialPrevSrc = blendOrigPrevSrc ?? matWarp.uniforms.uPrevSrc.value;
-            const prevNom = SRC_NOMINAL[radialPrevSrc] || 1;
+            const prevNom = cameraNominal(radialPrevSrc, S.prewarpScale, S.prewarpScale2);
             const { direction, coverRadius } = radialBlendParams(curNom, prevNom, S.zoom);
             matWarp.uniforms.uBlendRadial.value = direction;
             matWarp.uniforms.uCoverRadius.value = coverRadius;

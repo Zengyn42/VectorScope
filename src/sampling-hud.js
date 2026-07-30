@@ -11,10 +11,9 @@
  * {@link formatHMatrix} is a pure formatter so the HUD markup is unit-testable.
  */
 
-import { computeSampleMatrixExplicit, computeFollowerMatrix, followerSource, zoomSource, SRC } from './zoom-pipeline.js';
-import { camOf, paramKeyOf } from './camera-utils.js';
+import { computeSampleMatrixExplicit, computeFollowerMatrix, zoomSource, SRC } from './zoom-pipeline.js';
+import { paramKeyOf } from './camera-utils.js';
 import { createDamping } from './h-damping.js';
-import { computeHPairWin } from './homography.js';
 import { M } from './math.js';
 import { camDisplayName } from './camera.js';
 import { segmentLabel } from './segment-config.js';
@@ -117,20 +116,16 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         S.sampleM = Msamp;
         // Live follower state for dual-mode blends.
         // The follower matrix must be H(fol←lead, D) × M_lead_actual, where
-        // M_lead_actual is the SAME lead matrix the shader uses (Msamp).
-        // We compute it directly here instead of calling computeFollowerMatrix
-        // (which would re-derive the lead with potentially different warp flags).
-        const folSrc = opts.followerSrc ?? followerSource(S.zoom, hasS2);
-        if (S.warp && folSrc !== src && params[paramKeyOf(folSrc)]) {
-            const Hlf = computeHPairWin(camOf(params, folSrc), camOf(params, src), Deff, _rtW, _rtH);
-            S.followerSrc = folSrc;
-            S.followerM = M.mul(Hlf, Msamp);
-        } else {
-            // Warp OFF or degenerate: use computeFollowerMatrix with matching warp
-            const fol = computeFollowerMatrix({ ...opts, warp: effectiveWarp });
-            S.followerSrc = fol.src;
-            S.followerM = fol.m;
-        }
+        // M_lead_actual is the SAME lead matrix the shader uses (Msamp) —
+        // passed as the precomputed lead so computeFollowerMatrix doesn't
+        // re-derive it with potentially different warp flags.
+        // Warp flag: GLOBAL S.warp (not effectiveWarp) — followers align via
+        // homography even in plain-crop segments, so boundary blends stay
+        // smooth; warp OFF falls back to independent prewarp crops.
+        const fol = computeFollowerMatrix(
+            { ...opts, warp: S.warp }, { src, m: Msamp });
+        S.followerSrc = fol.src;
+        S.followerM = fol.m;
 
         /* Live sampling matrix for EVERY available camera at the current
            zoom (output px → that camera's RT px). Used by single-mode
@@ -142,13 +137,8 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         for (const s of [SRC.MAIN, SRC.SEC1, SRC.SEC2]) {
             if (!params[paramKeyOf(s)]) continue;
             if (s === src) { S.liveM[s] = Msamp; continue; }
-            if (S.warp) {
-                const Hs = computeHPairWin(camOf(params, s), camOf(params, src), Deff, _rtW, _rtH);
-                S.liveM[s] = M.mul(Hs, Msamp);
-            } else {
-                S.liveM[s] = computeFollowerMatrix(
-                    { ...opts, warp: effectiveWarp, followerSrc: s }).m;
-            }
+            S.liveM[s] = computeFollowerMatrix(
+                { ...opts, warp: S.warp, followerSrc: s }, { src, m: Msamp }).m;
         }
 
         /* HUD: show lead/follower names + their homographies (geometric
@@ -165,7 +155,7 @@ export function createSamplingRefresh({ S, R, matWarp, rtW: rtWInit, rtH: rtHIni
         // Compute the prewarp-only base (warp=false) for both cameras
         const baseOpts = { ...opts, warp: false };
         const leadBase = computeSampleMatrixExplicit(baseOpts);
-        const folBase = computeFollowerMatrix(baseOpts);
+        const folBase = computeFollowerMatrix(baseOpts, leadBase);
 
         function extractH(M_current, M_base) {
             const inv = M.inv(M_base);

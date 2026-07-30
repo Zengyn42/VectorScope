@@ -20,7 +20,7 @@
  * Pure module — no DOM, no Three.js. Fully unit-testable.
  */
 
-import { SRC } from './zoom-pipeline.js';
+import { SRC } from './camera-utils.js';
 import { camDisplayName, camColor } from './camera.js';
 
 /** Help section (see src/help-registry.js) */
@@ -65,11 +65,9 @@ export function segmentLabel(z, segCfg, hasS2 = true) {
         followerSrc = segCfg.getFollowerSource(z, hasS2);
         warp = segCfg.getSegmentWarp(z);
     } else {
-        // Hardcoded fallback matching default segments
-        if (z < 1) { leadSrc = SRC.SEC1; followerSrc = SRC.MAIN; warp = true; }
-        else if (z <= 2) { leadSrc = SRC.MAIN; followerSrc = SRC.SEC1; warp = false; }
-        else if (z < 5) { leadSrc = SRC.MAIN; followerSrc = SRC.SEC2; warp = true; }
-        else { leadSrc = SRC.SEC2; followerSrc = SRC.MAIN; warp = false; }
+        // No config → the shared default segment table (single source of truth)
+        const seg = defaultSegment(z, hasS2);
+        leadSrc = seg.lead; followerSrc = seg.follower; warp = seg.warp;
     }
     const leadName = camDisplayName(leadSrc);
     const folName = camDisplayName(followerSrc);
@@ -94,6 +92,31 @@ export const DEFAULT_ASSIGNMENTS = [
     { lead: SRC.MAIN, follower: SRC.SEC2, warp: true },    // [2.0, 5.0)  Main→Tele handover
     { lead: SRC.SEC2, follower: SRC.MAIN, warp: false },   // [5.0, 10.0] Tele plain crop
 ];
+
+/**
+ * Default-table segment lookup — THE single source of truth for the
+ * hardcoded zoom rules. `zoomSource`/`followerSource` (zoom-pipeline.js),
+ * `computeSampleMatrix`'s wrapper, and `segmentLabel`'s fallback all
+ * delegate here instead of re-encoding the table as inline branches
+ * (which drifted apart once already).
+ *
+ * Boundary semantics are STRICT (`z < breakpoint`, no epsilon) — matrix
+ * math requires exact boundaries. `zoomSource`'s 1e-9 tolerance at 1.0x
+ * is a UI-side convention applied by that caller, not here.
+ *
+ * @param {number} z - zoom factor
+ * @param {boolean} [hasS2=true] - whether the Tele camera exists
+ *        (SEC2 assignments degrade to MAIN when absent)
+ * @returns {{lead: number, follower: number, warp: boolean, range: number[]}}
+ */
+export function defaultSegment(z, hasS2 = true) {
+    return {
+        lead: DEFAULT_CFG.getLeadSource(z, hasS2),
+        follower: DEFAULT_CFG.getFollowerSource(z, hasS2),
+        warp: DEFAULT_CFG.getSegmentWarp(z),
+        range: DEFAULT_CFG.getSegmentRange(z),
+    };
+}
 
 /**
  * Create a segment config instance with breakpoint-based lookup.
@@ -239,3 +262,6 @@ export function createSegmentConfig(init) {
         },
     };
 }
+
+/** Private immutable default instance backing {@link defaultSegment}. */
+const DEFAULT_CFG = createSegmentConfig();

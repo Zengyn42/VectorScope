@@ -35,7 +35,7 @@
  * SCENE_CAM.position = [2.0, 1.0, 5.0];
  */
 
-import { SRC } from './zoom-pipeline.js';
+import { SRC } from './camera-utils.js';
 
 /* ═══════════════════════════════════════════════════════════════
    CAMERA IDENTITY CONSTANTS — single source of truth

@@ -21,7 +21,11 @@
  * Pure module — no DOM, no Three.js. Fully unit-testable.
  */
 
-import { SRC } from './zoom-pipeline.js';
+import { SRC, cameraNominal } from './camera-utils.js';
+
+/** Re-export: implementation moved to camera-utils.js (single source of
+ *  truth for per-camera nominal zoom, shared with zoom-pipeline/render-loop). */
+export { cameraNominal };
 
 /** Help section (see src/help-registry.js) */
 export const HELP = {
@@ -35,21 +39,6 @@ export const HELP = {
     ],
 };
 import { zoomMatrix } from './homography.js';
-
-/**
- * Compute the nominal zoom for a camera source.
- * Nominal = the zoom factor at which the camera shows its full frame.
- *
- * @param {number} src - SRC.SEC1 | SRC.MAIN | SRC.SEC2
- * @param {number} [prewarp1=1] - focal length ratio UW/Main
- * @param {number} [prewarp2=5] - focal length ratio Tele/Main
- * @returns {number} nominal zoom factor
- */
-export function cameraNominal(src, prewarp1 = 1, prewarp2 = 5) {
-    if (src === SRC.SEC1) return 1 / (prewarp1 || 1);
-    if (src === SRC.SEC2) return prewarp2 || 5;
-    return 1.0;
-}
 
 /**
  * Compute the crop factor for a camera at a given zoom.
