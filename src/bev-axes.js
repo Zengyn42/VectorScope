@@ -18,6 +18,8 @@
  * `rigAxes` is `{ xAxis: THREE.Vector3, yAxis: THREE.Vector3 }` in world space.
  */
 
+import { AXIS_COLORS } from './bev-planes.js';
+
 /** Help section (see src/help-registry.js) */
 export const HELP = {
     title: 'BEV Axes',
@@ -36,12 +38,16 @@ export const HELP = {
  *  @param {number} SIZE - canvas width/height (square)
  */
 function drawCompass(ctx, arrows, footerLabel, SIZE) {
-    const LEN = 40;         // arrow length in canvas px
-    const OX = 18;          // origin X
-    const OY = 18;          // origin Y (top of canvas)
+    const LEN = 18;                  // arrow length in canvas px
+    const OX = SIZE / 2;             // origin X — canvas center
+    const OY = SIZE / 2 - 4;         // origin Y — centered, leaving footer room
+    /* Centered origin + LEN + label margin all fit inside SIZE in every
+       direction, so up-pointing arrows are no longer clipped. The canvas
+       (bounding box) position/size is unchanged. */
 
     ctx.clearRect(0, 0, SIZE, SIZE);
 
+    let dotCount = 0;   // stack labels if multiple axes project to a dot
     for (const { label, color, dx, dy } of arrows) {
         const mag = Math.sqrt(dx * dx + dy * dy);
         const DOT_THRESHOLD = 0.08;  // treat as near-zero if magnitude below this
@@ -50,10 +56,13 @@ function drawCompass(ctx, arrows, footerLabel, SIZE) {
         ctx.strokeStyle = color;
         ctx.fillStyle   = color;
         ctx.lineWidth   = 2.5;
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
 
         if (mag < DOT_THRESHOLD) {
             /* Near-zero projection: axis points into/out of the view plane.
-               Draw a circle (dot) with a short stub below to indicate depth. */
+               Draw a circle (dot) with a short stub to indicate depth. */
             ctx.beginPath();
             ctx.arc(OX, OY, 5, 0, Math.PI * 2);
             ctx.stroke();
@@ -62,6 +71,9 @@ function drawCompass(ctx, arrows, footerLabel, SIZE) {
             ctx.moveTo(OX, OY);
             ctx.lineTo(OX + 6, OY + 6);
             ctx.stroke();
+            // Label near the dot (stacked if several axes are perpendicular)
+            ctx.fillText(label, OX + 15, OY - 10 + dotCount * 12);
+            dotCount++;
         } else {
             /* Normalise so arrow is always LEN px long regardless of projection mag. */
             const nx = (dx / mag) * LEN;
@@ -84,12 +96,8 @@ function drawCompass(ctx, arrows, footerLabel, SIZE) {
             ctx.closePath();
             ctx.fill();
 
-            // Label — offset perpendicular to arrow so it doesn't overlap
-            ctx.font = 'bold 11px monospace';
-            // Perpendicular offset for label placement
-            const lox = -(ny / LEN) * 14 + (nx / LEN) * 4;
-            const loy =  (nx / LEN) * 14 + (ny / LEN) * 4;
-            ctx.fillText(label, tipX + lox, tipY + loy);
+            // Label — centered a fixed distance past the arrow tip
+            ctx.fillText(label, tipX + (nx / LEN) * 11, tipY + (ny / LEN) * 11);
         }
         ctx.restore();
     }
@@ -173,13 +181,18 @@ export function createBevAxes() {
         // ── Rig compass ──
         const rigCtx = rigCanvas.getContext('2d');
         if (rigAxes && planeDef) {
-            const { xAxis, yAxis } = rigAxes;
+            const { xAxis, yAxis, zAxis } = rigAxes;
             const px = planeDef.projectWorld(xAxis.x, xAxis.y, xAxis.z);  // { u, v }
             const py = planeDef.projectWorld(yAxis.x, yAxis.y, yAxis.z);
-            drawCompass(rigCtx, [
-                { label: 'X', color: '#e94560', dx: px.u, dy: px.v },
-                { label: 'Y', color: '#4ea8de', dx: py.u, dy: py.v },
-            ], 'camera rig', SIZE);
+            const arrows = [
+                { label: 'X', color: AXIS_COLORS.x, dx: px.u, dy: px.v },
+                { label: 'Y', color: AXIS_COLORS.y, dx: py.u, dy: py.v },
+            ];
+            if (zAxis) {
+                const pz = planeDef.projectWorld(zAxis.x, zAxis.y, zAxis.z);
+                arrows.push({ label: 'Z', color: AXIS_COLORS.z, dx: pz.u, dy: pz.v });
+            }
+            drawCompass(rigCtx, arrows, 'camera rig', SIZE);
         } else {
             rigCtx.clearRect(0, 0, SIZE, SIZE);
         }

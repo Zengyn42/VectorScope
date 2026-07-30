@@ -193,10 +193,10 @@ test('setBevPlane resets pan and moves bev camera for zy (side view)', () => {
     const { rig, init, setBevPlane } = makeRig({ position: [0, 1.5, 4], rotation_euler_deg: [0, 0, 0] });
     init(PARAMS);
     setBevPlane('zy');
-    // zy: camera from -X, center at (0, mainPos.y, mainPos.z)
+    // zy: camera from +X (screen right = -Z), center at (0, mainPos.y, mainPos.z)
     // Main at (0, 1.5, 4). zy center = (0, 1.5, 4).
-    // Camera at center + {-1,0,0}*20 = (-20, 1.5, 4).
-    near(rig.bev.position.x, -20, 1e-5);
+    // Camera at center + {1,0,0}*20 = (20, 1.5, 4).
+    near(rig.bev.position.x, 20, 1e-5);
     near(rig.bev.position.y, 1.5, 1e-5);
     near(rig.bev.position.z, 4, 1e-5);
 });

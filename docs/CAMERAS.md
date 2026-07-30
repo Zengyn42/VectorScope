@@ -300,7 +300,7 @@ compass in the bottom-left corner. Configuration lives in
 |-------|------------|-------------|---------------|------------|-------------|
 | **xz** (top-down) | +Y looking −Y | +X | +Z (down) | Y | Y=0 plane |
 | **xy** (front) | +Z looking −Z | +X | +Y (up) | Z | Z=0 plane |
-| **zy** (side) | −X looking +X | +Z | +Y (up) | X | X=0 plane |
+| **zy** (side) | +X looking −X | −Z | +Y (up) | X | X=0 plane |
 
 Each plane definition provides:
 - `ghostAxis` / `ghostLabel` — which axis the Ghost slider clips against
@@ -311,11 +311,13 @@ Each plane definition provides:
 - `centerOf(mainPos, fwdXZ, size)` — view center computation
 - `projectWorld(wx, wy, wz)` — world vector → screen { u, v } projection
 
-The scene compass (bottom-left) shows world axes for the current plane
-and is clickable (cycles xz → xy → zy → xz). The rig compass
-(bottom-right) shows the camera rig's own X (red) and Y (blue) axes
-projected onto the current view plane, reflecting SCENE_CAM rotation ∘
-rig orientation (portrait/landscape).
+The scene compass (bottom-left) shows all three world axes for the
+current plane — fixed colors X=red, Y=blue, Z=green; the axis
+perpendicular to the view plane is drawn as a dot — and is clickable
+(cycles xz → xy → zy → xz). The rig compass (bottom-right) shows the
+camera rig's own X/Y/Z axes in the same fixed colors, projected onto
+the current view plane, reflecting SCENE_CAM rotation ∘ rig
+orientation (portrait/landscape).
 
 Camera markers (sphere + direction line + FOV wedge) maintain constant
 screen size via `group.scale.setScalar(bevSize / 6)` in `syncMarkers()`.

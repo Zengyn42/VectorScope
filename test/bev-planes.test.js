@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
     BEV_PLANE_ORDER,
     BEV_PLANE_DEFS,
+    AXIS_COLORS,
     nextBevPlane,
     getBevPlaneDef,
 } from '../src/bev-planes.js';
@@ -68,9 +69,9 @@ describe('bevCamDir', () => {
         const d = BEV_PLANE_DEFS.xy.bevCamDir;
         assert.deepEqual(d, { x: 0, y: 0, z: 1 });
     });
-    it('zy: camera from −X (-1,0,0)', () => {
+    it('zy: camera from +X (1,0,0) — screen right = −Z', () => {
         const d = BEV_PLANE_DEFS.zy.bevCamDir;
-        assert.deepEqual(d, { x: -1, y: 0, z: 0 });
+        assert.deepEqual(d, { x: 1, y: 0, z: 0 });
     });
 });
 
@@ -102,20 +103,33 @@ describe('dragNormal', () => {
 
 /* ── compass ── */
 describe('compass entries', () => {
-    it('xz: +X right, +Z down', () => {
-        const [a, b] = BEV_PLANE_DEFS.xz.compass;
-        assert.equal(a.label, '+X'); assert.equal(a.dx, 1); assert.equal(a.dy, 0);
-        assert.equal(b.label, '+Z'); assert.equal(b.dx, 0); assert.equal(b.dy, 1);
+    it('every plane lists all three axes X, Y, Z in fixed colors', () => {
+        for (const plane of BEV_PLANE_ORDER) {
+            const c = BEV_PLANE_DEFS[plane].compass;
+            assert.equal(c.length, 3);
+            assert.deepEqual(c.map(a => a.label), ['+X', '+Y', '+Z']);
+            assert.equal(c[0].color, AXIS_COLORS.x);
+            assert.equal(c[1].color, AXIS_COLORS.y);
+            assert.equal(c[2].color, AXIS_COLORS.z);
+        }
     });
-    it('xy: +X right, +Y up (dy=-1)', () => {
-        const [a, b] = BEV_PLANE_DEFS.xy.compass;
-        assert.equal(a.label, '+X'); assert.equal(a.dx, 1);  assert.equal(a.dy,  0);
-        assert.equal(b.label, '+Y'); assert.equal(b.dx, 0);  assert.equal(b.dy, -1);
+    it('xz: +X right, +Y dot, +Z down', () => {
+        const [x, y, z] = BEV_PLANE_DEFS.xz.compass;
+        assert.equal(x.dx, 1); assert.equal(x.dy, 0);
+        assert.equal(y.dx, 0); assert.equal(y.dy, 0);   // perpendicular → dot
+        assert.equal(z.dx, 0); assert.equal(z.dy, 1);
     });
-    it('zy: +Z right, +Y up (dy=-1)', () => {
-        const [a, b] = BEV_PLANE_DEFS.zy.compass;
-        assert.equal(a.label, '+Z'); assert.equal(a.dx, 1);  assert.equal(a.dy,  0);
-        assert.equal(b.label, '+Y'); assert.equal(b.dx, 0);  assert.equal(b.dy, -1);
+    it('xy: +X right, +Y up (dy=-1), +Z dot', () => {
+        const [x, y, z] = BEV_PLANE_DEFS.xy.compass;
+        assert.equal(x.dx, 1);  assert.equal(x.dy,  0);
+        assert.equal(y.dx, 0);  assert.equal(y.dy, -1);
+        assert.equal(z.dx, 0);  assert.equal(z.dy,  0);  // perpendicular → dot
+    });
+    it('zy: +X dot, +Y up (dy=-1), +Z LEFT (−Z is screen right)', () => {
+        const [x, y, z] = BEV_PLANE_DEFS.zy.compass;
+        assert.equal(x.dx, 0);   assert.equal(x.dy,  0);  // perpendicular → dot
+        assert.equal(y.dx, 0);   assert.equal(y.dy, -1);
+        assert.equal(z.dx, -1);  assert.equal(z.dy,  0);
     });
 });
 
@@ -143,11 +157,11 @@ describe('worldPan', () => {
         assert.equal(BEV_PLANE_DEFS.xy.worldPan(3, 7, s).z, 0);
     });
 
-    it('zy: drag right (-z), drag down (+y), x=0', () => {
+    it('zy: drag right (+z, since screen right = −Z), drag down (+y), x=0', () => {
         const r = BEV_PLANE_DEFS.zy.worldPan(10, 5, s);
         assert.equal(r.x, 0);
         assert.ok(Math.abs(r.y - (0.5)) < 1e-12);
-        assert.ok(Math.abs(r.z - (-1.0)) < 1e-12);
+        assert.ok(Math.abs(r.z - (1.0)) < 1e-12);
     });
     it('zy: x component always 0', () => {
         assert.equal(BEV_PLANE_DEFS.zy.worldPan(3, 7, s).x, 0);
@@ -166,9 +180,9 @@ describe('projectWorld', () => {
         assert.equal(r.u, 3);
         assert.equal(r.v, -4);
     });
-    it('zy: u=wz, v=-wy  (x component ignored)', () => {
+    it('zy: u=-wz, v=-wy  (x component ignored; −Z is screen right)', () => {
         const r = BEV_PLANE_DEFS.zy.projectWorld(99, 4, 5);
-        assert.equal(r.u, 5);
+        assert.equal(r.u, -5);
         assert.equal(r.v, -4);
     });
 });

@@ -7,13 +7,15 @@
  * Planes:
  *   xz  — top-down  (camera from +Y, screen right=+X, screen down=+Z)
  *   xy  — front     (camera from +Z, screen right=+X, screen up=+Y)
- *   zy  — side      (camera from −X, screen right=+Z, screen up=+Y)
+ *   zy  — side      (camera from +X, screen right=−Z, screen up=+Y)
  *
  * Each definition carries:
  *   ghostAxis    — which box axis to compare for BEV ghost clipping ('x'|'y'|'z')
  *   ghostLabel   — display name shown on the Ghost slider ('X'|'Y'|'Z')
- *   compass      — two { label, color, dx, dy } descriptors for the 2D compass
- *                  (dx/dy in canvas coords: right=+1, DOWN=+1)
+ *   compass      — three { label, color, dx, dy } descriptors for the 2D compass,
+ *                  one per world axis, in fixed axis colors (AXIS_COLORS).
+ *                  (dx/dy in canvas coords: right=+1, DOWN=+1; dx=dy=0 means the
+ *                  axis is perpendicular to the view plane → drawn as a dot)
  *   bevCamDir    — unit vector pointing FROM view center TO BEV camera position
  *   bevCamUp     — camera up vector; null = use the Three.js default (degenerate handled)
  *   worldPan(dr, dd, s)  — converts screen pixel drag (right=+dr, down=+dd, scale=s)
@@ -26,14 +28,18 @@
 
 export const BEV_PLANE_ORDER = ['xz', 'xy', 'zy'];
 
+/** Fixed compass colors per world axis: x=red, y=blue, z=green. */
+export const AXIS_COLORS = { x: '#e94560', y: '#4ea8de', z: '#3ddc84' };
+
 export const BEV_PLANE_DEFS = {
     /** Top-down view: camera from +Y, looking down -Y. */
     xz: {
         ghostAxis: 'y',
         ghostLabel: 'Y',
         compass: [
-            { label: '+X', color: '#e94560', dx:  1, dy:  0 },   // screen right
-            { label: '+Z', color: '#4ea8de', dx:  0, dy:  1 },   // screen down
+            { label: '+X', color: AXIS_COLORS.x, dx:  1, dy:  0 },   // screen right
+            { label: '+Y', color: AXIS_COLORS.y, dx:  0, dy:  0 },   // ⊥ view → dot
+            { label: '+Z', color: AXIS_COLORS.z, dx:  0, dy:  1 },   // screen down
         ],
         bevCamDir:  { x: 0, y: 1, z: 0 },
         bevCamUp:   null,
@@ -54,8 +60,9 @@ export const BEV_PLANE_DEFS = {
         ghostAxis: 'z',
         ghostLabel: 'Z',
         compass: [
-            { label: '+X', color: '#e94560', dx:  1, dy:  0 },   // screen right
-            { label: '+Y', color: '#4ea8de', dx:  0, dy: -1 },   // screen UP
+            { label: '+X', color: AXIS_COLORS.x, dx:  1, dy:  0 },   // screen right
+            { label: '+Y', color: AXIS_COLORS.y, dx:  0, dy: -1 },   // screen UP
+            { label: '+Z', color: AXIS_COLORS.z, dx:  0, dy:  0 },   // ⊥ view → dot
         ],
         bevCamDir:  { x: 0, y: 0, z: 1 },
         bevCamUp:   [0, 1, 0],
@@ -67,22 +74,23 @@ export const BEV_PLANE_DEFS = {
         projectWorld(wx, wy, wz) { return { u: wx, v: -wy }; },
     },
 
-    /** Side view: camera from −X, looking along +X. */
+    /** Side view: camera from +X, looking along −X (screen right = −Z). */
     zy: {
         ghostAxis: 'x',
         ghostLabel: 'X',
         compass: [
-            { label: '+Z', color: '#e94560', dx:  1, dy:  0 },   // screen right
-            { label: '+Y', color: '#4ea8de', dx:  0, dy: -1 },   // screen UP
+            { label: '+X', color: AXIS_COLORS.x, dx:  0, dy:  0 },   // ⊥ view → dot
+            { label: '+Y', color: AXIS_COLORS.y, dx:  0, dy: -1 },   // screen UP
+            { label: '+Z', color: AXIS_COLORS.z, dx: -1, dy:  0 },   // screen LEFT (−Z is right)
         ],
-        bevCamDir:  { x: -1, y: 0, z: 0 },
+        bevCamDir:  { x: 1, y: 0, z: 0 },
         bevCamUp:   [0, 1, 0],
-        worldPan:   (dr, dd, s) => ({ x: 0,       y: dd * s,  z: -dr * s }),
+        worldPan:   (dr, dd, s) => ({ x: 0,       y: dd * s,  z: dr * s }),
         dragNormal: { x: 1, y: 0, z: 0 },
         centerOf(mainPos) {
             return { cx: 0, cy: mainPos.y, cz: mainPos.z };
         },
-        projectWorld(wx, wy, wz) { return { u: wz, v: -wy }; },
+        projectWorld(wx, wy, wz) { return { u: -wz, v: -wy }; },
     },
 };
 

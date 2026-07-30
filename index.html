@@ -1207,12 +1207,13 @@ for (const b of document.querySelectorAll('.zp-btn')) {
    ================================================================ */
 const bevAxes = createBevAxes();
 
-/** Compute rig world X and Y axes from the camera-rig quaternion. */
+/** Compute rig world X/Y/Z axes from the camera-rig quaternion. */
 function getRigAxes() {
     const q = camRig.getRigQuat();
     const xAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
     const yAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
-    return { xAxis, yAxis };
+    const zAxis = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    return { xAxis, yAxis, zAxis };
 }
 
 /** Rebuild axes overlay and update Ghost label to match active plane. */
