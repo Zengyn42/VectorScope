@@ -477,9 +477,13 @@ describe('Integration: warp curve remaps interpolation', () => {
         assert.ok(linear.m.every(Number.isFinite), 'linear finite');
         assert.ok(curved.m.every(Number.isFinite), 'curved finite');
 
-        // Ease-in should produce less warp effect at midpoint (closer to identity)
-        const linDiff = Math.max(...norm(linear.m).map((v, i) => Math.abs(v - M.id()[i])));
-        const curDiff = Math.max(...norm(curved.m).map((v, i) => Math.abs(v - M.id()[i])));
+        // Ease-in should produce less warp effect at midpoint. Since the
+        // scale part now always tracks the lead crop exactly (prewarp in the
+        // lead crop, purely geometric residual), measure distance from the
+        // t=0 baseline — the pure crop — instead of from identity.
+        const base = norm(computeSampleMatrix(sampleOpts(0.75, { warpCurve: () => 0 })).m);
+        const linDiff = Math.max(...norm(linear.m).map((v, i) => Math.abs(v - base[i])));
+        const curDiff = Math.max(...norm(curved.m).map((v, i) => Math.abs(v - base[i])));
         assert.ok(curDiff < linDiff, `ease-in: less warp at midpoint (${curDiff.toFixed(4)} < ${linDiff.toFixed(4)})`);
     });
 });

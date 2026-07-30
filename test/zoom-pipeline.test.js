@@ -120,9 +120,18 @@ describe('computeSampleMatrix — segment A (warp ON)', () => {
         const Hm2s1 = computeHPair(p.secondary_camera, p.main_camera, D);
         const z = Math.sqrt(0.5);
         const { m } = sample(z);
-        // Decoupled formulation: crop(z) applied first, warp residual at t=0.5 on top
-        const expected = scaleThenWarp(Hm2s1, zoomMatrix(z / 0.5, W, H), 0.5);
+        // Lead crop carries prewarp1 (crop(z·prewarp1)); warp target is
+        // Main's view AT zoom z (Hm2s1·crop(z)), residual at t=0.5 on top.
+        const Hfull = M.mul(Hm2s1, zoomMatrix(z, W, H));
+        const expected = scaleThenWarp(Hfull, zoomMatrix(z * 2, W, H), 0.5);
         assertVecClose(norm(m), norm(expected), 'A midpoint');
+    });
+
+    it('prewarp1 in the LEAD crop: z=0.5 with prewarp1=3 → crop(1.5) on sec1', () => {
+        // Prewarp residual is compensated in the leading (UW) camera's own
+        // sampling, matching the warp-off path crop(prewarp1·z) at t=0.
+        const { m } = sample(0.5, { prewarp1: 3 });
+        assertVecClose(norm(m), norm(zoomMatrix(1.5, W, H)), 'A @0.5x prewarp1=3', 1e-4);
     });
 });
 
@@ -155,6 +164,37 @@ describe('computeSampleMatrix — segment C (warp ON)', () => {
         const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, D);
         const { m } = sample(5 - 1e-12);
         assertVecClose(norm(m), norm(Hs2m), 'C @5x⁻', 1e-4);
+    });
+
+    it('prewarp2 ≠ true ratio: z→5⁻ endpoint = Hs2m·crop(5/prewarp2) (matches Segment D)', () => {
+        // True focal ratio is 5 (fx 7500/1500); slider forced to 3.
+        // Segment D at z=5 samples Tele with crop(5/3), so Segment C's t=1
+        // endpoint must be that view seen through Main: Hs2m · crop(5/3).
+        const p = makeRig();
+        const Hs2m = computeHPair(p.main_camera, p.secondary_camera_2, D);
+        const expected = M.mul(Hs2m, zoomMatrix(5 / 3, W, H));
+        const { m } = sample(5 - 1e-12, { prewarp2: 3 });
+        assertVecClose(norm(m), norm(expected), 'C @5x⁻ prewarp2=3', 1e-4);
+    });
+
+    it('prewarp2 ≠ true ratio: warp residual scale → prewarp2/trueRatio near handover', () => {
+        // Residual = m · inv(crop(z)); its scale part should approach
+        // prewarp2 / trueRatio = 3/5 = 0.6 as t → 1 (boss's compensation).
+        const z = 5 - 1e-9;
+        const { m } = sample(z, { prewarp2: 3 });
+        const res = M.mul(m, M.inv(zoomMatrix(z, W, H)));
+        const scale = res[0] / res[8];
+        assert.ok(Math.abs(scale - 0.6) < 1e-3, `residual scale ${scale}, expected ≈0.6`);
+    });
+
+    it('consistent prewarp2 (=true ratio): residual scale stays 1 mid-segment', () => {
+        // With prewarp2 == true focal ratio the target at zoom z is Tele's
+        // view AT z, so the residual is purely geometric — no scale dip.
+        const z = 3;
+        const { m } = sample(z);   // prewarp2: 5 = true ratio
+        const res = M.mul(m, M.inv(zoomMatrix(z, W, H)));
+        const scale = res[0] / res[8];
+        assert.ok(Math.abs(scale - 1) < 1e-2, `residual scale ${scale}, expected ≈1`);
     });
 });
 
@@ -311,6 +351,35 @@ describe('computeFollowerMatrix', () => {
 // ── generic warp with segRange ──
 
 describe('computeSampleMatrixExplicit with segRange', () => {
+    it('generic path: prewarp2 ≠ true ratio → lead residual scale ramps 1 → prewarp2/trueRatio', () => {
+        // This is the path the live app uses (refreshH always passes
+        // leadSrc/followerSrc from segment config). Regression guard: it
+        // must carry the same prewarp compensation as the hardcoded path.
+        const scaleOf = m => m[0] / m[8];
+        const resScale = (z) => {
+            const { m } = computeSampleMatrixExplicit({
+                z, warp: true, D, params: makeRig(), prewarp1: 2, prewarp2: 3, w: W, h: H,
+                leadSrc: SRC.MAIN, followerSrc: SRC.SEC2, segRange: [2, 5],
+            });
+            return scaleOf(M.mul(m, M.inv(zoomMatrix(z, W, H))));
+        };
+        assert.ok(Math.abs(resScale(2 + 1e-9) - 1) < 1e-3, `@2x⁺ ≈ 1, got ${resScale(2 + 1e-9)}`);
+        assert.ok(Math.abs(resScale(5 - 1e-9) - 0.6) < 1e-3, `@5x⁻ ≈ 0.6, got ${resScale(5 - 1e-9)}`);
+        const mid = resScale(3.5);
+        assert.ok(mid < 1 && mid > 0.6, `mid-segment between 0.6 and 1, got ${mid}`);
+    });
+
+    it('generic path matches the hardcoded pipeline in segment C (consistent prewarps)', () => {
+        const z = 3.3;
+        const opts = { z, warp: true, D, params: makeRig(), prewarp1: 2, prewarp2: 5, w: W, h: H };
+        const hard = computeSampleMatrix(opts);
+        const gen = computeSampleMatrixExplicit({
+            ...opts, leadSrc: SRC.MAIN, followerSrc: SRC.SEC2, segRange: [2, 5],
+        });
+        assert.equal(gen.src, hard.src);
+        assertVecClose(norm(gen.m), norm(hard.m), 'generic ≡ hardcoded @3.3x', 1e-6);
+    });
+
     it('segRange warp interpolates from crop(segFrom) to H at segTo', () => {
         const p = makeRig();
         // UW leads [0.5, 1.0), follower=Main, warp ON

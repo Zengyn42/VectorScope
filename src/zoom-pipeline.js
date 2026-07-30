@@ -9,10 +9,10 @@
  *
  * Segments (half-open — a boundary zoom belongs to the NEXT camera):
  * ```
- * A  [0.5, 1.0)x : source = sec1;  warp ON: scaleThenWarp(H(sec1←main), crop(z), log t)
+ * A  [0.5, 1.0)x : source = sec1;  warp ON: scaleThenWarp(H(sec1←main)·crop(z), crop(z·prewarp1), log t)
  * B  [1.0, 2.0]x : source = main;  plain crop(z)
- * C  (2.0, 5.0)x : source = main;  warp ON: scaleThenWarp(H(main←sec2 view), crop(z), log t)
- * D  [5.0, 10 ]x : source = sec2;  plain crop(z/5)
+ * C  (2.0, 5.0)x : source = main;  warp ON: scaleThenWarp(H(main←sec2)·crop(z/prewarp2), crop(z), log t)
+ * D  [5.0, 10 ]x : source = sec2;  plain crop(z/prewarp2)
  * ```
  * So z=1.0 shows the main camera full frame and z=5.0 shows sec2 full frame.
  * Warp OFF: A → prewarp1·crop(z) on sec1; C → prewarp2·crop(z) on main —
@@ -196,8 +196,19 @@ export function computeSampleMatrixExplicit(opts) {
                 t = Math.max(0, Math.min(1, t));
                 if (opts.warpCurve) t = opts.warpCurve(t);
             }
+            // Warp target = the follower's view AT zoom z under ITS prewarp
+            // nominal (Hlf alone = follower full frame, i.e. assumes the
+            // prewarp slider equals the true focal ratio). Composing
+            // crop(z/folNominal) makes the t=1 endpoint match the follower's
+            // own crop when it takes over as lead — no scale jump at the
+            // segment boundary even when prewarp ≠ true ratio. The lead's
+            // residual scale ramps 1 → prewarp/trueRatio across the segment.
+            const folNominal = opts.followerSrc === SRC.SEC1 ? (1 / (opts.prewarp1 || 1))
+                             : opts.followerSrc === SRC.SEC2 ? (opts.prewarp2 || 5)
+                             : 1;
+            const Hfull = M.mul(Hlf, zoomMatrix(opts.z / folNominal, opts.w, opts.h));
             const cropZ = zoomMatrix(opts.z / nominal, opts.w, opts.h);
-            return { src: lead, m: scaleThenWarp(Hlf, cropZ, t) };
+            return { src: lead, m: scaleThenWarp(Hfull, cropZ, t) };
         }
     }
     // Macro mode warp override without a segRange (e.g., UW forced at zoom > 1.0).
@@ -301,46 +312,31 @@ export function computeFollowerMatrix(opts) {
  * @param {Function} [opts.warpCurve] - optional easing function (t) → t for warp
  *        interpolation. When provided, the linear log-space t is remapped
  *        through this function before being passed to normLerp.
+ *
+ * SINGLE IMPLEMENTATION: this is a thin wrapper that derives the default
+ * lead/follower/segment-range from the hardcoded zoom rules and delegates to
+ * {@link computeSampleMatrixExplicit}'s generic path — the same code the live
+ * app runs (refreshH always passes explicit sources from segment config).
+ * There is deliberately NO separate hardcoded matrix pipeline anymore: two
+ * parallel implementations drifted apart once already (prewarp compensation
+ * landed in one but not the other).
  */
-export function computeSampleMatrix({ z, warp, D, params: p, prewarp1 = 1, prewarp2 = 1, w, h, warpCurve }) {
+export function computeSampleMatrix(opts) {
+    const { z, params: p } = opts;
     const hasS2 = !!p.secondary_camera_2;
-
-    if (z < 1.0) {
-        /* ── Segment A: sec1 → main handover ── */
-        if (warp) {
-            const Hm2s1 = computeHPairWin(p.secondary_camera, p.main_camera, D, w, h);
-            let t = Math.log(z / 0.5) / Math.log(2);   // log-space t: 0 @0.5x → 1 @1.0x
-            if (warpCurve) t = warpCurve(t);
-            return { src: SRC.SEC1, m: scaleThenWarp(Hm2s1, zoomMatrix(z / 0.5, w, h), t) };
-        }
-        // prewarp1 = focal_length_ratio (UW vs Main); already encodes the
-        // FOV relationship. Total crop = prewarp1 × z on the UW RT.
-        return { src: SRC.SEC1, m: M.mul(zoomMatrix(prewarp1, w, h), zoomMatrix(z, w, h)) };
-    }
-
-    if (z <= 2.0 || !hasS2) {
-        /* ── Segment B: main plain crop (also fallback when no sec2) ── */
-        return { src: SRC.MAIN, m: zoomMatrix(z, w, h) };
-    }
-
-    if (z < 5.0) {
-        /* ── Segment C: main → sec2 handover ── */
-        if (warp) {
-            const Hs2m = computeHPairWin(p.main_camera, p.secondary_camera_2, D, w, h);
-            let t = Math.log(z / 2) / Math.log(2.5);   // log-space t: 0 @2x → 1 @5x
-            if (warpCurve) t = warpCurve(t);
-            return { src: SRC.MAIN, m: scaleThenWarp(Hs2m, zoomMatrix(z, w, h), t) };
-        }
-        // Segment C: Main is the reference camera, just crop by z.
-        // prewarp2 doesn't apply here — it describes the Tele/Main focal
-        // length ratio, used only when sampling Tele's RT (Segment D).
-        return { src: SRC.MAIN, m: zoomMatrix(z, w, h) };
-    }
-
-    /* ── Segment D: sec2 direct, residual crop ── */
-    // prewarp2 = f_Tele / f_Main; replaces the hardcoded "5" nominal.
-    // At z=prewarp2: crop=1.0 (full Tele frame = matches Main's FOV/prewarp2).
-    return { src: SRC.SEC2, m: zoomMatrix(z / prewarp2, w, h) };
+    // Strict segment boundaries (z<1.0 exact, no epsilon — matches the
+    // original pipeline; zoomSource() applies a 1e-9 tolerance at 1.0x
+    // which is a UI-side convention, not a matrix-math one).
+    const lead = z < 1.0 ? SRC.SEC1
+               : (z < 5.0 || !hasS2) ? SRC.MAIN
+               : SRC.SEC2;
+    const fol = followerSource(z, hasS2);
+    // Warp segments of the default pipeline: A [0.5,1) and C (2,5).
+    // B and D are plain-crop segments → no segRange → generic path crops.
+    let segRange = null;
+    if (z < 1.0) segRange = [0.5, 1.0];
+    else if (hasS2 && z > 2.0 && z < 5.0) segRange = [2, 5];
+    return computeSampleMatrixExplicit({ ...opts, leadSrc: lead, followerSrc: fol, segRange });
 }
 
 /**
