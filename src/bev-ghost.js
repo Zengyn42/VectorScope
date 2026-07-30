@@ -31,19 +31,22 @@ export const HELP = {
     ],
 };
 
-export function createBevGhost({ THREE, scene, getClipY }) {
+export function createBevGhost({ THREE, scene, getClipY, getClipAxis = null }) {
     const box = new THREE.Box3();
     const ghosted = [];
 
-    /** Swap meshes above the ghost height to translucent clone materials. */
+    /** Swap meshes above the ghost threshold to translucent clone materials.
+     *  The comparison axis is determined by getClipAxis() ('x'|'y'|'z'),
+     *  defaulting to 'y' for backward compatibility (xz / top-down view). */
     function apply() {
-        const clipY = getClipY();
+        const clipVal = getClipY();
+        const axis = getClipAxis ? getClipAxis() : 'y';
         scene.traverse(o => {
             if (!o.isMesh || o.layers.mask !== 1) return;  // layer-0 scene meshes only
             const g = o.geometry;
             if (!g.boundingBox) g.computeBoundingBox();
             box.copy(g.boundingBox).applyMatrix4(o.matrixWorld);
-            if (box.min.y > clipY) {
+            if (box.min[axis] > clipVal) {
                 if (!o.userData._ghostMat) {
                     const mk = m => {
                         const c = m.clone();

@@ -209,7 +209,7 @@ input[type="file"] { display: none; }
         <button id="btn-del">Delete</button>
       </div>
       <div class="ctrl-row" style="margin-bottom:8px">
-        <label>Ghost Y:</label>
+        <label id="ghost-axis-label">Ghost Y:</label>
         <button class="sld-btn" onclick="nudge('sld-clip',-1)">&minus;</button>
         <input type="range" id="sld-clip" min="0.3" max="8.0" step="0.1" value="2.0">
         <button class="sld-btn" onclick="nudge('sld-clip',1)">+</button>
@@ -586,6 +586,7 @@ import { focalPrewarps } from './src/camera-utils.js';
 import { createUndoManager } from './src/undo.js';
 import { captureState, restoreState as restoreUndoState } from './src/undo-state.js';
 import { createBevAxes } from './src/bev-axes.js';
+import { getBevPlaneDef, nextBevPlane } from './src/bev-planes.js';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -608,6 +609,7 @@ const store = createConfigStore();
 const S = {
     warp: false, zoom: 1.0, prewarpScale: 1.0, prewarpScale2: 1.0, depthD: 3.0,
     clipY: 2.0,            // BEV clipping plane height
+    bevPlane: 'xz',        // active BEV view plane: 'xz' | 'xy' | 'zy'
     blendX: 20,            // camera-transition blend length in frames (0 = off)
     blendMode: 'single',   // 'single' = frozen last frame | 'dual' = live follower RT
     blendShape: 'flat',    // 'flat' = uniform alpha | 'radial' = center-out gradient
@@ -638,7 +640,11 @@ const { renderer, scene, aLight, dLight, rtDepth, depthMat, matWarp } = gl;
 
 /* BEV Ghost Mode (src/bev-ghost.js): objects above S.clipY render
    semi-transparent in the BEV pass instead of blocking the view. */
-const bevGhost = createBevGhost({ THREE, scene, getClipY: () => S.clipY });
+const bevGhost = createBevGhost({
+    THREE, scene,
+    getClipY: () => S.clipY,
+    getClipAxis: () => getBevPlaneDef(S.bevPlane).ghostAxis,
+});
 
 /* Camera rig (src/camera-rig.js): main/sec1/sec2 + BEV camera + markers.
    R is a live object — init() reassigns its fields; always access by
@@ -839,7 +845,7 @@ const { sel, syncDepthSlider } = initInteraction({
     onSelChange,
     getPanel, toNDC, $,
     onDragStart: () => undoManager.checkpoint('drag'),
-    onBevPan: (dx, dz) => { camRig.panBev(dx, dz); loop.markDirty(2); },
+    onBevPan: (dx, dy, dz) => { camRig.panBev(dx, dy, dz); loop.markDirty(2); },
     onBevZoom: (factor) => {
         camRig.setBevSize(camRig.getBevSize() * factor);
         camRig.updateBevAspect(P.bev);
@@ -1197,10 +1203,35 @@ for (const b of document.querySelectorAll('.zp-btn')) {
 }
 
 /* ================================================================
-   BEV AXES (Feature 5 — src/bev-axes.js)
+   BEV AXES (src/bev-axes.js) + BEV PLANE SWITCH
    ================================================================ */
 const bevAxes = createBevAxes();
-let updateBevAxes = () => bevAxes.update(P.bev);
+
+/** Compute rig world X and Y axes from the camera-rig quaternion. */
+function getRigAxes() {
+    const q = camRig.getRigQuat();
+    const xAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const yAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    return { xAxis, yAxis };
+}
+
+/** Rebuild axes overlay and update Ghost label to match active plane. */
+function updateBevAxesAndLabel() {
+    const planeDef = getBevPlaneDef(S.bevPlane);
+    bevAxes.update(P.bev, planeDef, getRigAxes());
+    // Update Ghost axis label in the controls panel
+    const ghostLbl = $('ghost-axis-label');
+    if (ghostLbl) ghostLbl.textContent = 'Ghost ' + planeDef.ghostLabel + ':';
+}
+let updateBevAxes = updateBevAxesAndLabel;
+
+/* Plane-switch: clicking the scene compass cycles xz → xy → zy → xz. */
+bevAxes.onPlaneSwitch(() => {
+    S.bevPlane = nextBevPlane(S.bevPlane);
+    camRig.setBevPlane(S.bevPlane);
+    updateBevAxesAndLabel();
+    loop.markDirty(3);
+});
 
 /* ================================================================
    BEV ZOOM BUTTONS (Feature 2)

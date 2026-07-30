@@ -12,8 +12,8 @@
  * - **Main camera** has identity extrinsics (position [0,0,0], rotation [0,0,0]),
  *   meaning it coincides with the scene camera in 3D space.
  * - **UW camera** (ultra wide, `secondary_camera`) extrinsics are *relative
- *   to the main camera*. Default: 0.5m rightward offset, no rotation
- *   (parallel stereo rig). See docs/CAMERAS.md for the naming convention.
+ *   to the rig frame*. Default: 0.5m offset along rig Y (sensor short
+ *   edge), no rotation (parallel stereo rig). See docs/CAMERAS.md.
  * - Focal lengths differ: main = 1500px, UW = 750px (2x wider FOV).
  *   This simulates a common real-world setup where the UW camera
  *   captures a wider field of view for context.
@@ -88,7 +88,7 @@ export let SCENE_CAM = { position: [1.7, 0.8, 4.5], rotation_euler_deg: [0, 0, 0
 /**
  * Default stereo camera parameters for homography computation.
  * Main camera: identity extrinsics, fx/fy = 1500.
- * UW camera (`secondary_camera`): 0.5m rightward offset, fx/fy = 750 (ultra-wide FOV).
+ * UW camera (`secondary_camera`): 0.5m rig-Y offset, fx/fy = 750 (ultra-wide FOV).
  * @type {{ main_camera: object, secondary_camera: object }}
  */
 export const DEF_CAM = {
@@ -99,14 +99,14 @@ export const DEF_CAM = {
     },
     secondary_camera: {
         intrinsics: { fx: 750, fy: 750, cx: 960, cy: 540 },
-        extrinsics: { position: [0.5, 0, 0], rotation_euler_deg: [0, 0, 0] },
+        extrinsics: { position: [0, 0.5, 0], rotation_euler_deg: [0, 0, 0] },
         image_size: [1920, 1080],
     },
     secondary_camera_2: {
         // Telephoto: 5x the main focal length → 1/5 FOV. The combined-view
         // zoom pipeline hands over from main to sec2 exactly at 5.0x.
         intrinsics: { fx: 7500, fy: 7500, cx: 960, cy: 540 },
-        extrinsics: { position: [1.0, 0, 0], rotation_euler_deg: [0, 0, 0] },
+        extrinsics: { position: [0, 1.0, 0], rotation_euler_deg: [0, 0, 0] },
         image_size: [1920, 1080],
     },
 };

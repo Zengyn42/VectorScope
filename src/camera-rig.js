@@ -27,9 +27,12 @@
  *        camera's own image_size (legacy behavior, used by unit tests).
  * @returns {{ rig, init, updateBevAspect, syncMarkers }}
  */
+import { getBevPlaneDef } from './bev-planes.js';
+
 export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit = 6,
         getWinSize = null }) {
     let bevSize = bevSizeInit;
+    let bevPlane = 'xz';   // current BEV view plane: 'xz' | 'xy' | 'zy'
     /** Effective render window for a camera: shared RT window, or the
      *  camera's own sensor size when no window provider is configured. */
     const winOf = (imageSize) => (getWinSize ? getWinSize() : imageSize);
@@ -188,40 +191,70 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         recenterBev();
     }
 
-    /** User-applied BEV pan offset (world XZ). Reset when setBevSize is called
+    /** User-applied BEV pan offset (world XYZ). Reset when bevPlane changes
      *  or explicitly via resetBevPan(). */
-    const bevPan = { x: 0, z: 0 };
+    const bevPan = { x: 0, y: 0, z: 0 };
 
-    /** Center BEV slightly ahead of the main camera (along its forward
-     *  direction on XZ), so the rig sits in the lower part of the window.
-     *  Adds the user pan offset on top. */
+    /** BEV camera distance from view center (world units).
+     *  Orthographic cameras are insensitive to distance along the view axis,
+     *  but near/far (0.1–100) must encompass the scene. */
+    const BEV_DIST = 20;
+
+    /** Center the BEV camera for the current bevPlane, adding any user pan. */
     function recenterBev() {
-        if (!rig.bev) return;
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.main.quaternion);
-        fwd.y = 0;
-        if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
-        fwd.normalize();
-        const cx = rig.main.position.x + fwd.x * bevSize * 0.4 + bevPan.x;
-        const cz = rig.main.position.z + fwd.z * bevSize * 0.4 + bevPan.z;
-        rig.bev.position.set(cx, 20, cz);
-        rig.bev.lookAt(cx, 0, cz);
+        if (!rig.bev || !rig.main) return;
+        const planeDef = getBevPlaneDef(bevPlane);
+
+        let cx, cy, cz;
+        if (bevPlane === 'xz') {
+            // Top-down: offset center slightly ahead of main camera on XZ
+            const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.main.quaternion);
+            fwd.y = 0;
+            if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+            fwd.normalize();
+            const r = planeDef.centerOf(rig.main.position, fwd, bevSize);
+            cx = r.cx; cy = r.cy; cz = r.cz;
+        } else {
+            const r = planeDef.centerOf(rig.main.position);
+            cx = r.cx; cy = r.cy; cz = r.cz;
+        }
+        // Add user pan
+        cx += bevPan.x; cy += bevPan.y; cz += bevPan.z;
+
+        const dir = planeDef.bevCamDir;
+        rig.bev.position.set(
+            cx + dir.x * BEV_DIST,
+            cy + dir.y * BEV_DIST,
+            cz + dir.z * BEV_DIST,
+        );
+        if (planeDef.bevCamUp) {
+            rig.bev.up.set(planeDef.bevCamUp[0], planeDef.bevCamUp[1], planeDef.bevCamUp[2]);
+        }
+        rig.bev.lookAt(cx, cy, cz);
     }
 
-    /** Shift the BEV view by a world-space delta (XZ) and immediately
+    /** Shift the BEV view by a world-space delta (XYZ) and immediately
      *  update the camera position (recenterBev is only called during
      *  trajectory playback, so we must move the camera here). */
-    function panBev(dx, dz) {
-        bevPan.x += dx;
-        bevPan.z += dz;
+    function panBev(dx, dy, dz) {
+        bevPan.x += dx; bevPan.y += dy; bevPan.z += dz;
         if (rig.bev) {
+            const planeDef = getBevPlaneDef(bevPlane);
+            const dir = planeDef.bevCamDir;
             rig.bev.position.x += dx;
+            rig.bev.position.y += dy;
             rig.bev.position.z += dz;
-            rig.bev.lookAt(rig.bev.position.x, 0, rig.bev.position.z);
+            // Re-derive lookAt target: camera is bevCamDir*BEV_DIST away from center
+            rig.bev.lookAt(
+                rig.bev.position.x - dir.x * BEV_DIST,
+                rig.bev.position.y - dir.y * BEV_DIST,
+                rig.bev.position.z - dir.z * BEV_DIST,
+            );
         }
     }
 
     /** Reset BEV pan offset to zero and re-center. */
-    function resetBevPan() { bevPan.x = 0; bevPan.z = 0; recenterBev(); }
+    function resetBevPan() { bevPan.x = 0; bevPan.y = 0; bevPan.z = 0; recenterBev(); }
 
     /** (Re)build all cameras + BEV camera + markers from camera params. */
     function init(p) {
@@ -278,13 +311,18 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
         rig.bev.updateProjectionMatrix();
     }
 
-    /** Sync marker poses to their cameras (call once per frame). */
+    /** Sync marker poses to their cameras (call once per frame).
+     *  Also scales markers so they appear constant-size on screen
+     *  regardless of BEV zoom: scale = bevSize / 6 (6 = default half-extent). */
     function syncMarkers() {
         const cams = [rig.main, rig.sec1, rig.sec2];
+        const scale = bevSize / 6;
         for (let i = 0; i < rig.markers.length; i++) {
             if (!cams[i]) continue;
-            rig.markers[i].position.copy(cams[i].position);
-            rig.markers[i].quaternion.copy(cams[i].quaternion);
+            const group = rig.markers[i];
+            group.position.copy(cams[i].position);
+            group.quaternion.copy(cams[i].quaternion);
+            group.scale.setScalar(scale);
         }
     }
 
@@ -298,5 +336,37 @@ export function createCameraRig({ THREE, scene, SCENE_CAM, bevSize: bevSizeInit 
     /** Return the current BEV half-extent. */
     function getBevSize() { return bevSize; }
 
-    return { rig, init, applyPose, updateBevAspect, syncMarkers, setBevSize, getBevSize, panBev, resetBevPan };
+    /**
+     * Switch the active BEV view plane.
+     * Resets pan and re-centers immediately.
+     * @param {string} plane - 'xz' | 'xy' | 'zy'
+     */
+    function setBevPlane(plane) {
+        if (plane === bevPlane) return;
+        bevPlane = plane;
+        resetBevPan();
+    }
+
+    /** Return the current BEV view plane name. */
+    function getBevPlane() { return bevPlane; }
+
+    /**
+     * Return the combined rig world quaternion: SCENE_CAM.rot ∘ qRig.
+     * For landscape: qRig = identity → result = SCENE_CAM quaternion.
+     * For portrait: qRig = Rz(+90°) → result = SCENE_CAM ∘ Rz(+90°).
+     * Returns a new THREE.Quaternion.
+     */
+    function getRigQuat() {
+        const baseQuat = eulerQuat(SCENE_CAM.rotation_euler_deg);
+        const qR = rigQuat();
+        if (qR) return baseQuat.multiply(qR);
+        return baseQuat;
+    }
+
+    return {
+        rig, init, applyPose, updateBevAspect, syncMarkers,
+        setBevSize, getBevSize,
+        setBevPlane, getBevPlane, getRigQuat,
+        panBev, resetBevPan,
+    };
 }

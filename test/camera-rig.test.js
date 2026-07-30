@@ -147,3 +147,64 @@ test('setBevSize clamps to [1, 30]', () => {
     setBevSize(50);
     assert.equal(getBevSize(), 30);
 });
+
+test('syncMarkers: scale = bevSize / 6 (constant screen size)', () => {
+    const { rig, init, syncMarkers, setBevSize } = makeRig();
+    init(PARAMS);
+    // default bevSize=6 → scale = 1
+    syncMarkers();
+    near(rig.markers[0].scale.x, 1);
+    near(rig.markers[1].scale.x, 1);
+    // set bevSize=12 → scale = 2
+    setBevSize(12);
+    syncMarkers();
+    near(rig.markers[0].scale.x, 2);
+    // set bevSize=3 → scale = 0.5
+    setBevSize(3);
+    syncMarkers();
+    near(rig.markers[0].scale.x, 0.5);
+});
+
+test('setBevPlane / getBevPlane — switches active plane', () => {
+    const { setBevPlane, getBevPlane, rig, init } = makeRig();
+    init(PARAMS);
+    assert.equal(getBevPlane(), 'xz');    // default
+    setBevPlane('xy');
+    assert.equal(getBevPlane(), 'xy');
+    setBevPlane('zy');
+    assert.equal(getBevPlane(), 'zy');
+    setBevPlane('xz');
+    assert.equal(getBevPlane(), 'xz');
+});
+
+test('setBevPlane resets pan and moves bev camera for xy (front view)', () => {
+    const { rig, init, setBevPlane } = makeRig({ position: [0, 1.5, 4], rotation_euler_deg: [0, 0, 0] });
+    init(PARAMS);
+    setBevPlane('xy');
+    // xy: camera from +Z, center at (mainPos.x, mainPos.y, 0)
+    // Main at (0, 1.5, 4). xy center = (0, 1.5, 0).
+    // Camera at center + {0,0,1}*20 = (0, 1.5, 20).
+    near(rig.bev.position.z, 20, 1e-5);
+    near(rig.bev.position.y, 1.5, 1e-5);
+    near(rig.bev.position.x, 0, 1e-5);
+});
+
+test('setBevPlane resets pan and moves bev camera for zy (side view)', () => {
+    const { rig, init, setBevPlane } = makeRig({ position: [0, 1.5, 4], rotation_euler_deg: [0, 0, 0] });
+    init(PARAMS);
+    setBevPlane('zy');
+    // zy: camera from -X, center at (0, mainPos.y, mainPos.z)
+    // Main at (0, 1.5, 4). zy center = (0, 1.5, 4).
+    // Camera at center + {-1,0,0}*20 = (-20, 1.5, 4).
+    near(rig.bev.position.x, -20, 1e-5);
+    near(rig.bev.position.y, 1.5, 1e-5);
+    near(rig.bev.position.z, 4, 1e-5);
+});
+
+test('getRigQuat: landscape identity SCENE_CAM → identity quaternion', () => {
+    const { getRigQuat, init } = makeRig({ position: [0, 0, 0], rotation_euler_deg: [0, 0, 0] });
+    init(PARAMS);
+    const q = getRigQuat();
+    near(q.w, 1, 1e-9);
+    near(q.x, 0, 1e-9); near(q.y, 0, 1e-9); near(q.z, 0, 1e-9);
+});

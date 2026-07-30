@@ -289,3 +289,38 @@ recomputes H, and re-renders the Set Camera dialog.
   rig-relative values as-is → POST `/api/save`.
 - **Remove** button (Set Camera dialog): confirm → POST `/api/delete` →
   refresh the preset list.
+
+## 7. Bird's Eye View (BEV) Planes
+
+The BEV panel supports three view planes, cycled by clicking the scene
+compass in the bottom-left corner. Configuration lives in
+`src/bev-planes.js` (pure functions, no DOM).
+
+| Plane | Camera from | Screen right | Screen up/down | Ghost axis | Drag normal |
+|-------|------------|-------------|---------------|------------|-------------|
+| **xz** (top-down) | +Y looking −Y | +X | +Z (down) | Y | Y=0 plane |
+| **xy** (front) | +Z looking −Z | +X | +Y (up) | Z | Z=0 plane |
+| **zy** (side) | −X looking +X | +Z | +Y (up) | X | X=0 plane |
+
+Each plane definition provides:
+- `ghostAxis` / `ghostLabel` — which axis the Ghost slider clips against
+- `compass` — 2D axis labels for the scene compass overlay
+- `bevCamDir` / `bevCamUp` — BEV camera orientation
+- `worldPan(dr, dd, s)` — screen drag → world offset mapping
+- `dragNormal` — intersection plane for BEV object drag
+- `centerOf(mainPos, fwdXZ, size)` — view center computation
+- `projectWorld(wx, wy, wz)` — world vector → screen { u, v } projection
+
+The scene compass (bottom-left) shows world axes for the current plane
+and is clickable (cycles xz → xy → zy → xz). The rig compass
+(bottom-right) shows the camera rig's own X (red) and Y (blue) axes
+projected onto the current view plane, reflecting SCENE_CAM rotation ∘
+rig orientation (portrait/landscape).
+
+Camera markers (sphere + direction line + FOV wedge) maintain constant
+screen size via `group.scale.setScalar(bevSize / 6)` in `syncMarkers()`.
+
+BEV interaction uses deferred selection: pointer-down stores a pending
+target; movement > 4 px triggers pan (without changing selection);
+pointer-up with no movement completes the selection. Double-click +
+drag moves objects on the current view plane.

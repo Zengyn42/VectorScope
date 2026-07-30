@@ -91,6 +91,74 @@ test('clipY change re-evaluates which meshes are ghosted', () => {
     ghost.restore();
 });
 
+test('getClipAxis: xy plane (axis=z) ghosts mesh entirely beyond clipZ', () => {
+    const scene = new THREE.Scene();
+    let clipVal = 2.0;
+    let axis = 'z';
+    const ghost = createBevGhost({
+        THREE, scene,
+        getClipY: () => clipVal,
+        getClipAxis: () => axis,
+    });
+    // box centered at z=5 → [4.5, 5.5] in z; min.z > 2 → ghosted
+    const m = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0xffffff }));
+    m.position.z = 5;
+    scene.add(m);
+    scene.updateMatrixWorld(true);
+    const real = m.material;
+    ghost.apply();
+    assert.notEqual(m.material, real, 'z-axis ghost must trigger for mesh beyond clipZ');
+    ghost.restore();
+    assert.equal(m.material, real);
+});
+
+test('getClipAxis: zy plane (axis=x) ghosts mesh entirely beyond clipX', () => {
+    const scene = new THREE.Scene();
+    let clipVal = 1.0;
+    let axis = 'x';
+    const ghost = createBevGhost({
+        THREE, scene,
+        getClipY: () => clipVal,
+        getClipAxis: () => axis,
+    });
+    // box centered at x=3 → [2.5, 3.5]; min.x=2.5 > 1.0 → ghosted
+    const m = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0xffffff }));
+    m.position.x = 3;
+    scene.add(m);
+    scene.updateMatrixWorld(true);
+    const real = m.material;
+    ghost.apply();
+    assert.notEqual(m.material, real, 'x-axis ghost must trigger for mesh beyond clipX');
+    ghost.restore();
+    assert.equal(m.material, real);
+});
+
+test('getClipAxis: mesh NOT ghosted when below threshold on alternate axis', () => {
+    const scene = new THREE.Scene();
+    let clipVal = 5.0;
+    let axis = 'z';
+    const ghost = createBevGhost({
+        THREE, scene,
+        getClipY: () => clipVal,
+        getClipAxis: () => axis,
+    });
+    // box at z=2 → [1.5, 2.5]; min.z=1.5 < 5.0 → not ghosted
+    const m = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0xffffff }));
+    m.position.z = 2;
+    scene.add(m);
+    scene.updateMatrixWorld(true);
+    const real = m.material;
+    ghost.apply();
+    assert.equal(m.material, real, 'mesh below clipZ must keep real material');
+    ghost.restore();
+});
+
 test('multi-material meshes get per-slot ghost clones', () => {
     const { scene, ghost } = makeScene();
     const m = new THREE.Mesh(

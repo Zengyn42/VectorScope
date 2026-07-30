@@ -21,6 +21,7 @@ graph TD
         trajFrame["traj-frame.js<br/>applyTrajFrameToState"]
         radialBlend["radial-blend.js<br/>radialBlendParams"]
         trajLib["trajectory-library.js<br/>createTrajectoryLibrary,<br/>trajToJson"]
+        bevPlanes["bev-planes.js<br/>getBevPlaneDef,<br/>nextBevPlane"]
     end
 
     subgraph "Homography Pipeline"
@@ -103,6 +104,9 @@ graph TD
     uiControls --> zoomPipeline
     recorder --> trajectory
     recorder --> zoomPipeline
+    cameraRig --> bevPlanes
+    bevGhost --> bevPlanes
+    interaction --> bevPlanes
 
     %% Orchestrator
     indexHTML["index.html<br/>(orchestrator)"]
@@ -137,7 +141,9 @@ graph TD
     indexHTML --> trajLib
     indexHTML --> trajFrame
     indexHTML --> camera
+    indexHTML --> bevPlanes
 
+    style bevPlanes fill:#1a3a1a,stroke:#4caf50
     style math fill:#1a3a1a,stroke:#4caf50
     style homography fill:#1a3a1a,stroke:#4caf50
     style zoomPipeline fill:#1a3a1a,stroke:#4caf50
@@ -293,6 +299,8 @@ sequenceDiagram
 | `transport.js` | 149 | 1 | Play/Pause/Stop/Seek state machine + master clock |
 | `recorder.js` | 137 | 1 | Per-frame state capture for trajectory recording |
 | `camera.js` | 64 | 2 | Default camera params + scene camera constants |
+| `bev-planes.js` | 107 | 3 | BEV view plane configs (xz/xy/zy): axes, ghost axis, pan mapping, drag normals |
+| `undo.js` | ~60 | 1 | Memento-based undo/redo manager |
 | `config-store.js` | 128 | 1 | Central config store (register/set/serialize/applyAll) |
 | `help-registry.js` | 67 | 2 | Distributed help system (collect + render) |
 | `scene-anim.js` | 202 | 5 | Object animation engine (spin, bob, orbit, float) |
@@ -315,7 +323,8 @@ sequenceDiagram
 | `autofocus.js` | 220 | 2 | Tap-to-focus (depth pass + median sampling) |
 | `gl-bootstrap.js` | 80 | 1 | WebGL context, render targets, materials |
 | `camera-rig.js` | 193 | 1 | Three.js camera instances from intrinsics/extrinsics |
-| `bev-ghost.js` | 69 | 2 | BEV ghost transparency for tall objects |
+| `bev-ghost.js` | 69 | 2 | BEV ghost transparency (axis-aware: Y/Z/X per plane) |
+| `bev-axes.js` | ~200 | 1 | Dual compass overlays: scene axes + rig axes in BEV panel |
 | `loader.js` | 260 | 9 | GLTF/OBJ model loader |
 | `scene-io.js` | 232 | 6 | Scene save/load (JSON + trajectory files) |
 | `scene-manager.js` | 59 | 1 | Scene load orchestration + fallback timer |
@@ -354,4 +363,7 @@ sequenceDiagram
 | `camera.test.js` | 7 | Camera constants |
 | `shader.test.js` | 11 | GLSL source structure |
 | ... | ... | ... |
-| **Total** | **334** | |
+| `bev-planes.test.js` | — | BEV plane configs, axis mapping, pan signs |
+| `bev-ghost.test.js` | — | Ghost clipping with per-plane axis |
+| `undo.test.js` | — | Undo/redo state management |
+| **Total** | **828** | |

@@ -45,11 +45,13 @@ export const HELP = {
     ],
 };
 
+import { getBevPlaneDef } from './bev-planes.js';
+
 export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSecCam, getSecCam2, getBevCam, getCamMarkers, onSelChange, getPanel, toNDC, $,
     /** Optional callback fired just before drag starts (object = dragged obj).
      *  Use for undo checkpoints: `onDragStart: (obj) => undoManager.checkpoint('drag')` */
     onDragStart = null,
-    /** Optional BEV pan callback: panBev(dx, dz) shifts the BEV camera. */
+    /** Optional BEV pan callback: panBev(dx, dy, dz) shifts the BEV camera. */
     onBevPan = null,
     /** Optional BEV zoom callback: bevZoom(factor) scales the BEV view. */
     onBevZoom = null }) {
@@ -132,6 +134,10 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         $('vos').textContent = k.toFixed(2) + 'x';
     }
 
+    /* BEV click threshold: pointer must move > this many px to become a pan.
+       Below this, pointerup completes a selection (deferred select). */
+    const BEV_PAN_THRESHOLD = 4;
+
     canvas.addEventListener('pointerdown', e => {
         const panel = getPanel(e.clientX, e.clientY);
         let cam, panelRect;
@@ -144,115 +150,148 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         const ndc = toNDC(e.clientX, e.clientY, panelRect);
         rc.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
 
-        /* In BEV: check camera markers first via screen-space distance.
-           Raycasting on layer-1 objects is unreliable, so we project each
-           marker's world position to NDC and compare to click NDC. */
-        if (panel === 'bev' && getCamMarkers) {
-            const markers = getCamMarkers();
-            let bestCamName = null, bestDist = Infinity;
-            const clickNDC = new THREE.Vector2(ndc.x, ndc.y);
-            const projected = new THREE.Vector3();
-            for (const [marker, camName] of markers.entries()) {
-                projected.copy(marker.position).project(cam);
-                const dx = projected.x - clickNDC.x;
-                const dy = projected.y - clickNDC.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    bestCamName = camName;
+        /* ── Non-BEV panels: immediate select + drag ── */
+        if (panel !== 'bev') {
+            let best = null, bestD = Infinity;
+            for (const obj of S.objs) {
+                if (obj.userData._hidden) continue;
+                const hits = rc.intersectObject(obj, true);
+                if (hits.length && hits[0].distance < bestD) {
+                    bestD = hits[0].distance; best = obj;
                 }
             }
-            /* Accept if within ~5% of NDC space (generous click target).
-               Cameras are selectable but NOT movable. */
-            if (bestCamName && bestDist < 0.1) {
-                sel(null);
-                S.selCam = bestCamName;
-                if (onSelChange) onSelChange('camera', bestCamName);
-                return;
-            }
-        }
-
-        /* Check scene objects.
-           In BEV, ghosted objects (entirely above S.clipY) are not selectable —
-           they're rendered semi-transparent and act as pass-through. */
-        let best = null, bestD = Infinity;
-        for (const obj of S.objs) {
-            if (obj.userData._hidden) continue;       // deleted (hidden) → skip
-            if (panel === 'bev') {
-                selBox.setFromObject(obj);
-                if (selBox.min.y > S.clipY) continue;  // ghosted → skip
-            }
-            const hits = rc.intersectObject(obj, true);
-            if (hits.length && hits[0].distance < bestD) {
-                bestD = hits[0].distance;
-                best = obj;
-            }
-        }
-
-        if (best) {
-            const now = performance.now();
-            const isDoubleClick = (best === lastClickObj && now - lastClickTime < DBLCLICK_MS);
-            lastClickTime = now;
-            lastClickObj = best;
-
-            /* First click: select only. Double-click: start drag. */
-            sel(best);
-            if (isDoubleClick) {
-                if (onDragStart) onDragStart(best);
-                S._selCam = cam;
-                S._selPanel = panelRect;
-                S._selIsBev = (panel === 'bev');
-
-                if (panel === 'bev') {
-                    /* BEV drag: XZ plane at the object's Y height */
-                    const c = new THREE.Vector3();
-                    new THREE.Box3().setFromObject(best).getCenter(c);
-                    S.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), c);
-                } else {
-                    /* Perspective panel drag: plane perpendicular to camera look-at */
+            if (best) {
+                const now = performance.now();
+                const isDoubleClick = (best === lastClickObj && now - lastClickTime < DBLCLICK_MS);
+                lastClickTime = now; lastClickObj = best;
+                sel(best);
+                if (isDoubleClick) {
+                    if (onDragStart) onDragStart(best);
+                    S._selCam = cam; S._selPanel = panelRect; S._selIsBev = false;
                     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
                     const c = new THREE.Vector3();
                     new THREE.Box3().setFromObject(best).getCenter(c);
                     S.dragPlane.setFromNormalAndCoplanarPoint(dir, c);
+                    rc.ray.intersectPlane(S.dragPlane, hitPt);
+                    S.dragOff.copy(best.position).sub(hitPt);
+                    S.dragging = true;
+                    canvas.style.cursor = 'grabbing';
                 }
+            } else {
+                sel(null);
+            }
+            return;
+        }
+
+        /* ── BEV panel ── */
+        const planeDef = getBevPlaneDef(S.bevPlane || 'xz');
+
+        /* Check camera markers via screen-space distance. */
+        let pendingCamName = null;
+        if (getCamMarkers) {
+            const markers = getCamMarkers();
+            let bestDist = Infinity;
+            const clickNDC = new THREE.Vector2(ndc.x, ndc.y);
+            const projected = new THREE.Vector3();
+            for (const [marker, camName] of markers.entries()) {
+                projected.copy(marker.position).project(cam);
+                const mdx = projected.x - clickNDC.x;
+                const mdy = projected.y - clickNDC.y;
+                const dist = Math.sqrt(mdx * mdx + mdy * mdy);
+                if (dist < bestDist) { bestDist = dist; pendingCamName = camName; }
+            }
+            if (bestDist >= 0.1) pendingCamName = null;   // too far
+        }
+
+        /* Check scene objects — skip ghosted ones (BEV ghost axis). */
+        const clipAxis = planeDef.ghostAxis;
+        let bevBest = null, bevBestD = Infinity;
+        for (const obj of S.objs) {
+            if (obj.userData._hidden) continue;
+            selBox.setFromObject(obj);
+            if (selBox.min[clipAxis] > S.clipY) continue;  // ghosted → not selectable
+            const hits = rc.intersectObject(obj, true);
+            if (hits.length && hits[0].distance < bevBestD) {
+                bevBestD = hits[0].distance; bevBest = obj;
+            }
+        }
+
+        /* Camera markers take priority over scene objects for selection. */
+        const hitSomething = pendingCamName || bevBest;
+
+        /* Double-click on a scene object → immediately start move-drag. */
+        if (bevBest) {
+            const now = performance.now();
+            const isDoubleClick = (bevBest === lastClickObj && now - lastClickTime < DBLCLICK_MS);
+            // Update double-click state even before we know if this becomes a drag
+            lastClickTime = now; lastClickObj = bevBest;
+
+            if (isDoubleClick) {
+                sel(bevBest);
+                if (onDragStart) onDragStart(bevBest);
+                S._selCam = cam; S._selPanel = panelRect; S._selIsBev = true;
+                const dn = planeDef.dragNormal;
+                const c = new THREE.Vector3();
+                new THREE.Box3().setFromObject(bevBest).getCenter(c);
+                S.dragPlane.setFromNormalAndCoplanarPoint(
+                    new THREE.Vector3(dn.x, dn.y, dn.z), c);
                 rc.ray.intersectPlane(S.dragPlane, hitPt);
-                S.dragOff.copy(best.position).sub(hitPt);
+                S.dragOff.copy(bevBest.position).sub(hitPt);
                 S.dragging = true;
                 canvas.style.cursor = 'grabbing';
+                return;
             }
-        } else if (panel === 'bev' && onBevPan) {
-            /* Empty BEV click → start pan drag.
-               Use pixel coordinates directly — for an orthographic camera the
-               pixel-to-world ratio is constant, so we avoid feedback loops
-               caused by raycasting against a moving camera. */
-            sel(null);
-            S._bevPanning = true;
-            S._bevPanLastX = e.clientX;
-            S._bevPanLastY = e.clientY;
-            S._bevPanRect = panelRect;
-            canvas.style.cursor = 'grab';
-        } else {
-            sel(null);
         }
+
+        /* Single click (object, camera marker, or empty space):
+           enter pending state — a move > BEV_PAN_THRESHOLD px becomes a pan,
+           no move completes a selection on pointerup. */
+        S._bevPending = true;
+        S._bevPendingObj = bevBest;
+        S._bevPendingCam = pendingCamName;
+        S._bevPanStartX = e.clientX;
+        S._bevPanStartY = e.clientY;
+        S._bevPanLastX = e.clientX;
+        S._bevPanLastY = e.clientY;
+        S._bevPanRect = panelRect;
+        canvas.style.cursor = hitSomething ? 'pointer' : 'grab';
     });
 
     canvas.addEventListener('pointermove', e => {
-        /* ── BEV pan drag ── */
+        /* ── BEV pending: check if we've crossed the pan threshold ── */
+        if (S._bevPending) {
+            const ddx = e.clientX - S._bevPanStartX;
+            const ddy = e.clientY - S._bevPanStartY;
+            if (Math.sqrt(ddx * ddx + ddy * ddy) > BEV_PAN_THRESHOLD) {
+                /* Threshold exceeded → switch from pending to active pan. */
+                S._bevPending = false;
+                S._bevPendingObj = null;
+                S._bevPendingCam = null;
+                S._bevPanning = true;
+                S._bevPanLastX = e.clientX;
+                S._bevPanLastY = e.clientY;
+                canvas.style.cursor = 'grabbing';
+                /* Fall through to pan handling immediately. */
+            } else {
+                return;
+            }
+        }
+
+        /* ── BEV active pan ── */
         if (S._bevPanning && onBevPan) {
             const bevCam = getBevCam();
             if (!bevCam) return;
             const pr = S._bevPanRect;
             /* Ortho camera: world units per pixel = (right - left) / panelWidth.
-               BEV looks straight down -Y, so screen X → world X, screen Y → world Z. */
-            const worldPerPxX = (bevCam.right - bevCam.left) / pr.w;
-            const worldPerPxY = (bevCam.top - bevCam.bottom) / pr.h;
+               Since the ortho frustum is set up to match the panel aspect,
+               both axes have the same world-per-pixel ratio. */
+            const worldPerPx = (bevCam.right - bevCam.left) / pr.w;
             const dpx = e.clientX - S._bevPanLastX;
             const dpy = e.clientY - S._bevPanLastY;
-            /* "Grab and drag" feel: content follows the cursor.
-               Drag right → camera moves left (−X) → content shifts right.
-               Drag down  → camera moves −Z    → content shifts down.
-               Screen down = world +Z, so negate dpy. */
-            onBevPan(-dpx * worldPerPxX, -dpy * worldPerPxY);
+            /* "Grab and drag" feel via the plane-specific worldPan function. */
+            const planeDef = getBevPlaneDef(S.bevPlane || 'xz');
+            const delta = planeDef.worldPan(dpx, dpy, worldPerPx);
+            onBevPan(delta.x, delta.y, delta.z);
             S._bevPanLastX = e.clientX;
             S._bevPanLastY = e.clientY;
             return;
@@ -266,9 +305,13 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
         rc.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
         if (rc.ray.intersectPlane(S.dragPlane, hitPt)) {
             if (S._selIsBev) {
-                /* BEV: move on XZ plane, keep Y unchanged */
-                S.sel.position.x = hitPt.x + S.dragOff.x;
-                S.sel.position.z = hitPt.z + S.dragOff.z;
+                /* BEV: move along the 2 non-normal axes of the current plane. */
+                const planeDef = getBevPlaneDef(S.bevPlane || 'xz');
+                const dn = planeDef.dragNormal;
+                const nx = Math.abs(dn.x), ny = Math.abs(dn.y), nz = Math.abs(dn.z);
+                if (nx < 0.5) S.sel.position.x = hitPt.x + S.dragOff.x;
+                if (ny < 0.5) S.sel.position.y = hitPt.y + S.dragOff.y;
+                if (nz < 0.5) S.sel.position.z = hitPt.z + S.dragOff.z;
             } else {
                 /* Perspective panel: move on camera-facing plane */
                 S.sel.position.copy(hitPt).add(S.dragOff);
@@ -279,6 +322,22 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
     });
 
     canvas.addEventListener('pointerup', () => {
+        /* BEV pending: pointer released without crossing the pan threshold
+           → complete the deferred selection. */
+        if (S._bevPending) {
+            if (S._bevPendingCam) {
+                sel(null);
+                S.selCam = S._bevPendingCam;
+                if (onSelChange) onSelChange('camera', S._bevPendingCam);
+            } else if (S._bevPendingObj) {
+                sel(S._bevPendingObj);
+            } else {
+                sel(null);
+            }
+            S._bevPending = false;
+            S._bevPendingObj = null;
+            S._bevPendingCam = null;
+        }
         S.dragging = false;
         S._bevPanning = false;
         canvas.style.cursor = '';
