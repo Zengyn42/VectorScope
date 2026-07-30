@@ -203,13 +203,14 @@ export function initInteraction({ THREE, canvas, scene, S, P, getMainCam, getSec
             if (bestDist >= 0.1) pendingCamName = null;   // too far
         }
 
-        /* Check scene objects — skip ghosted ones (BEV ghost axis). */
+        /* Check scene objects — skip ones entirely beyond the section cut
+           (fully clipped away in the BEV pass → invisible → not selectable). */
         const clipAxis = planeDef.ghostAxis;
         let bevBest = null, bevBestD = Infinity;
         for (const obj of S.objs) {
             if (obj.userData._hidden) continue;
             selBox.setFromObject(obj);
-            if (selBox.min[clipAxis] > S.clipY) continue;  // ghosted → not selectable
+            if (selBox.min[clipAxis] > S.clipY) continue;  // fully cut → not selectable
             const hits = rc.intersectObject(obj, true);
             if (hits.length && hits[0].distance < bevBestD) {
                 bevBestD = hits[0].distance; bevBest = obj;

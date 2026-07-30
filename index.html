@@ -638,10 +638,11 @@ const { renderer, scene, aLight, dLight, rtDepth, depthMat, matWarp } = gl;
    - Camera markers: colored indicators on layer 1 (BEV-only)
    ================================================================ */
 
-/* BEV Ghost Mode (src/bev-ghost.js): objects above S.clipY render
-   semi-transparent in the BEV pass instead of blocking the view. */
+/* BEV Section Cut (src/bev-ghost.js): geometry above S.clipY (along the
+   active plane's clip axis) is cut away in the BEV pass with a clipping
+   plane, so ceilings/walls don't block the view. */
 const bevGhost = createBevGhost({
-    THREE, scene,
+    THREE, scene, renderer,
     getClipY: () => S.clipY,
     getClipAxis: () => getBevPlaneDef(S.bevPlane).ghostAxis,
 });

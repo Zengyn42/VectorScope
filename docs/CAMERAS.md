@@ -303,7 +303,9 @@ compass in the bottom-left corner. Configuration lives in
 | **zy** (side) | +X looking −X | −Z | +Y (up) | X | X=0 plane |
 
 Each plane definition provides:
-- `ghostAxis` / `ghostLabel` — which axis the Ghost slider clips against
+- `ghostAxis` / `ghostLabel` — which axis the Ghost slider cuts against
+  (BEV section cut: geometry beyond the threshold is removed with a
+  clipping plane; camera markers are never clipped)
 - `compass` — 2D axis labels for the scene compass overlay
 - `bevCamDir` / `bevCamUp` — BEV camera orientation
 - `worldPan(dr, dd, s)` — screen drag → world offset mapping
